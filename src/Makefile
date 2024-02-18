@@ -20,6 +20,7 @@ OBJS= \
 	main.o \
 	midnam.o \
 	memstream.o \
+	libMTSClient.o \
 	../b_reverb/reverb.c \
 	../b_whirl/eqcomp.c \
 	../b_whirl/whirl.c \

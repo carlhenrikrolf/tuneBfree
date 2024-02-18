@@ -33,6 +33,7 @@
 
 #include "global_inst.h"
 #include "main.h"
+#include "libMTSClient.h"
 
 /* These are assertion support macros. */
 /* In range? : A <= V < B  */
@@ -1383,6 +1384,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 			break;
 	}
 
+    MTSClient *client = MTS_RegisterClient();
 	for (i = 1; i <= nofOscillators; i++) {
 		int          j;
 		size_t       wszs; /* Wave size samples */
@@ -1424,18 +1426,23 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 
 			assert ((0 <= select) && (select < 12));
 
+			// TODO: Work out good-sounding way to use MTS-ESP tuning values
 			if (t->gearTuning == 1) {
 				gearA          = gears60ratios[select][0];
 				gearB          = gears60ratios[select][1];
-				osp->frequency = (20.0 * teeth * gearA) / gearB;
+				// osp->frequency = (20.0 * teeth * gearA) / gearB;
+				osp->frequency = MTS_NoteToFrequency(client, freqNr, 0);
 			} else {
 				gearA          = gears50ratios[select][0];
 				gearB          = gears50ratios[select][1];
-				osp->frequency = (25.0 * teeth * gearA) / gearB;
+				// osp->frequency = (25.0 * teeth * gearA) / gearB;
+				osp->frequency = MTS_NoteToFrequency(client, freqNr, 0);
 			}
 			osp->frequency *= (t->tuning / 440.0);
 		} else {
-			osp->frequency = baseTuning * pow (2.0, tun / 12.0);
+			// osp->frequency = baseTuning * pow (2.0, tun / 12.0);
+			double retune_ratio = MTS_RetuningAsRatio(client, tun, 0);
+			osp->frequency = baseTuning * retune_ratio;
 		}
 
 		/*
@@ -1512,6 +1519,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 		              osp->frequency);
 
 	} /* for each oscillator struct */
+    MTS_DeregisterClient(client);
 }
 
 /**

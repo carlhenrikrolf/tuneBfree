@@ -1,5 +1,6 @@
 # TODO include this only once and export variables
 
+CC=g++
 PREFIX ?= /usr/local
 OPTIMIZATIONS ?= -msse -msse2 -mfpmath=sse -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
 ENABLE_CONVOLUTION ?= no
@@ -189,6 +190,7 @@ LV2OBJ= \
   ../src/vibrato.c \
   ../src/state.c \
   ../src/tonegen.c \
+  ../src/libMTSClient.cpp \
   ../src/pgmParser.c \
   ../src/memstream.c \
   ../src/midnam.c \
