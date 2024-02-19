@@ -1384,7 +1384,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 			break;
 	}
 
-    MTSClient *client = MTS_RegisterClient();
+	MTSClient *client = MTS_RegisterClient();
 	for (i = 1; i <= nofOscillators; i++) {
 		int          j;
 		size_t       wszs; /* Wave size samples */
@@ -1404,6 +1404,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 
 		tun = (double)(i - tuningOsc);
 
+		#if 0
 		if (t->gearTuning) {
 			/* Frequency number minus one. The frequency number is the number of
 			 * the oscillator on the tone generator with 91 oscillators. This
@@ -1426,24 +1427,22 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 
 			assert ((0 <= select) && (select < 12));
 
-			// TODO: Work out good-sounding way to use MTS-ESP tuning values
 			if (t->gearTuning == 1) {
 				gearA          = gears60ratios[select][0];
 				gearB          = gears60ratios[select][1];
-				// osp->frequency = (20.0 * teeth * gearA) / gearB;
-				osp->frequency = MTS_NoteToFrequency(client, freqNr, 0);
+				osp->frequency = (20.0 * teeth * gearA) / gearB;
 			} else {
 				gearA          = gears50ratios[select][0];
 				gearB          = gears50ratios[select][1];
-				// osp->frequency = (25.0 * teeth * gearA) / gearB;
-				osp->frequency = MTS_NoteToFrequency(client, freqNr, 0);
+				osp->frequency = (25.0 * teeth * gearA) / gearB;
 			}
 			osp->frequency *= (t->tuning / 440.0);
 		} else {
-			// osp->frequency = baseTuning * pow (2.0, tun / 12.0);
-			double retune_ratio = MTS_RetuningAsRatio(client, tun, 0);
-			osp->frequency = baseTuning * retune_ratio;
+			osp->frequency = baseTuning * pow (2.0, tun / 12.0);
 		}
+		#endif
+		// Offset chosen so default MTS-ESP tuning gives a sensible range
+		osp->frequency = MTS_NoteToFrequency(client, 23 + i, 0);
 
 		/*
      * The oscGenerateFragment() routine assumes that samples are at least
@@ -1519,7 +1518,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 		              osp->frequency);
 
 	} /* for each oscillator struct */
-    MTS_DeregisterClient(client);
+	MTS_DeregisterClient(client);
 }
 
 /**
