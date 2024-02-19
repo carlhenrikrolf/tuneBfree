@@ -4,7 +4,7 @@ INCLUDEPATHS = -I../b_overdrive/ -I../b_whirl  -I../b_reverb -I../b_conv
 
 override CFLAGS += $(INCLUDEPATHS)
 override CFLAGS += -DSHAREDIR="\"$(sharedir)\""
-LOADLIBES = -lm -lpthread
+LOADLIBES = -lm -lpthread -ldl
 
 BXCC=$(CC)
 
