@@ -1,3 +1,12 @@
+setBfree with microtuning
+=========================
+
+This is a fork of setBfree with microtuning added using
+[MTS-ESP](https://github.com/ODDSound/MTS-ESP).
+
+Original README follows.
+
+
 setBfree
 ========
 
