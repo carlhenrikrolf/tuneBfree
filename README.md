@@ -1,8 +1,54 @@
-setBfree with microtuning
-=========================
+tuneBfree
+=========
 
-This is a fork of setBfree with microtuning added using
+Fork of setBfree with microtuning added using
 [MTS-ESP](https://github.com/ODDSound/MTS-ESP).
+
+Built LV2 plugins are available for Mac, Windows, and Linux on the github
+[releases page](https://github.com/narenratan/tuneBfree/releases).
+
+Tuning
+------
+The tuning can be set using an MTS-ESP master like [MTS-ESP
+Mini](https://oddsound.com/mtsespmini.php). For now the tuning is set on
+initialization; it is not continuously updated. You can force a tuning update
+by changing any parameter in the Tuning section of Advanced Config. The
+Advanced Config can be accessed by typing ~ with your mouse over the GUI, or by
+clicking the silver panel on the top right (next to the question mark) and then
+the silver transformer on the left.
+
+Building
+--------
+On Linux, install lv2-dev, libjack-dev, libglu1-mesa-dev, libftgl-dev, and xxd
+(package names for Ubuntu).
+
+On Mac, use Homebrew to install lv2, jack, freeglut, ftgl, bzip2, and pkg-config.
+
+On Windows, install [MSYS2](https://www.msys2.org/), open the MSYS2 UCRT64
+shell, and run
+```
+$ pacman -S \
+    git \
+    make \
+    vim \
+    mingw-w64-ucrt-x86_64-gcc \
+    mingw-w64-ucrt-x86_64-lv2 \
+    mingw-w64-ucrt-x86_64-jack2 \
+    mingw-w64-ucrt-x86_64-freeglut \
+    mingw-w64-ucrt-x86_64-ftgl \
+    mingw-w64-ucrt-x86_64-pkg-config
+```
+
+Then on Linux, Mac, or Windows run
+```
+$ git clone https://github.com/narenratan/tuneBfree
+$ cd tuneBfree
+$ make
+```
+
+This creates the LV2 plugin in build/tuneBfree.lv2.
+
+
 
 Original README follows.
 

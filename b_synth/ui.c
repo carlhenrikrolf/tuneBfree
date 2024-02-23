@@ -40,6 +40,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <filesystem>
+#include <fstream>
+#include <cstring>
+
 #include <assert.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -3064,6 +3068,17 @@ onDisplay (PuglView* view)
 #else
 		const char* fontfilepath = FONTFILE;
 #endif
+#else
+		// Write font to temporary file for ftgl to load
+		// Workaround for ftgl not exposing a function for loading fonts from memory
+		std::filesystem::path path = std::filesystem::temp_directory_path() / "setBfree_font.ttf";
+		std::ofstream outfile;
+		outfile.open(path, std::ios::binary | std::ios::out);
+		outfile.write((char *) VeraBd_ttf, VeraBd_ttf_len);
+		outfile.close();
+
+		char fontfilepath[1024];
+		std::strcpy(fontfilepath, path.string().c_str());
 #endif
 
 		/* initialization needs to happen from event context
@@ -3075,11 +3090,12 @@ onDisplay (PuglView* view)
 		initMesh (ui->view);
 		setupLight ();
 		initTextures (ui->view);
-#ifndef BUILTINFONT
 		ui->font_big    = ftglCreateBufferFont (fontfilepath);
 		ui->font_medium = ftglCreateBufferFont (fontfilepath);
 		ui->font_small  = ftglCreateBufferFont (fontfilepath);
-#else
+#if 0
+		// The ftglCreateBufferFontMem function is not exposed by ftgl
+		// See https://github.com/pantherb/setBfree/issues/56
 		ui->font_big                            = ftglCreateBufferFontMem (VeraBd_ttf, VeraBd_ttf_len);
 		ui->font_medium                         = ftglCreateBufferFontMem (VeraBd_ttf, VeraBd_ttf_len);
 		ui->font_small                          = ftglCreateBufferFontMem (VeraBd_ttf, VeraBd_ttf_len);

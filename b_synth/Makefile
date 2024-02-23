@@ -7,6 +7,10 @@ override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl
 override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -DLV2SYNTH -fvisibility=hidden
 targets=
 
+ifeq ($(FONTFILE),verabd.h)
+  override CFLAGS+= -DBUILTINFONT
+endif
+
 LV2NAME=b_synth
 LV2GUI=b_synthUI
 TX=textures/
@@ -22,15 +26,10 @@ ifeq ($(LV2AVAIL), yes)
   endif
 endif
 
-ifeq ($(IS_WIN)$(IS_OSX), yes)
-  CC=$(CXX)
-else
-  ifneq ($(ENABLE_CONVOLUTION), yes)
-    override CFLAGS+=-std=c99
-  endif
-endif
-
 all: $(targets)
+	rm -rf ../build
+	mkdir -p ../build/tuneBfree.lv2
+	cp *ttl *$(LIB_EXT) ../build/tuneBfree.lv2
 
 lv2: manifest.ttl $(LV2NAME)$(LIB_EXT) $(LV2NAME).ttl
 
@@ -94,5 +93,6 @@ clean:
 	rm -f *.o manifest.ttl b_synth.ttl
 	rm -f $(LV2NAME)$(LIB_EXT)
 	rm -f $(LV2GUI)$(LIB_EXT)
+	rm -f verabd.h
 
 .PHONY: clean all install uninstall lv2

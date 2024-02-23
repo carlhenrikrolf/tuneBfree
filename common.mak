@@ -1,13 +1,25 @@
 # TODO include this only once and export variables
 
-CC=g++
+CFLAGS ?= $(OPTIMIZATIONS) -Wall -std=c++17
+
+IS_OSX=
+UNAME=$(shell uname)
+ifeq ($(UNAME),Darwin)
+  IS_OSX=yes
+  override CFLAGS += -I$(HOME)/homebrew/include
+endif
+
 PREFIX ?= /usr/local
-OPTIMIZATIONS ?= -msse -msse2 -mfpmath=sse -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
+ifneq ($(IS_OSX),)
+  OPTIMIZATIONS ?= -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
+else
+  OPTIMIZATIONS ?= -msse -msse2 -mfpmath=sse -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
+endif
 ENABLE_CONVOLUTION ?= no
 INSTALL_EXTRA_LV2 ?= no
 FONTFILE?=/usr/share/fonts/truetype/ttf-bitstream-vera/VeraBd.ttf
 VERSION?=$(shell git describe --tags HEAD 2>/dev/null | sed 's/-g.*$$//;s/^v//' || true)
-OSXCOMPAT?=-mmacosx-version-min=10.5
+OSXCOMPAT?=-mmacosx-version-min=10.15
 ifeq ($(VERSION),)
   VERSION=$(EXPORTED_VERSION)
 endif
@@ -23,7 +35,12 @@ bindir = $(PREFIX)/bin
 sharedir = $(PREFIX)/share/setBfree
 lv2dir = $(PREFIX)/lib/lv2
 
-CFLAGS ?= $(OPTIMIZATIONS) -Wall
+# XWIN flag was being used to cross-compile for Windows
+# Now it's being used to compile directly on Windows with MSYS2
+ifeq ($(OS),Windows_NT)
+  XWIN=yes
+endif
+
 ifeq ($(XWIN),)
 override CFLAGS += -fPIC
 endif
@@ -58,12 +75,11 @@ ifeq ($(shell $(PKG_CONFIG) --atleast-version=1.18.6 lv2 && echo yes), yes)
   override CFLAGS += -DHAVE_LV2_1_18_6
 endif
 
-IS_OSX=
+CC=g++
+
 IS_WIN=
 PKG_GL_LIBS=
-UNAME=$(shell uname)
-ifeq ($(UNAME),Darwin)
-  IS_OSX=yes
+ifneq ($(IS_OSX),)
   LV2LDFLAGS=-dynamiclib
   LIB_EXT=.dylib
   GLUILIBS=-framework Cocoa -framework OpenGL -framework CoreFoundation
@@ -74,9 +90,6 @@ ifeq ($(UNAME),Darwin)
 else
   ifneq ($(XWIN),)
     IS_WIN=yes
-    CC=$(XWIN)-gcc
-    CXX=$(XWIN)-g++
-    STRIP=$(XWIN)-strip
     LV2LDFLAGS=-Wl,-Bstatic -Wl,-Bdynamic -Wl,--as-needed -lpthread
     LIB_EXT=.dll
     EXE_EXT=.exe
@@ -85,6 +98,7 @@ else
     PUGL_SRC=../pugl/pugl_win.cpp
     override CFLAGS+= -DHAVE_MEMSTREAM
     override LDFLAGS += -static-libgcc -static-libstdc++ -DPTW32_STATIC_LIB
+    override LDFLAGS += -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
   else
     override CFLAGS+= -DHAVE_MEMSTREAM
     LV2LDFLAGS=-Wl,-Bstatic -Wl,-Bdynamic -Wl,--as-needed
@@ -152,17 +166,24 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UIDEPS+=$(TX)uim_background.c $(TX)uim_cable1.c $(TX)uim_cable2.c $(TX)uim_caps.c
   UIDEPS+=$(TX)uim_tube1.c $(TX)uim_tube2.c
   ifeq ($(IS_OSX), yes)
+    STATICLIBS?=$(HOME)/homebrew/lib/
     UIDEPS+=../pugl/pugl_osx.mm
     UILIBS=../pugl/pugl_osx.mm -framework Cocoa -framework OpenGL
-    UILIBS+=`pkg-config --variable=libdir ftgl`/libftgl.a `pkg-config --variable=libdir ftgl`/libfreetype.a
+    UILIBS+=$(STATICLIBS)/libftgl.a $(STATICLIBS)/libfreetype.a
+    # libbz2.a is found in homebrew/Cellar
+    UILIBS+=`find $$(dirname $(STATICLIBS)) -name libbz2.a`
+    UILIBS+=$(STATICLIBS)/libpng.a
     UILIBS+=`pkg-config --libs zlib`
     UILIBS+=-lm $(OSXCOMPAT)
   else
     ifeq ($(IS_WIN), yes)
       UIDEPS+=../pugl/pugl_win.cpp
       UILIBS=../pugl/pugl_win.cpp
-      UILIBS+=`pkg-config --variable=libdir ftgl`/libftgl.a `pkg-config --variable=libdir ftgl`/libfreetype.a
-      UILIBS+=`pkg-config --libs zlib`
+      STATICLIBS?=/ucrt64/lib/
+      UILIBS+=$(STATICLIBS)/libftgl.a $(STATICLIBS)/libfreetype.a
+      # The libs on the two lines below are used by freetype
+      UILIBS+=$(STATICLIBS)/libpng.a $(STATICLIBS)/libbrotlidec.a $(STATICLIBS)/libbrotlicommon.a $(STATICLIBS)/libharfbuzz.a
+      UILIBS+=$(STATICLIBS)/libbz2.a $(STATICLIBS)/libgraphite2.a $(STATICLIBS)/librpcrt4.a $(STATICLIBS)/libz.a
       UILIBS+=-lws2_32 -lwinmm -lopengl32 -lglu32 -lgdi32 -lcomdlg32 -lpthread
     else
       UIDEPS+=../pugl/pugl_x11.c

@@ -1,6 +1,6 @@
 include ../common.mak
 TX=../b_synth/textures/
-WINDRES=$(XWIN)-windres
+WINDRES=windres
 
 override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl -I../b_synth/
 override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -DLV2SYNTH -DREQUIRE_UI
@@ -22,9 +22,6 @@ else
   else
     LOADLIBES=-lrt
     UILIBS+=-ldl
-    ifneq ($(ENABLE_CONVOLUTION), yes)
-      override CFLAGS+=-std=c99
-    endif
   endif
 endif
 
@@ -47,10 +44,12 @@ targets=
 
 DESC=$(abspath desc.h)
 
-ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
-  targets+=setBfreeUI$(EXE_EXT)
-else
-  $(warning standalone JACK/GL-GUI will not be built)
+ifeq ($(XWIN),)
+  ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
+    targets+=setBfreeUI$(EXE_EXT)
+  else
+    $(warning standalone JACK/GL-GUI will not be built)
+  endif
 endif
 
 all: $(targets)

@@ -23,8 +23,8 @@
 
 <http://gareus.org/oss/lv2/b_synth>
 	a lv2:Plugin, lv2:InstrumentPlugin, doap:Project;
-	doap:maintainer <http://gareus.org/rgareus#me> ;
-	doap:name "setBfree DSP Tonewheel Organ";
+	doap:maintainer <https://github.com/narenratan> ;
+	doap:name "tuneBfree DSP Tonewheel Organ";
 	doap:license <http://usefulinc.com/doap/licenses/gpl> ;
 	@VERSION@
 	lv2:optionalFeature lv2:hardRTCapable ;

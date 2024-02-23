@@ -1,9 +1,8 @@
 EXPORTED_VERSION=0.8.12
 export EXPORTED_VERSION
 
-ifneq ($(FONTFILE),)
+FONTFILE ?= verabd.h
 export FONTFILE
-endif
 
 ifneq ($(wildcard robtk/robtk.mk),)
   ROBTK ?= robtk/
