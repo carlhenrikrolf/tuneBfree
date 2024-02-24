@@ -6,7 +6,8 @@ IS_OSX=
 UNAME=$(shell uname)
 ifeq ($(UNAME),Darwin)
   IS_OSX=yes
-  override CFLAGS += -I$(HOME)/homebrew/include
+  HOMEBREW=$$(brew --prefix)
+  override CFLAGS += -I$(HOMEBREW)/include
 endif
 
 PREFIX ?= /usr/local
@@ -166,7 +167,7 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UIDEPS+=$(TX)uim_background.c $(TX)uim_cable1.c $(TX)uim_cable2.c $(TX)uim_caps.c
   UIDEPS+=$(TX)uim_tube1.c $(TX)uim_tube2.c
   ifeq ($(IS_OSX), yes)
-    STATICLIBS?=$(HOME)/homebrew/lib/
+    STATICLIBS?=$(HOMEBREW)/lib/
     UIDEPS+=../pugl/pugl_osx.mm
     UILIBS=../pugl/pugl_osx.mm -framework Cocoa -framework OpenGL
     UILIBS+=$(STATICLIBS)/libftgl.a $(STATICLIBS)/libfreetype.a
