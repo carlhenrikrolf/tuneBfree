@@ -627,7 +627,7 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 {
 	int k;
 	/* Terminal number distances between buses. */
-	int          ULoffset[9]     = { -12, 7, 0, 12, 19, 24, 28, 31, 36 };
+	// int          ULoffset[9]     = { -12, 7, 0, 12, 19, 24, 28, 31, 36 };
 	int          ULlowerFoldback = 13;
 	int          ULupperFoldback = 91;
 	int          leastTerminal   = 1;
@@ -663,30 +663,51 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 			break;
 	}
 
+	double targetRatio[9] = { 0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 };
+	// TODO just pull frequencies once
+	double frequency[92];
+	MTSClient *client = MTS_RegisterClient();
+	for (int i = 1; i <= 91; i++) {
+		frequency[i] = MTS_NoteToFrequency(client, 23 + i, 0);
+	}
+	MTS_DeregisterClient(client);
+
+	/**
+	 * Now that the frequency of each tonewheel can be set freely, we need to
+	 * dynamically pick which tonewheel to use to generate the harmonic for
+	 * each drawbar. The plan is, for each tonewheel and each drawbar, to search
+	 * the available frequencies for the closest match to the desired harmonic.
+	 */
+
+	// TODO put back foldback (hard since we don't know how many keys is an octave)
+	int terminalNumber, bestTerminalNumber;
+	float ratio, centDiff, smallestCentDiff;
 	for (k = 0; k <= 60; k++) {                   /* Iterate over 60 keys */
 		int keyNumber = k + keyOffset;        /* Determine the key's number */
 		if (t->keyTaper[keyNumber] == NULL) { /* If taper is unset */
 			int b;
 			for (b = 0; b < 9; b++) { /* For each bus contact */
-				int terminalNumber;
-				terminalNumber = (k + 13) + ULoffset[b]; /* Ideal terminal */
-				/* Apply foldback rules */
-				while (terminalNumber < leastTerminal) {
-					terminalNumber += 12;
+				smallestCentDiff = std::numeric_limits<float>::infinity();
+				bestTerminalNumber = 0;
+				for(terminalNumber = 1; terminalNumber <= 91; terminalNumber++) { /* For each possible terminal */
+					ratio = frequency[terminalNumber] / frequency[k+13];
+					centDiff = 1200 * std::fabs(std::log2(targetRatio[b] / ratio));
+					if (centDiff < smallestCentDiff) {
+						smallestCentDiff = centDiff;
+						bestTerminalNumber = terminalNumber;
+					}
 				}
-				while (terminalNumber < ULlowerFoldback) {
-					terminalNumber += 12;
-				}
-				while (ULupperFoldback < terminalNumber) {
-					terminalNumber -= 12;
-				}
+				// If the best terminal is 1 or 91 then it's likely the search has just hit the
+				// end of the range and we don't have a good approximation
+				if ((bestTerminalNumber != 1) && (bestTerminalNumber != 91)) {
+					lep                   = newConfigListElement (t);
+					LE_TERMINAL_OF (lep)  = (short)bestTerminalNumber;
+					LE_BUSNUMBER_OF (lep) = (short)(b + busOffset);
+					LE_LEVEL_OF (lep)     = (float)taperingModel (k, b);
 
-				lep                   = newConfigListElement (t);
-				LE_TERMINAL_OF (lep)  = (short)terminalNumber;
-				LE_BUSNUMBER_OF (lep) = (short)(b + busOffset);
-				LE_LEVEL_OF (lep)     = (float)taperingModel (k, b);
-
-				appendListElement (&(t->keyTaper[keyNumber]), lep);
+					// printf("%d %d %d %f %f %f\n", k + 13, b, bestTerminalNumber, targetRatio[b], ratio, smallestCentDiff);
+					appendListElement (&(t->keyTaper[keyNumber]), lep);
+				}
 			}
 		}
 	}
