@@ -31,6 +31,8 @@
 #include <string.h>
 #include <strings.h>
 
+#include <cmath>
+
 #include "global_inst.h"
 #include "main.h"
 #include "libMTSClient.h"
