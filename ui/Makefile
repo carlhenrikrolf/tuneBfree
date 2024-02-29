@@ -61,7 +61,7 @@ BUILT_UI_EXE_PATH=../build/tuneBfreeUI$(EXE_EXT)
 all: $(targets)
 	rm -f $(BUILT_UI_EXE_PATH)
 	mkdir -p `dirname $(BUILT_UI_EXE_PATH)`
-	cp setBfreeUI$(EXE_EXT) $(BUILT_UI_EXE_PATH)
+	-cp setBfreeUI$(EXE_EXT) $(BUILT_UI_EXE_PATH)
 
 setBfreeUI$(EXE_EXT): $(RW)jackwrap.c $(LV2OBJ) $(OSXJACKWRAP) $(RW)weakjack/weak_libjack.def $(RW)weakjack/weak_libjack.h $(JACKEXTRA) \
 	../b_synth/lv2.c ../b_synth/uris.h desc.h \
