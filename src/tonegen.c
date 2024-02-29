@@ -621,6 +621,19 @@ taperingModel (int key, int bus)
 	return dBToGain (tapering);
 }
 
+
+static double
+getOscillatorFrequency (MTSClient *client, int i)
+{
+	/*
+	 * Note number offset chosen so middle C has correct pitch with default MTS-ESP tuning
+	 * Lower frequency cutoff chosen to limit number of samples required for one period
+	 * Upper frequency cutoff chosen to avoid integer overflow in fitWave
+	 */
+	return std::fmin(std::fmax(MTS_NoteToFrequency(client, 23 + i, 0), 12.0), 2.5e10);
+}
+
+
 /**
  * Applies the built-in default model to the manual tapering and crosstalk.
  */
@@ -670,7 +683,7 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 	double frequency[92];
 	MTSClient *client = MTS_RegisterClient();
 	for (int i = 1; i <= 91; i++) {
-		frequency[i] = MTS_NoteToFrequency(client, 23 + i, 0);
+		frequency[i] = getOscillatorFrequency(client, i);
 	}
 	MTS_DeregisterClient(client);
 
@@ -1464,8 +1477,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 			osp->frequency = baseTuning * pow (2.0, tun / 12.0);
 		}
 		#endif
-		// Offset chosen so default MTS-ESP tuning gives a sensible range
-		osp->frequency = MTS_NoteToFrequency(client, 23 + i, 0);
+		osp->frequency = getOscillatorFrequency(client, i);
 
 		/*
      * The oscGenerateFragment() routine assumes that samples are at least
