@@ -469,7 +469,7 @@ initAll ()
 	fflush (stderr);
 
 	/* Open the JACK connection and get samplerate. */
-	if (open_jack ()) {
+	if ((!std::getenv("NO_JACK")) && open_jack ()) {
 		perror ("could not connect to JACK.");
 		exit (1);
 	}
@@ -977,7 +977,9 @@ main (int argc, char* argv[])
 	signal (SIGINT, catchsig);
 #endif
 
-	connect_jack_ports ();
+	if (!std::getenv("NO_JACK")) {
+		connect_jack_ports ();
+	}
 
 	synth_ready = 1;
 
