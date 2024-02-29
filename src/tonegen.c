@@ -643,9 +643,9 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 	int k;
 	/* Terminal number distances between buses. */
 	// int          ULoffset[9]     = { -12, 7, 0, 12, 19, 24, 28, 31, 36 };
-	int          ULlowerFoldback = 13;
-	int          ULupperFoldback = 91;
-	int          leastTerminal   = 1;
+	// int          ULlowerFoldback = 13;
+	// int          ULupperFoldback = 91;
+	// int          leastTerminal   = 1;
 	ListElement* lep;
 
 	/*
@@ -663,6 +663,8 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
    *  across the manuals.)
    */
 
+// TODO put back foldback (hard since we don't know how many keys is an octave)
+#if 0
 	switch (t->tgVariant) {
 		case TG_91FB00:
 			ULlowerFoldback = 1; /* C-based generator, no foldback */
@@ -677,6 +679,7 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 			leastTerminal   = 1;
 			break;
 	}
+#endif
 
 	double targetRatio[9] = { 0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 };
 	// TODO just pull frequencies once
@@ -694,7 +697,6 @@ applyManualDefaults (struct b_tonegen* t, int keyOffset, int busOffset)
 	 * the available frequencies for the closest match to the desired harmonic.
 	 */
 
-	// TODO put back foldback (hard since we don't know how many keys is an octave)
 	int terminalNumber, bestTerminalNumber;
 	float ratio, centDiff, smallestCentDiff;
 	for (k = 0; k <= 60; k++) {                   /* Iterate over 60 keys */
@@ -1374,29 +1376,29 @@ static void
 initOscillators (struct b_tonegen* t, int variant, double precision)
 {
 	int                 i;
-	double              baseTuning;
+	// double              baseTuning;
 	int                 nofOscillators;
-	int                 tuningOsc = 10;
+	// int                 tuningOsc = 10;
 	struct _oscillator* osp;
 	double              harmonicsList[MAX_PARTIALS];
 
 	switch (variant) {
 		case 0:
 			nofOscillators = 91;
-			baseTuning     = t->tuning / 8.0;
-			tuningOsc      = 10;
+			// baseTuning     = t->tuning / 8.0;
+			// tuningOsc      = 10;
 			break;
 
 		case 1:
 			nofOscillators = 82;
-			baseTuning     = t->tuning / 8.0;
-			tuningOsc      = 1;
+			// baseTuning     = t->tuning / 8.0;
+			// tuningOsc      = 1;
 			break;
 
 		case 2:
 			nofOscillators = 91;
-			baseTuning     = t->tuning / 8.0;
-			tuningOsc      = 10;
+			// baseTuning     = t->tuning / 8.0;
+			// tuningOsc      = 10;
 			break;
 
 		default:
@@ -1425,7 +1427,7 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 		int          j;
 		size_t       wszs; /* Wave size samples */
 		size_t       wszb; /* Wave size bytes */
-		double       tun;
+		// double       tun;
 		ListElement* lep;
 
 		osp = &(t->oscillators[i]);
@@ -1438,9 +1440,9 @@ initOscillators (struct b_tonegen* t, int variant, double precision)
 		osp->rflags = 0;
 		osp->pos    = 0;
 
+		#if 0
 		tun = (double)(i - tuningOsc);
 
-		#if 0
 		if (t->gearTuning) {
 			/* Frequency number minus one. The frequency number is the number of
 			 * the oscillator on the tone generator with 91 oscillators. This
