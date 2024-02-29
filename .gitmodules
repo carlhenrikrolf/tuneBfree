@@ -1,0 +1,3 @@
+[submodule "tests/scala_scale_archive"]
+	path = tests/scala_scale_archive
+	url = https://github.com/narenratan/scala_scale_archive.git
