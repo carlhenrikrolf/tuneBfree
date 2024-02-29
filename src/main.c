@@ -37,6 +37,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <cstdlib>
+
 #ifdef USE_WEAK_JACK
 #include "weakjack/weak_libjack.h"
 #else
