@@ -78,7 +78,12 @@ ifeq ($(shell $(PKG_CONFIG) --exists sndfile \
   BXCC=$(CXX)
 endif
 
+BUILT_EXE_PATH=../build/tuneBfree$(EXE_EXT)
+
 all: setBfree$(EXE_EXT)
+	rm -f $(BUILT_EXE_PATH)
+	mkdir -p `dirname $(BUILT_EXE_PATH)`
+	cp setBfree$(EXE_EXT) $(BUILT_EXE_PATH)
 
 setBfree$(EXE_EXT): $(HEADERS) $(OBJS)
 	$(BXCC) $(CPPFLAGS) $(CFLAGS) \

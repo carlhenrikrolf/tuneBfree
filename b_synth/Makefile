@@ -26,10 +26,12 @@ ifeq ($(LV2AVAIL), yes)
   endif
 endif
 
+BUILT_LV2_DIR = ../build/tuneBfree.lv2
+
 all: $(targets)
-	rm -rf ../build
-	mkdir -p ../build/tuneBfree.lv2
-	cp *ttl *$(LIB_EXT) ../build/tuneBfree.lv2
+	rm -rf $(BUILT_LV2_DIR)
+	mkdir -p $(BUILT_LV2_DIR)
+	cp *ttl *$(LIB_EXT) $(BUILT_LV2_DIR)
 
 lv2: manifest.ttl $(LV2NAME)$(LIB_EXT) $(LV2NAME).ttl
 

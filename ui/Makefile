@@ -5,6 +5,10 @@ WINDRES=windres
 override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl -I../b_synth/
 override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -DLV2SYNTH -DREQUIRE_UI
 
+ifeq ($(FONTFILE),verabd.h)
+  override CFLAGS+= -DBUILTINFONT
+endif
+
 JACKEXTRA=
 OSXJACKWRAP=
 
@@ -52,7 +56,12 @@ ifeq ($(XWIN),)
   endif
 endif
 
+BUILT_UI_EXE_PATH=../build/tuneBfreeUI$(EXE_EXT)
+
 all: $(targets)
+	rm -f $(BUILT_UI_EXE_PATH)
+	mkdir -p `dirname $(BUILT_UI_EXE_PATH)`
+	cp setBfreeUI$(EXE_EXT) $(BUILT_UI_EXE_PATH)
 
 setBfreeUI$(EXE_EXT): $(RW)jackwrap.c $(LV2OBJ) $(OSXJACKWRAP) $(RW)weakjack/weak_libjack.def $(RW)weakjack/weak_libjack.h $(JACKEXTRA) \
 	../b_synth/lv2.c ../b_synth/uris.h desc.h \
