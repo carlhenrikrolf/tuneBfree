@@ -21,15 +21,13 @@
 
 #ifndef USE_WEAK_JACK
 
-int have_libjack (void) {
-	return 0;
-}
+int have_libjack(void) { return 0; }
 
 #else
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -37,51 +35,61 @@ int have_libjack (void) {
 #include <dlfcn.h>
 #endif
 
-static void* lib_open(const char* const so) {
+static void *lib_open(const char *const so)
+{
 #ifdef _WIN32
-	return (void*) LoadLibraryA(so);
+    return (void *)LoadLibraryA(so);
 #else
-	return dlopen(so, RTLD_NOW|RTLD_LOCAL);
+    return dlopen(so, RTLD_NOW | RTLD_LOCAL);
 #endif
 }
 
-static void* lib_symbol(void* const lib, const char* const sym) {
+static void *lib_symbol(void *const lib, const char *const sym)
+{
 #ifdef _WIN32
-	return (void*) GetProcAddress((HMODULE)lib, sym);
+    return (void *)GetProcAddress((HMODULE)lib, sym);
 #else
-	return dlsym(lib, sym);
+    return dlsym(lib, sym);
 #endif
 }
 
 #if _MSC_VER && !__INTEL_COMPILER
-typedef void * pvoid_t;
-#define MAPSYM(SYM, FAIL) _j._ ## SYM = (func_t)lib_symbol(lib, "jack_" # SYM); \
-	if (!_j._ ## SYM) err |= FAIL;
+typedef void *pvoid_t;
+#define MAPSYM(SYM, FAIL)                                                                          \
+    _j._##SYM = (func_t)lib_symbol(lib, "jack_" #SYM);                                             \
+    if (!_j._##SYM)                                                                                \
+        err |= FAIL;
 #elif defined NDEBUG
-typedef void * __attribute__ ((__may_alias__)) pvoid_t;
-#define MAPSYM(SYM, FAIL) *(pvoid_t *)(&_j._ ## SYM) = lib_symbol(lib, "jack_" # SYM); \
-	if (!_j._ ## SYM) err |= FAIL;
+typedef void *__attribute__((__may_alias__)) pvoid_t;
+#define MAPSYM(SYM, FAIL)                                                                          \
+    *(pvoid_t *)(&_j._##SYM) = lib_symbol(lib, "jack_" #SYM);                                      \
+    if (!_j._##SYM)                                                                                \
+        err |= FAIL;
 #else
-typedef void * __attribute__ ((__may_alias__)) pvoid_t;
-#define MAPSYM(SYM, FAIL) *(pvoid_t *)(&_j._ ## SYM) = lib_symbol(lib, "jack_" # SYM); \
-	if (!_j._ ## SYM) { \
-		if (FAIL) { \
-			fprintf(stderr, "*** WEAK-JACK: required symbol 'jack_%s' was not found\n", "" # SYM); \
-		} \
-		err |= FAIL; \
-	}
+typedef void *__attribute__((__may_alias__)) pvoid_t;
+#define MAPSYM(SYM, FAIL)                                                                          \
+    *(pvoid_t *)(&_j._##SYM) = lib_symbol(lib, "jack_" #SYM);                                      \
+    if (!_j._##SYM)                                                                                \
+    {                                                                                              \
+        if (FAIL)                                                                                  \
+        {                                                                                          \
+            fprintf(stderr, "*** WEAK-JACK: required symbol 'jack_%s' was not found\n", "" #SYM);  \
+        }                                                                                          \
+        err |= FAIL;                                                                               \
+    }
 #endif
 
-typedef void (* func_t) (void);
+typedef void (*func_t)(void);
 
 /* function pointers to the real jack API */
-static struct WeakJack {
-	func_t _client_open; // special case due to varargs
+static struct WeakJack
+{
+    func_t _client_open; // special case due to varargs
 
-#define JCFUN(ERR, RTYPE, NAME, RVAL)              func_t _ ## NAME ;
-#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL)   func_t _ ## NAME ;
-#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE)   func_t _ ## NAME ;
-#define JVFUN(ERR, NAME, DEF, ARGS, CODE)          func_t _ ## NAME ;
+#define JCFUN(ERR, RTYPE, NAME, RVAL) func_t _##NAME;
+#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL) func_t _##NAME;
+#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE) func_t _##NAME;
+#define JVFUN(ERR, NAME, DEF, ARGS, CODE) func_t _##NAME;
 
 #include "weak_libjack.def"
 
@@ -93,46 +101,47 @@ static struct WeakJack {
 
 static int _status = -1;
 
-__attribute__((constructor))
-static void init_weak_jack(void)
+__attribute__((constructor)) static void init_weak_jack(void)
 {
-	void* lib;
-	int err = 0;
+    void *lib;
+    int err = 0;
 #ifndef NDEBUG
-	fprintf(stderr, "*** WEAK-JACK: initializing\n");
+    fprintf(stderr, "*** WEAK-JACK: initializing\n");
 #endif
 
-	memset(&_j, 0, sizeof(_j));
+    memset(&_j, 0, sizeof(_j));
 
 #ifdef __APPLE__
-	lib = lib_open("libjack.dylib");
-	if (!lib) {
-		lib = lib_open("/usr/local/lib/libjack.dylib");
-	}
+    lib = lib_open("libjack.dylib");
+    if (!lib)
+    {
+        lib = lib_open("/usr/local/lib/libjack.dylib");
+    }
 #elif (defined _WIN32)
-# ifdef __x86_64__
-	lib = lib_open("libjack64.dll");
-# else
-	lib = lib_open("libjack.dll");
-# endif
+#ifdef __x86_64__
+    lib = lib_open("libjack64.dll");
 #else
-	lib = lib_open("libjack.so.0");
+    lib = lib_open("libjack.dll");
 #endif
-	if (!lib) {
+#else
+    lib = lib_open("libjack.so.0");
+#endif
+    if (!lib)
+    {
 #ifndef NDEBUG
-		fprintf(stderr, "*** WEAK-JACK: libjack was not found\n");
+        fprintf(stderr, "*** WEAK-JACK: libjack was not found\n");
 #endif
-		_status = -2;
-		return;
-	}
+        _status = -2;
+        return;
+    }
 
-	/* found library, now lookup functions */
-	MAPSYM(client_open, 2)
+    /* found library, now lookup functions */
+    MAPSYM(client_open, 2)
 
-#define JCFUN(ERR, RTYPE, NAME, RVAL)             MAPSYM(NAME, ERR)
-#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL)  MAPSYM(NAME, ERR)
-#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE)  MAPSYM(NAME, ERR)
-#define JVFUN(ERR, NAME, DEF, ARGS, CODE)         MAPSYM(NAME, ERR)
+#define JCFUN(ERR, RTYPE, NAME, RVAL) MAPSYM(NAME, ERR)
+#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL) MAPSYM(NAME, ERR)
+#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE) MAPSYM(NAME, ERR)
+#define JVFUN(ERR, NAME, DEF, ARGS, CODE) MAPSYM(NAME, ERR)
 
 #include "weak_libjack.def"
 
@@ -141,21 +150,24 @@ static void init_weak_jack(void)
 #undef JXFUN
 #undef JVFUN
 
-	/* if a required symbol is not found, disable JACK completly */
-	if (err) {
-		_j._client_open = NULL;
-	}
-	_status = err;
+    /* if a required symbol is not found, disable JACK completly */
+    if (err)
+    {
+        _j._client_open = NULL;
+    }
+    _status = err;
 #ifndef NDEBUG
-	fprintf(stderr, "*** WEAK-JACK: %s. (%d)\n", err ? "jack is not available" : "OK", _status);
+    fprintf(stderr, "*** WEAK-JACK: %s. (%d)\n", err ? "jack is not available" : "OK", _status);
 #endif
 }
 
-int have_libjack (void) {
-	if (_status == -1) {
-		init_weak_jack();
-	}
-	return _status;
+int have_libjack(void)
+{
+    if (_status == -1)
+    {
+        init_weak_jack();
+    }
+    return _status;
 }
 
 /*******************************************************************************
@@ -163,16 +175,16 @@ int have_libjack (void) {
  */
 
 #if defined(__GNUC__) && (__GNUC__ > 2) && !defined(NDEBUG)
-#define likely(expr) (__builtin_expect (!!(expr), 1))
+#define likely(expr) (__builtin_expect(!!(expr), 1))
 #else
 #define likely(expr) (expr)
 #endif
 
 #ifndef NDEBUG
-# define WJACK_WARNING(NAME) \
-	fprintf(stderr, "*** WEAK-JACK: function 'jack_%s' ignored\n", "" # NAME);
+#define WJACK_WARNING(NAME)                                                                        \
+    fprintf(stderr, "*** WEAK-JACK: function 'jack_%s' ignored\n", "" #NAME);
 #else
-# define WJACK_WARNING(NAME) ;
+#define WJACK_WARNING(NAME) ;
 #endif
 
 /******************************************************************************
@@ -190,18 +202,25 @@ int have_libjack (void) {
  */
 
 /* dedicated support for jack_client_open(,..) variable arg function macro */
-func_t WJACK_get_client_open(void) {
-	if (_status == -1) {
-		init_weak_jack();
-	}
-	return _j._client_open;
+func_t WJACK_get_client_open(void)
+{
+    if (_status == -1)
+    {
+        init_weak_jack();
+    }
+    return _j._client_open;
 }
 
 /* callback to set status */
-jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t options, jack_status_t *status, ...) {
-	WJACK_WARNING(client_open);
-	if (status) { *status = JackFailure; }
-	return NULL;
+jack_client_t *WJACK_no_client_open(const char *client_name, jack_options_t options,
+                                    jack_status_t *status, ...)
+{
+    WJACK_WARNING(client_open);
+    if (status)
+    {
+        *status = JackFailure;
+    }
+    return NULL;
 }
 
 /*******************************************************************************
@@ -211,28 +230,36 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
 /* abstraction for jack_client functions
  *  rtype jack_function_name (jack_client_t *client) { return rval; }
  */
-#define JCFUN(ERR, RTYPE, NAME, RVAL) \
-	RTYPE WJACK_ ## NAME (jack_client_t *client) { \
-		if likely(_j._ ## NAME) { \
-			return ((RTYPE (*)(jack_client_t *client)) _j._ ## NAME)(client); \
-		} else { \
-			WJACK_WARNING(NAME) \
-			return RVAL; \
-		} \
-	}
+#define JCFUN(ERR, RTYPE, NAME, RVAL)                                                              \
+    RTYPE WJACK_##NAME(jack_client_t *client)                                                      \
+    {                                                                                              \
+        if likely (_j._##NAME)                                                                     \
+        {                                                                                          \
+            return ((RTYPE(*)(jack_client_t * client)) _j._##NAME)(client);                        \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            WJACK_WARNING(NAME)                                                                    \
+            return RVAL;                                                                           \
+        }                                                                                          \
+    }
 
 /* abstraction for NOOP functions with return value
  *  rtype jack_function_name (ARGS) { return rval; }
  */
-#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL) \
-	RTYPE WJACK_ ## NAME DEF { \
-		if likely(_j._ ## NAME) { \
-			return ((RTYPE (*)DEF) _j._ ## NAME) ARGS; \
-		} else { \
-			WJACK_WARNING(NAME) \
-			return RVAL; \
-		} \
-	}
+#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL)                                                   \
+    RTYPE WJACK_##NAME DEF                                                                         \
+    {                                                                                              \
+        if likely (_j._##NAME)                                                                     \
+        {                                                                                          \
+            return ((RTYPE(*) DEF)_j._##NAME)ARGS;                                                 \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            WJACK_WARNING(NAME)                                                                    \
+            return RVAL;                                                                           \
+        }                                                                                          \
+    }
 
 /* abstraction for functions that need custom code.
  * e.g. functions with return-value-pointer args,
@@ -240,28 +267,36 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
  *
  *  rtype jack_function_name (ARGS) { CODE }
  */
-#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE) \
-	RTYPE WJACK_ ## NAME DEF { \
-		if likely(_j._ ## NAME) { \
-			return ((RTYPE (*)DEF) _j._ ## NAME) ARGS; \
-		} else { \
-			WJACK_WARNING(NAME) \
-			CODE \
-		} \
-	}
+#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE)                                                   \
+    RTYPE WJACK_##NAME DEF                                                                         \
+    {                                                                                              \
+        if likely (_j._##NAME)                                                                     \
+        {                                                                                          \
+            return ((RTYPE(*) DEF)_j._##NAME)ARGS;                                                 \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            WJACK_WARNING(NAME)                                                                    \
+            CODE                                                                                   \
+        }                                                                                          \
+    }
 
 /* abstraction for void functions with return-value-pointer args
  *  void jack_function_name (ARGS) { CODE }
  */
-#define JVFUN(ERR, NAME, DEF, ARGS, CODE) \
-	void WJACK_ ## NAME DEF { \
-		if likely(_j._ ## NAME) { \
-			((void (*)DEF) _j._ ## NAME) ARGS; \
-		} else { \
-			WJACK_WARNING(NAME) \
-			CODE \
-		} \
-	}
+#define JVFUN(ERR, NAME, DEF, ARGS, CODE)                                                          \
+    void WJACK_##NAME DEF                                                                          \
+    {                                                                                              \
+        if likely (_j._##NAME)                                                                     \
+        {                                                                                          \
+            ((void(*) DEF)_j._##NAME) ARGS;                                                        \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            WJACK_WARNING(NAME)                                                                    \
+            CODE                                                                                   \
+        }                                                                                          \
+    }
 
 #include "weak_libjack.def"
 
