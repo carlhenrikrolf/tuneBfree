@@ -141,6 +141,7 @@
 
 /* ****************************************************************/
 
+#if 0
 /**
  * Gear ratios for a 60 Hertz organ.
  */
@@ -176,6 +177,7 @@ static double const gears50ratios[12][2] = {
 	{ 7,  6}, /* a# */
 	{90, 73}  /* h  */
 };
+#endif
 
 /**
  * This table is indexed by frequency number, i.e. the tone generator number
