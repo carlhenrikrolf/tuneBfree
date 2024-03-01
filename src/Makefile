@@ -24,10 +24,10 @@ OBJS= \
 	midnam.o \
 	memstream.o \
 	libMTSClient.o \
-	../b_reverb/reverb.c \
-	../b_whirl/eqcomp.c \
-	../b_whirl/whirl.c \
-	../b_overdrive/overdrive.c
+	../b_reverb/reverb.cpp \
+	../b_whirl/eqcomp.cpp \
+	../b_whirl/whirl.cpp \
+	../b_overdrive/overdrive.cpp
 
 HEADERS = \
 	cfgParser.h \
@@ -63,7 +63,7 @@ override CFLAGS+=`$(PKG_CONFIG) --cflags jack`
 ifeq ($(USEWEAKJACK),1)
   override CFLAGS+=-DUSE_WEAK_JACK -I$(RW)
   LOADLIBES+=-ldl
-  WEAKJACK=$(RW)weakjack/weak_libjack.c
+  WEAKJACK=$(RW)weakjack/weak_libjack.cpp
 else
   LOADLIBES+=`$(PKG_CONFIG) --libs jack`
 endif
@@ -86,19 +86,20 @@ all: setBfree$(EXE_EXT)
 	cp setBfree$(EXE_EXT) $(BUILT_EXE_PATH)
 
 setBfree$(EXE_EXT): $(HEADERS) $(OBJS)
+	echo foo $(CFLAGS)
 	$(BXCC) $(CPPFLAGS) $(CFLAGS) \
 		-o $(@) $(OBJS) $(WEAKJACK) \
 		$(LDFLAGS) $(LOADLIBES)
 
-programd: program.c pgmParser.c program.h pgmParser.h main.h
+programd: program.cpp pgmParser.cpp program.h pgmParser.h main.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -Wall \
 		-DPRG_MAIN \
-		-o $(@) program.c pgmParser.c
+		-o $(@) program.cpp pgmParser.cpp
 
-configd: cfgParser.c main.h
+configd: cfgParser.cpp main.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -Wall \
 		-DCFG_MAIN \
-		-o $(@) cfgParser.c
+		-o $(@) cfgParser.cpp
 
 program: programd ../pgm/default.pgm
 	$(info re-generating default program include-file)

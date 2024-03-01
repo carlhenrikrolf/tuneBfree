@@ -48,22 +48,22 @@ ifeq ($(HAVE_UI), yes)
 	sed "s/@UI_TYPE@/$(UI_TYPE)/;s/@UI_REQ@/$(LV2UIREQ)/;" $(LV2NAME).ui.ttl.in >> $(LV2NAME).ttl
 endif
 
-$(LV2NAME)$(LIB_EXT): lv2.c $(LV2OBJ) uris.h ../src/cfgParser.h ../src/midi.h
+$(LV2NAME)$(LIB_EXT): lv2.cpp $(LV2OBJ) uris.h ../src/cfgParser.h ../src/midi.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LIC_CFLAGS) \
 		-o $(LV2NAME)$(LIB_EXT) \
-		lv2.c $(LV2OBJ) \
+		lv2.cpp $(LV2OBJ) \
 	  -shared $(LV2LDFLAGS) $(LDFLAGS) $(LOADLIBES) $(LIC_LOADLIBES)
 
-$(LV2GUI)$(LIB_EXT): ui.c uris.h $(UIDEPS) $(FONTFILE) $(LV2OBJ)
+$(LV2GUI)$(LIB_EXT): ui.cpp uris.h $(UIDEPS) $(FONTFILE) $(LV2OBJ)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(UICFLAGS) \
-		-o $(LV2GUI)$(LIB_EXT) ui.c -DCONFIGDOCONLY -D XKEYFOCUSGRAB \
-		../src/midi.c \
-		../src/program.c \
-		../src/vibrato.c \
-		../src/tonegen.c \
-		../b_whirl/whirl.c \
-		../b_overdrive/overdrive.c \
-		../b_reverb/reverb.c \
+		-o $(LV2GUI)$(LIB_EXT) ui.cpp -DCONFIGDOCONLY -D XKEYFOCUSGRAB \
+		../src/midi.cpp \
+		../src/program.cpp \
+		../src/vibrato.cpp \
+		../src/tonegen.cpp \
+		../b_whirl/whirl.cpp \
+		../b_overdrive/overdrive.cpp \
+		../b_reverb/reverb.cpp \
 		-shared $(LV2LDFLAGS) $(LDFLAGS) $(UILIBS)
 
 verabd.h: VeraBd.ttf

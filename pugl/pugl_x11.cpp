@@ -17,7 +17,7 @@
 */
 
 /**
-   @file pugl_x11.c X11 Pugl Implementation.
+   @file pugl_x11.cpp X11 Pugl Implementation.
 */
 
 #include <stdio.h>
@@ -35,7 +35,7 @@
 #ifdef WITH_SOFD
 #define HAVE_X11
 #include "../sofd/libsofd.h"
-#include "../sofd/libsofd.c"
+#include "../sofd/libsofd.cpp"
 #endif
 
 /* work around buggy re-parent & focus issues on some systems

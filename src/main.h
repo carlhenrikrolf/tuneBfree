@@ -39,7 +39,7 @@
 extern int mainConfig (ConfigContext* cfg);
 extern const ConfigDoc* mainDoc ();
 
-extern double SampleRateD;                                    // TODO -> tonegen.c, vibrato.c non-global
-extern void save_midname (void* instp, FILE* f, char* model); // defined in midnam.c
+extern double SampleRateD;                                    // TODO -> tonegen.cpp, vibrato.cpp non-global
+extern void save_midname (void* instp, FILE* f, char* model); // defined in midnam.cpp
 
 #endif /* MAIN_H */

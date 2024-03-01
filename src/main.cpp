@@ -964,7 +964,7 @@ main (int argc, char* argv[])
 #endif
 
 	setDrawBars (&inst, 0, presetSelect);
-#if 0 // initial values are assigned in tonegen.c initToneGenerator()
+#if 0 // initial values are assigned in tonegen.cpp initToneGenerator()
   setDrawBars (&inst, 1, presetSelect); /* 838 000 000 */
   setDrawBars (&inst, 2, presetSelect); /* 86 - */
 #endif

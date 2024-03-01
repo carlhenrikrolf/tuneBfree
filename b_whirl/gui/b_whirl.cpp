@@ -24,12 +24,12 @@
 #include <assert.h>
 
 #include "gui/rtk_lever.h"
-#include "eqcomp.c"
+#include "eqcomp.cpp"
 
 #define RTK_URI "http://gareus.org/oss/lv2/b_whirl#"
 #define RTK_GUI "ui"
 
-// port map; see b_whirl/lv2.c
+// port map; see b_whirl/lv2.cpp
 typedef enum {
 	B3W_INPUT = 0,
 	B3W_OUTL,

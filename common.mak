@@ -110,7 +110,7 @@ else
     GLUICFLAGS+=-pthread
     GLUILIBS=-lX11
     UI_TYPE=X11UI
-    PUGL_SRC=../pugl/pugl_x11.c
+    PUGL_SRC=../pugl/pugl_x11.cpp
   endif
   EXTENDED_RE=-r
 endif
@@ -160,14 +160,14 @@ endif
 ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UICFLAGS=-I..
   UIDEPS=../pugl/pugl.h ../pugl/pugl_internal.h ../b_synth/ui_model.h
-  UIDEPS+=$(TX)drawbar.c $(TX)wood.c $(TX)dial.c
-  UIDEPS+=$(TX)btn_vibl.c $(TX)btn_vibu.c $(TX)btn_overdrive.c $(TX)btn_perc_volume.c
-  UIDEPS+=$(TX)btn_perc.c $(TX)btn_perc_decay.c $(TX)btn_perc_harmonic.c
-  UIDEPS+=$(TX)bg_right_ctrl.c $(TX)bg_left_ctrl.c $(TX)bg_leslie_drum.c $(TX)bg_leslie_horn.c
-  UIDEPS+=$(TX)help_screen_image.c
-  UIDEPS+=$(TX)ui_button_image.c $(TX)ui_proc_image.c
-  UIDEPS+=$(TX)uim_background.c $(TX)uim_cable1.c $(TX)uim_cable2.c $(TX)uim_caps.c
-  UIDEPS+=$(TX)uim_tube1.c $(TX)uim_tube2.c
+  UIDEPS+=$(TX)drawbar.cpp $(TX)wood.cpp $(TX)dial.cpp
+  UIDEPS+=$(TX)btn_vibl.cpp $(TX)btn_vibu.cpp $(TX)btn_overdrive.cpp $(TX)btn_perc_volume.cpp
+  UIDEPS+=$(TX)btn_perc.cpp $(TX)btn_perc_decay.cpp $(TX)btn_perc_harmonic.cpp
+  UIDEPS+=$(TX)bg_right_ctrl.cpp $(TX)bg_left_ctrl.cpp $(TX)bg_leslie_drum.cpp $(TX)bg_leslie_horn.cpp
+  UIDEPS+=$(TX)help_screen_image.cpp
+  UIDEPS+=$(TX)ui_button_image.cpp $(TX)ui_proc_image.cpp
+  UIDEPS+=$(TX)uim_background.cpp $(TX)uim_cable1.cpp $(TX)uim_cable2.cpp $(TX)uim_caps.cpp
+  UIDEPS+=$(TX)uim_tube1.cpp $(TX)uim_tube2.cpp
   ifeq ($(IS_OSX), yes)
     STATICLIBS?=$(HOMEBREW)/lib/
     UIDEPS+=../pugl/pugl_osx.mm
@@ -189,9 +189,9 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
       UILIBS+=$(STATICLIBS)/libbz2.a $(STATICLIBS)/libgraphite2.a $(STATICLIBS)/librpcrt4.a $(STATICLIBS)/libz.a
       UILIBS+=-lws2_32 -lwinmm -lopengl32 -lglu32 -lgdi32 -lcomdlg32 -lpthread
     else
-      UIDEPS+=../pugl/pugl_x11.c
+      UIDEPS+=../pugl/pugl_x11.cpp
       override CFLAGS+=`pkg-config --cflags glu`
-      UILIBS=../pugl/pugl_x11.c -lX11
+      UILIBS=../pugl/pugl_x11.cpp -lX11
       ifeq ($(STATICBUILD), yes)
         UILIBS+=`pkg-config --libs glu`
         UILIBS+=`pkg-config --variable=libdir ftgl`/libftgl.a `pkg-config --variable=libdir ftgl`/libfreetype.a
@@ -205,20 +205,22 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UICFLAGS+=`pkg-config --cflags freetype2` `pkg-config --cflags ftgl` -DHAVE_FTGL -DUINQHACK=Sbf
 endif
 
-#NOTE: midi.c and cfgParser.c needs to be re-compiled w/o HAVE_ASEQ
+#NOTE: midi.cpp and cfgParser.cpp needs to be re-compiled w/o HAVE_ASEQ
 # and HAVE_ZITACONVOLVE. Other objects are identical.
 LV2OBJ= \
-  ../src/midi.c \
-  ../src/cfgParser.c \
-  ../src/program.c \
-  ../src/vibrato.c \
-  ../src/state.c \
-  ../src/tonegen.c \
+  ../src/midi.cpp \
+  ../src/cfgParser.cpp \
+  ../src/program.cpp \
+  ../src/vibrato.cpp \
+  ../src/state.cpp \
+  ../src/tonegen.cpp \
   ../src/libMTSClient.cpp \
-  ../src/pgmParser.c \
-  ../src/memstream.c \
-  ../src/midnam.c \
-  ../b_whirl/eqcomp.c \
-  ../b_whirl/whirl.c \
-  ../b_overdrive/overdrive.c \
-  ../b_reverb/reverb.c \
+  ../src/pgmParser.cpp \
+  ../src/memstream.cpp \
+  ../src/midnam.cpp \
+  ../b_whirl/eqcomp.cpp \
+  ../b_whirl/whirl.cpp \
+  ../b_overdrive/overdrive.cpp \
+  ../b_reverb/reverb.cpp \
+
+override CXXFLAGS=$(CFLAGS)

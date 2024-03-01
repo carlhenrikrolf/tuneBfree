@@ -289,7 +289,7 @@ typedef enum {
 /* total number of interactive objects */
 #define TOTAL_OBJ (33)
 
-/* names from src/midi.c -  mapped to object IDs */
+/* names from src/midi.cpp -  mapped to object IDs */
 static const char* obj_control[] = {
 	"upper.drawbar16", // 0
 	"upper.drawbar513",
@@ -1116,35 +1116,35 @@ drawMesh (PuglView* view, unsigned int index, int apply_transformations)
  * OpenGL textures
  */
 
-#include "textures/dial.c"
-#include "textures/drawbar.c"
-#include "textures/wood.c"
+#include "textures/dial.cpp"
+#include "textures/drawbar.cpp"
+#include "textures/wood.cpp"
 
-#include "textures/btn_overdrive.c"
-#include "textures/btn_perc.c"
-#include "textures/btn_perc_decay.c"
-#include "textures/btn_perc_harmonic.c"
-#include "textures/btn_perc_volume.c"
-#include "textures/btn_vibl.c"
-#include "textures/btn_vibu.c"
+#include "textures/btn_overdrive.cpp"
+#include "textures/btn_perc.cpp"
+#include "textures/btn_perc_decay.cpp"
+#include "textures/btn_perc_harmonic.cpp"
+#include "textures/btn_perc_volume.cpp"
+#include "textures/btn_vibl.cpp"
+#include "textures/btn_vibu.cpp"
 
-#include "textures/bg_left_ctrl.c"
-#include "textures/bg_leslie_drum.c"
-#include "textures/bg_leslie_horn.c"
-#include "textures/bg_right_ctrl.c"
+#include "textures/bg_left_ctrl.cpp"
+#include "textures/bg_leslie_drum.cpp"
+#include "textures/bg_leslie_horn.cpp"
+#include "textures/bg_right_ctrl.cpp"
 
-#include "textures/help_screen_image.c"
+#include "textures/help_screen_image.cpp"
 
-#include "textures/ui_button_image.c"
-#include "textures/ui_proc_image.c"
+#include "textures/ui_button_image.cpp"
+#include "textures/ui_proc_image.cpp"
 
-#include "textures/uim_background.c"
-#include "textures/uim_cable1.c"
-#include "textures/uim_cable2.c"
-#include "textures/uim_caps.c"
-#include "textures/uim_transformer.c"
-#include "textures/uim_tube1.c"
-#include "textures/uim_tube2.c"
+#include "textures/uim_background.cpp"
+#include "textures/uim_cable1.cpp"
+#include "textures/uim_cable2.cpp"
+#include "textures/uim_caps.cpp"
+#include "textures/uim_transformer.cpp"
+#include "textures/uim_tube1.cpp"
+#include "textures/uim_tube2.cpp"
 
 /* clang-format off */
 #define CIMAGE(ID, VARNAME)                                                       \

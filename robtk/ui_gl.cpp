@@ -100,7 +100,7 @@
 #include "robtk.h"
 
 #ifdef WITH_SIGNATURE
-# include "gpg_init.c"
+# include "gpg_init.cpp"
 #endif
 
 static void opengl_init () {
@@ -325,7 +325,7 @@ port_event(LV2UI_Handle handle,
 
 /*****************************************************************************/
 
-#include "gl/xternalui.c"
+#include "gl/xternalui.cpp"
 
 static void reallocate_canvas(GLrobtkLV2UI* self);
 
@@ -1584,7 +1584,7 @@ gl_instantiate(const LV2UI_Descriptor*   descriptor,
 
 #ifdef WITH_SIGNATURE
 	self->gpg_shade = 0;
-# include "gpg_check.c"
+# include "gpg_check.cpp"
 #endif
 
 	self->tl = NULL;

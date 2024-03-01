@@ -19,7 +19,7 @@
  */
 
 /*
- * config.c --- Parse a configuration file and build a key,value structure.
+ * config.cpp --- Parse a configuration file and build a key,value structure.
  * 14-may-2004/FK Dropped rotsim.
  */
 
