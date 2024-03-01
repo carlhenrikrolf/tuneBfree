@@ -13,11 +13,8 @@ RW=$(abspath $(ROBTK))/
 export RW
 endif
 
-ifneq ($(MOD),)
-  SUBDIRS = b_whirl b_synth
-else
-  SUBDIRS = b_overdrive b_whirl b_reverb b_conv b_chorato src b_synth ui
-endif
+# Make LV2, CLI, and GUI
+SUBDIRS = b_synth src ui
 
 default: all
 
