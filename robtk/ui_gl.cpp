@@ -1515,7 +1515,7 @@ static int pugl_init(GLrobtkLV2UI *self)
 #ifdef LVGL_RESIZEABLE
                             true
 #else
-                             false /* self->extui ? true : false */
+                            false /* self->extui ? true : false */
 #endif
                             ,
                             self->ontop, self->transient_id);

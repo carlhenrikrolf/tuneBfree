@@ -31,4 +31,13 @@ doc:
 dist:
 	git archive --format=tar --prefix=setbfree-$(EXPORTED_VERSION)/ HEAD | gzip -9 > setbfree-$(EXPORTED_VERSION).tar.gz
 
+test:
+	pytest -v tests
+
+format:
+	clang-format -i `find . -name '*.cpp'`
+
+formatcheck:
+	clang-format --dry-run --Werror `find . -name '*.cpp'`
+
 .PHONY: clean all subdirs install uninstall dist doc
