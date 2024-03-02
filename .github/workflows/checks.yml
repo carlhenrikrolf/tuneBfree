@@ -23,3 +23,33 @@ jobs:
         with:
             name: build_mac
             path: build
+  build_windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+                git
+                make
+                vim
+                mingw-w64-ucrt-x86_64-gcc
+                mingw-w64-ucrt-x86_64-lv2
+                mingw-w64-ucrt-x86_64-jack2
+                mingw-w64-ucrt-x86_64-freeglut
+                mingw-w64-ucrt-x86_64-ftgl
+                mingw-w64-ucrt-x86_64-pkg-config
+      - run: |
+          make
+          ls build
+          ls build/tuneBfree.lv2
+      - uses: actions/upload-artifact@v4
+        with:
+            name: build_windows
+            path: build
