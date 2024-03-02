@@ -9,3 +9,7 @@ jobs:
         uses: actions/checkout@v4
       - run: make formatcheck
       - run: ./build_scripts/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+            name: build_linux
+            path: build
