@@ -7,7 +7,7 @@ UNAME=$(shell uname)
 ifeq ($(UNAME),Darwin)
   IS_OSX=yes
   HOMEBREW=$$(brew --prefix)
-  override CFLAGS += -I$(HOMEBREW)/include
+  override CFLAGS += -I$(HOMEBREW)/include -DGL_SILENCE_DEPRECATION
 endif
 
 PREFIX ?= /usr/local
