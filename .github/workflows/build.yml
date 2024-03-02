@@ -7,6 +7,8 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+        with:
+            submodules: 'true'
       - run: make formatcheck
       - name: Build
         run: |
@@ -16,6 +18,17 @@ jobs:
             make
             ls build
             ls build/tuneBfree.lv2
+      - name: Test
+        run: |
+            git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
+            sudo mkdir -p /usr/local/lib
+            sudo cp ~/MTS-ESP/libMTS/Linux/x86_64/libMTS.so /usr/local/lib/
+            python3 -m venv .env
+            source .env/bin/activate
+            git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
+            python3 -m pip install ~/mtsespy
+            python3 -m pip install pytest
+            pytest tests
       - uses: actions/upload-artifact@v4
         with:
             name: build_linux
@@ -25,12 +38,25 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+        with:
+            submodules: 'true'
       - name: Build
         run: |
             brew install lv2 jack freeglut ftgl bzip2 pkg-config
             make
             ls build
             ls build/tuneBfree.lv2
+      - name: Test
+        run: |
+            git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
+            sudo mkdir -p "/Library/Application Support/MTS-ESP/"
+            sudo cp ~/MTS-ESP/libMTS/Mac/x86_64_ARM/libMTS.dylib "/Library/Application Support/MTS-ESP/libMTS.dylib"
+            python3 -m venv .env
+            source .env/bin/activate
+            git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
+            python3 -m pip install ~/mtsespy
+            python3 -m pip install pytest
+            pytest tests
       - uses: actions/upload-artifact@v4
         with:
             name: build_mac
@@ -43,6 +69,8 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+        with:
+            submodules: 'true'
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
