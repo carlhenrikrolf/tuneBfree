@@ -92,6 +92,8 @@ jobs:
           ls build/tuneBfree.lv2
       - name: Test
         run: |
+            git clone https://github.com/narenratan/libjack64_dll.git ~/libjack64_dll
+            cp ~/libjack64_dll/libjack64.dll .
             python3 -m venv .env
             source .env/bin/activate
             python3 -m pip install pytest
