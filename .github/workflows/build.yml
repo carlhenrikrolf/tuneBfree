@@ -8,7 +8,8 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v4
       - run: make formatcheck
-      - run: |
+      - name: Build
+        run: |
             sudo apt-get update
             sudo apt-get upgrade -y
             sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev lv2-dev xxd g++
@@ -24,7 +25,8 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-      - run: |
+      - name: Build
+        run: |
             brew install lv2 jack freeglut ftgl bzip2 pkg-config
             make
             ls build
@@ -55,7 +57,8 @@ jobs:
                 mingw-w64-ucrt-x86_64-freeglut
                 mingw-w64-ucrt-x86_64-ftgl
                 mingw-w64-ucrt-x86_64-pkg-config
-      - run: |
+      - name: Build
+        run: |
           make
           ls build
           ls build/tuneBfree.lv2
