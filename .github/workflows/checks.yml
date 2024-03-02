@@ -2,9 +2,10 @@ name: checks
 run-name: checks
 on: [push]
 jobs:
-  formatcheck:
-    runs-on: ubuntu-latest
+  check:
+    runs-on: ubuntu-20.04
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
       - run: make formatcheck
+      - run: ./build_scripts/build_linux.sh
