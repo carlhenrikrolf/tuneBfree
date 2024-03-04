@@ -1,6 +1,7 @@
 # TODO include this only once and export variables
 
 CFLAGS ?= $(OPTIMIZATIONS) -Wall -std=c++17
+override CFLAGS += -I../libs/MTS-ESP/Client
 
 IS_OSX=
 UNAME=$(shell uname)
@@ -214,7 +215,7 @@ LV2OBJ= \
   ../src/vibrato.cpp \
   ../src/state.cpp \
   ../src/tonegen.cpp \
-  ../src/libMTSClient.cpp \
+  ../libs/MTS-ESP/Client/libMTSClient.cpp \
   ../src/pgmParser.cpp \
   ../src/memstream.cpp \
   ../src/midnam.cpp \

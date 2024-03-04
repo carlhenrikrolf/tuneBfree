@@ -35,9 +35,9 @@ test:
 	pytest -v tests
 
 format:
-	clang-format -i `find . -name '*.cpp'`
+	clang-format -i `find . -name '*.cpp' ! -path '*/libs/*'`
 
 formatcheck:
-	clang-format --dry-run --Werror `find . -name '*.cpp'`
+	clang-format --dry-run --Werror `find . -name '*.cpp' ! -path '*/libs/*'`
 
 .PHONY: clean all subdirs install uninstall dist doc

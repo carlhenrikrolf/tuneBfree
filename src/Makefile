@@ -129,6 +129,9 @@ program.o: defaultpgm.h
 ../b_conv/convolution.o: ../b_conv/convolution.cc ../b_conv/convolution.h
 	+$(MAKE) -C ../b_conv convolution.o
 
+libMTSClient.o: ../libs/MTS-ESP/Client/libMTSClient.cpp
+	$(CXX) -c ../libs/MTS-ESP/Client/libMTSClient.cpp -o libMTSClient.o
+
 clean:
 	rm -f *.o core *.log *~ setBfree$(EXE_EXT) configd programd
 
