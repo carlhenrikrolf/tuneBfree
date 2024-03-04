@@ -1,7 +1,7 @@
 # TODO include this only once and export variables
 
 CFLAGS ?= $(OPTIMIZATIONS) -Wall -std=c++17
-override CFLAGS += -I../libs/MTS-ESP/Client
+override CFLAGS += -I../libs/MTS-ESP/Client -I../libs/lv2/include
 
 IS_OSX=
 UNAME=$(shell uname)
@@ -35,7 +35,7 @@ LV2VERSION=$(VERSION)
 
 bindir = $(PREFIX)/bin
 sharedir = $(PREFIX)/share/setBfree
-lv2dir = $(PREFIX)/lib/lv2
+lv2dir = ../libs/lv2/lv2
 
 # XWIN flag was being used to cross-compile for Windows
 # Now it's being used to compile directly on Windows with MSYS2
@@ -56,26 +56,16 @@ GLUICFLAGS=-I. -I.. -Wno-unused-function
 STRIPFLAGS=-s
 
 # check for LV2
-LV2AVAIL=$(shell pkg-config --exists lv2 && echo yes)
+LV2AVAIL=yes
 
-LV2UIREQ=
-# check for LV2 idle thread
-ifeq ($(shell pkg-config --atleast-version=1.6.0 lv2 || echo no), no)
-  override CFLAGS+=-DOLD_SUIL
-else
-  GLUICFLAGS+=-DHAVE_IDLE_IFACE
-  LV2UIREQ=lv2:requiredFeature ui:idleInterface; lv2:extensionData ui:idleInterface;
-  HAVE_IDLE=yes
-endif
+GLUICFLAGS+=-DHAVE_IDLE_IFACE
+LV2UIREQ=lv2:requiredFeature ui:idleInterface; lv2:extensionData ui:idleInterface;
+HAVE_IDLE=yes
 
 # check for lv2_atom_forge_object  new in 1.8.1 deprecates lv2_atom_forge_blank
-ifeq ($(shell pkg-config --atleast-version=1.8.1 lv2 && echo yes), yes)
-  override CFLAGS += -DHAVE_LV2_1_8
-endif
+override CFLAGS += -DHAVE_LV2_1_8
 
-ifeq ($(shell $(PKG_CONFIG) --atleast-version=1.18.6 lv2 && echo yes), yes)
-  override CFLAGS += -DHAVE_LV2_1_18_6
-endif
+override CFLAGS += -DHAVE_LV2_1_18_6
 
 ifeq ($(origin CC),default)
 CC=g++

@@ -19,10 +19,10 @@ the silver transformer on the left.
 
 Building
 --------
-On Linux, install lv2-dev, libjack-dev, libglu1-mesa-dev, libftgl-dev, and xxd
+On Linux, install libjack-dev, libglu1-mesa-dev, libftgl-dev, and xxd
 (package names for Ubuntu).
 
-On Mac, use Homebrew to install lv2, jack, freeglut, ftgl, bzip2, and pkg-config.
+On Mac, use Homebrew to install jack, freeglut, ftgl, bzip2, and pkg-config.
 
 On Windows, install [MSYS2](https://www.msys2.org/), open the MSYS2 UCRT64
 shell, and run
@@ -32,7 +32,6 @@ $ pacman -S \
     make \
     vim \
     mingw-w64-ucrt-x86_64-gcc \
-    mingw-w64-ucrt-x86_64-lv2 \
     mingw-w64-ucrt-x86_64-jack2 \
     mingw-w64-ucrt-x86_64-freeglut \
     mingw-w64-ucrt-x86_64-ftgl \
@@ -41,7 +40,7 @@ $ pacman -S \
 
 Then on Linux, Mac, or Windows run
 ```
-$ git clone https://github.com/narenratan/tuneBfree
+$ git clone --recurse-submodules https://github.com/narenratan/tuneBfree
 $ cd tuneBfree
 $ make
 ```

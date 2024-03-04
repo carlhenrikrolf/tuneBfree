@@ -4,3 +4,6 @@
 [submodule "libs/MTS-ESP"]
 	path = libs/MTS-ESP
 	url = https://github.com/ODDSound/MTS-ESP.git
+[submodule "libs/lv2"]
+	path = libs/lv2
+	url = https://github.com/lv2/lv2.git
