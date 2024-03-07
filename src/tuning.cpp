@@ -9,6 +9,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 
 #include "libMTSClient.h"
 
@@ -115,6 +116,33 @@ void getFrequencies(double *frequency, int length)
     assert(length >= 128);
     getMTSESPFrequencies(frequency);
     extendFrequencies(frequency, length);
+}
+
+/**
+ * This table is indexed by frequency number, i.e. the tone generator number
+ * on the 91 oscillator generator. The first frequency/generator is numbered 1.
+ */
+static short const wheelPairs[92] = {
+    0,                                              /* 0: not used */
+    49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, /* 1-12 */
+    61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, /* 13-24 */
+    73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, /* 25-36 */
+    0,  0,  0,  0,  0,  85, 86, 87, 88, 89, 90, 91, /* 37-48 */
+    1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, /* 49-60 */
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, /* 61-72 */
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, /* 73-84 */
+    42, 43, 44, 45, 46, 47, 48                      /* 85-91 */
+};
+
+/**
+ * This function extends the wheelPairs array lookup to an arbitrary number of
+ * wheels. It isn't really tuning related; it's in this file so I could add
+ * doctest tests for it.
+ */
+short getPairedWheel(short n)
+{
+    auto dv = std::div(n, 92);
+    return dv.quot * 92 + wheelPairs[dv.rem];
 }
 
 #ifdef TESTS
@@ -381,5 +409,13 @@ TEST_CASE("Testing extendFrequencies bagpipe4.scl (period 1190 cents)")
     extendFrequencies(frequency, 256);
     CHECK(frequency[128] == frequency[127]);
     CHECK(frequency[255] == frequency[127]);
+}
+
+TEST_CASE("Testing getPairedWheel")
+{
+    CHECK(getPairedWheel(12) == 60);
+    CHECK(getPairedWheel(60) == 12);
+    CHECK(getPairedWheel(150) == 102);
+    CHECK(getPairedWheel(102) == 150);
 }
 #endif

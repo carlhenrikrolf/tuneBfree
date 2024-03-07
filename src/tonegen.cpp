@@ -179,22 +179,6 @@ static double const gears50ratios[12][2] = {
 };
 #endif
 
-/**
- * This table is indexed by frequency number, i.e. the tone generator number
- * on the 91 oscillator generator. The first frequency/generator is numbered 1.
- */
-static short const wheelPairs[92] = {
-	0,                                                /* 0: not used */
-	49, 50, 51, 52,  53, 54, 55, 56,  57, 58, 59, 60, /* 1-12 */
-	61, 62, 63, 64,  65, 66, 67, 68,  69, 70, 71, 72, /* 13-24 */
-	73, 74, 75, 76,  77, 78, 79, 80,  81, 82, 83, 84, /* 25-36 */
-	0,  0,  0,  0,   0,  85, 86, 87,  88, 89, 90, 91, /* 37-48 */
-	1,  2,  3,  4,   5,  6,  7,  8,   9,  10, 11, 12, /* 49-60 */
-	13, 14, 15, 16,  17, 18, 19, 20,  21, 22, 23, 24, /* 61-72 */
-	25, 26, 27, 28,  29, 30, 31, 32,  33, 34, 35, 36, /* 73-84 */
-	42, 43, 44, 45,  46, 47, 48                       /* 85-91 */
-};
-
 /*
  * These two arrays describes two rows of transformers mounted on top of
  * the tonegenerator. The concepts of north and south are simply used
@@ -930,6 +914,7 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
 {
     int i;
     ListElement *lep;
+    short pairedWheel;
 
     /* Crosstalk at the terminals. Terminal mix. */
 
@@ -943,10 +928,11 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
             appendListElement(&(t->terminalMix[i]), lep);
             if (0.0 < t->defaultCompartmentCrosstalk)
             {
-                if (0 < wheelPairs[i])
+                pairedWheel = getPairedWheel(i);
+                if ((0 < pairedWheel) && (pairedWheel <= NOF_WHEELS))
                 {
                     lep = newConfigListElement(t);
-                    LE_WHEEL_NUMBER_OF(lep) = wheelPairs[i];
+                    LE_WHEEL_NUMBER_OF(lep) = pairedWheel;
                     LE_WHEEL_LEVEL_OF(lep) = t->defaultCompartmentCrosstalk;
                     appendListElement(&(t->terminalMix[i]), lep);
                 }
