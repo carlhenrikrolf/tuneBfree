@@ -27,7 +27,7 @@ jobs:
             git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
             python3 -m pip install ~/mtsespy
             python3 -m pip install pytest
-            pytest tests
+            pytest -k 'not regression' tests
       - uses: actions/upload-artifact@v4
         with:
             name: build_linux
@@ -55,7 +55,7 @@ jobs:
             git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
             python3 -m pip install ~/mtsespy
             python3 -m pip install pytest
-            pytest tests
+            pytest -k 'not regression' tests
       - uses: actions/upload-artifact@v4
         with:
             name: build_mac
@@ -125,4 +125,29 @@ jobs:
             git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
             python3 -m pip install ~/mtsespy
             python3 -m pip install pytest
-            pytest tests
+            pytest -k 'not regression' tests
+  regression_test:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            submodules: 'true'
+      - name: Build
+        run: |
+            sudo apt-get update
+            sudo apt-get upgrade -y
+            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev xxd g++
+            export DEBUG_TONEGEN_OSC=yes
+            make
+      - name: Regression test
+        run: |
+            git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
+            sudo mkdir -p /usr/local/lib
+            sudo cp ~/MTS-ESP/libMTS/Linux/x86_64/libMTS.so /usr/local/lib/
+            python3 -m venv .env
+            source .env/bin/activate
+            git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
+            python3 -m pip install ~/mtsespy
+            python3 -m pip install pytest
+            pytest tests/test_regression.py

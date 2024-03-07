@@ -9,6 +9,10 @@ ifeq ($(XWIN),)
 LOADLIBES += -ldl
 endif
 
+ifneq ($(DEBUG_TONEGEN_OSC),)
+override CFLAGS += -DDEBUG_TONEGEN_OSC
+endif
+
 BXCC=$(CC)
 
 OBJS= \

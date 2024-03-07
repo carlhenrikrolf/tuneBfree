@@ -1,0 +1,1048 @@
+Array keyContrib (index is key number)
+
+keyContrib[  0]= 0 wheels,   0 entries
+keyContrib[  1]= 0 wheels,   0 entries
+keyContrib[  2]= 0 wheels,   0 entries
+keyContrib[  3]= 0 wheels,   0 entries
+keyContrib[  4]= 0 wheels,   0 entries
+keyContrib[  5]= 0 wheels,   0 entries
+keyContrib[  6]= 0 wheels,   0 entries
+keyContrib[  7]= 0 wheels,   0 entries
+keyContrib[  8]= 0 wheels,   0 entries
+keyContrib[  9]= 0 wheels,   0 entries
+keyContrib[ 10]= 0 wheels,   0 entries
+keyContrib[ 11]= 0 wheels,   0 entries
+keyContrib[ 12]= 0 wheels,   0 entries
+keyContrib[ 13]= 0 wheels,   0 entries
+keyContrib[ 14]= 0 wheels,   0 entries
+keyContrib[ 15]= 0 wheels,   0 entries
+keyContrib[ 16]= 0 wheels,   0 entries
+keyContrib[ 17]= 0 wheels,   0 entries
+keyContrib[ 18]= 0 wheels,   0 entries
+keyContrib[ 19]= 0 wheels,   0 entries
+keyContrib[ 20]= 0 wheels,   0 entries
+keyContrib[ 21]= 0 wheels,   0 entries
+keyContrib[ 22]= 0 wheels,   0 entries
+keyContrib[ 23]= 0 wheels,   0 entries
+keyContrib[ 24]= 0 wheels,   0 entries
+keyContrib[ 25]= 0 wheels,   0 entries
+keyContrib[ 26]= 0 wheels,   0 entries
+keyContrib[ 27]= 0 wheels,   0 entries
+keyContrib[ 28]= 0 wheels,   0 entries
+keyContrib[ 29]= 0 wheels,   0 entries
+keyContrib[ 30]= 0 wheels,   0 entries
+keyContrib[ 31]= 0 wheels,   0 entries
+keyContrib[ 32]= 0 wheels,   0 entries
+keyContrib[ 33]= 0 wheels,   0 entries
+keyContrib[ 34]= 0 wheels,   0 entries
+keyContrib[ 35]= 0 wheels,   0 entries
+keyContrib[ 36]= 0 wheels,   0 entries
+keyContrib[ 37]= 0 wheels,   0 entries
+keyContrib[ 38]= 0 wheels,   0 entries
+keyContrib[ 39]= 0 wheels,   0 entries
+keyContrib[ 40]= 0 wheels,   0 entries
+keyContrib[ 41]= 0 wheels,   0 entries
+keyContrib[ 42]= 0 wheels,   0 entries
+keyContrib[ 43]= 0 wheels,   0 entries
+keyContrib[ 44]= 0 wheels,   0 entries
+keyContrib[ 45]= 0 wheels,   0 entries
+keyContrib[ 46]= 0 wheels,   0 entries
+keyContrib[ 47]= 0 wheels,   0 entries
+keyContrib[ 48]= 0 wheels,   0 entries
+keyContrib[ 49]= 0 wheels,   0 entries
+keyContrib[ 50]= 0 wheels,   0 entries
+keyContrib[ 51]= 0 wheels,   0 entries
+keyContrib[ 52]= 0 wheels,   0 entries
+keyContrib[ 53]= 0 wheels,   0 entries
+keyContrib[ 54]= 0 wheels,   0 entries
+keyContrib[ 55]= 0 wheels,   0 entries
+keyContrib[ 56]= 0 wheels,   0 entries
+keyContrib[ 57]= 0 wheels,   0 entries
+keyContrib[ 58]= 0 wheels,   0 entries
+keyContrib[ 59]= 0 wheels,   0 entries
+keyContrib[ 60]= 0 wheels,   0 entries
+keyContrib[ 61]= 0 wheels,   0 entries
+keyContrib[ 62]= 0 wheels,   0 entries
+keyContrib[ 63]= 0 wheels,   0 entries
+keyContrib[ 64]= 0 wheels,   0 entries
+keyContrib[ 65]= 0 wheels,   0 entries
+keyContrib[ 66]= 0 wheels,   0 entries
+keyContrib[ 67]= 0 wheels,   0 entries
+keyContrib[ 68]= 0 wheels,   0 entries
+keyContrib[ 69]= 0 wheels,   0 entries
+keyContrib[ 70]= 0 wheels,   0 entries
+keyContrib[ 71]= 0 wheels,   0 entries
+keyContrib[ 72]= 0 wheels,   0 entries
+keyContrib[ 73]= 0 wheels,   0 entries
+keyContrib[ 74]= 0 wheels,   0 entries
+keyContrib[ 75]= 0 wheels,   0 entries
+keyContrib[ 76]= 0 wheels,   0 entries
+keyContrib[ 77]= 0 wheels,   0 entries
+keyContrib[ 78]= 0 wheels,   0 entries
+keyContrib[ 79]= 0 wheels,   0 entries
+keyContrib[ 80]= 0 wheels,   0 entries
+keyContrib[ 81]= 0 wheels,   0 entries
+keyContrib[ 82]= 0 wheels,   0 entries
+keyContrib[ 83]= 0 wheels,   0 entries
+keyContrib[ 84]= 0 wheels,   0 entries
+keyContrib[ 85]= 0 wheels,   0 entries
+keyContrib[ 86]= 0 wheels,   0 entries
+keyContrib[ 87]= 0 wheels,   0 entries
+keyContrib[ 88]= 0 wheels,   0 entries
+keyContrib[ 89]= 0 wheels,   0 entries
+keyContrib[ 90]= 0 wheels,   0 entries
+keyContrib[ 91]= 0 wheels,   0 entries
+keyContrib[ 92]= 0 wheels,   0 entries
+keyContrib[ 93]= 0 wheels,   0 entries
+keyContrib[ 94]= 0 wheels,   0 entries
+keyContrib[ 95]= 0 wheels,   0 entries
+keyContrib[ 96]= 0 wheels,   0 entries
+keyContrib[ 97]= 0 wheels,   0 entries
+keyContrib[ 98]= 0 wheels,   0 entries
+keyContrib[ 99]= 0 wheels,   0 entries
+keyContrib[100]= 0 wheels,   0 entries
+keyContrib[101]= 0 wheels,   0 entries
+keyContrib[102]= 0 wheels,   0 entries
+keyContrib[103]= 0 wheels,   0 entries
+keyContrib[104]= 0 wheels,   0 entries
+keyContrib[105]= 0 wheels,   0 entries
+keyContrib[106]= 0 wheels,   0 entries
+keyContrib[107]= 0 wheels,   0 entries
+keyContrib[108]= 0 wheels,   0 entries
+keyContrib[109]= 0 wheels,   0 entries
+keyContrib[110]= 0 wheels,   0 entries
+keyContrib[111]= 0 wheels,   0 entries
+keyContrib[112]= 0 wheels,   0 entries
+keyContrib[113]= 0 wheels,   0 entries
+keyContrib[114]= 0 wheels,   0 entries
+keyContrib[115]= 0 wheels,   0 entries
+keyContrib[116]= 0 wheels,   0 entries
+keyContrib[117]= 0 wheels,   0 entries
+keyContrib[118]= 0 wheels,   0 entries
+keyContrib[119]= 0 wheels,   0 entries
+keyContrib[120]= 0 wheels,   0 entries
+keyContrib[121]= 0 wheels,   0 entries
+keyContrib[122]= 0 wheels,   0 entries
+keyContrib[123]= 0 wheels,   0 entries
+keyContrib[124]= 0 wheels,   0 entries
+keyContrib[125]= 0 wheels,   0 entries
+keyContrib[126]= 0 wheels,   0 entries
+keyContrib[127]= 0 wheels,   0 entries
+keyContrib[128]=[w 1:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 1:b20:g0.010000] -40.000000 dB  
+                [w 1:b26:g0.020000] -33.979402 dB  
+                [w 8:b19:g0.010000] -40.000000 dB  
+                [w13:b18:g0.010000] -40.000000 dB  
+                [w13:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w20:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b23:g0.010000] -40.000000 dB  
+                [w29:b24:g0.010000] -40.000000 dB  
+                [w32:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b21:g0.010000] -40.000000 dB  
+                [w37:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b25:g0.010000] -40.000000 dB  
+                [w41:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b23:g0.010000] -40.000000 dB  
+                [w44:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b24:g0.010000] -40.000000 dB  
+                [w49:b18:g0.020000] -33.979402 dB  
+                [w49:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b25:g0.010000] -40.000000 dB  
+                [w61:b20:g0.020000] -33.979402 dB  
+                [w68:b19:g0.020000] -33.979402 dB  
+                [w73:b21:g0.020000] -33.979402 dB  
+                [w80:b22:g0.020000] -33.979402 dB  
+                [w87:b22:g0.010000] -40.000000 dB  
+                [w87:b25:g0.010000] -40.000000 dB  
+18 wheels,  27 entries
+keyContrib[129]=[w 2:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 2:b20:g0.010000] -40.000000 dB  
+                [w 2:b26:g0.020000] -33.979402 dB  
+                [w 9:b19:g0.010000] -40.000000 dB  
+                [w14:b18:g0.010000] -40.000000 dB  
+                [w14:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w21:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w26:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b24:g0.010000] -40.000000 dB  
+                [w33:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w34:b21:g0.010000] -40.000000 dB  
+                [w34:b25:g0.010000] -40.000000 dB  
+                [w38:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w42:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w50:b18:g0.020000] -33.979402 dB  
+                [w50:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b25:g0.010000] -40.000000 dB  
+                [w62:b20:g0.020000] -33.979402 dB  
+                [w69:b19:g0.020000] -33.979402 dB  
+                [w74:b21:g0.020000] -33.979402 dB  
+                [w81:b22:g0.020000] -33.979402 dB  
+                [w85:b24:g0.020000] -33.979402 dB  
+                [w86:b26:g0.010000] -40.000000 dB  
+                [w88:b22:g0.010000] -40.000000 dB  
+                [w88:b25:g0.010000] -40.000000 dB  
+20 wheels,  26 entries
+keyContrib[130]=[w 3:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 3:b20:g0.010000] -40.000000 dB  
+                [w 3:b26:g0.020000] -33.979402 dB  
+                [w10:b19:g0.010000] -40.000000 dB  
+                [w15:b18:g0.010000] -40.000000 dB  
+                [w15:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w22:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w26:b22:g0.010000] -40.000000 dB  
+                [w27:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w27:b23:g0.010000] -40.000000 dB  
+                [w31:b24:g0.010000] -40.000000 dB  
+                [w34:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b21:g0.010000] -40.000000 dB  
+                [w39:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b25:g0.010000] -40.000000 dB  
+                [w43:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b22:g0.010000] -40.000000 dB  
+                [w46:b23:g0.010000] -40.000000 dB  
+                [w46:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w51:b18:g0.020000] -33.979402 dB  
+                [w51:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b25:g0.010000] -40.000000 dB  
+                [w63:b20:g0.020000] -33.979402 dB  
+                [w70:b19:g0.020000] -33.979402 dB  
+                [w75:b21:g0.020000] -33.979402 dB  
+                [w82:b22:g0.010000] -40.000000 dB  
+                [w86:b24:g0.020000] -33.979402 dB  
+                [w87:b26:g0.010000] -40.000000 dB  
+                [w89:b25:g0.010000] -40.000000 dB  
+21 wheels,  29 entries
+keyContrib[131]=[w 4:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 4:b20:g0.010000] -40.000000 dB  
+                [w 4:b26:g0.020000] -33.979402 dB  
+                [w11:b19:g0.010000] -40.000000 dB  
+                [w16:b18:g0.010000] -40.000000 dB  
+                [w16:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w23:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b23:g0.010000] -40.000000 dB  
+                [w35:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b24:g0.010000] -40.000000 dB  
+                [w40:b21:g0.010000] -40.000000 dB  
+                [w40:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b25:g0.010000] -40.000000 dB  
+                [w44:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b23:g0.010000] -40.000000 dB  
+                [w47:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w52:b18:g0.020000] -33.979402 dB  
+                [w52:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b24:g0.010000] -40.000000 dB  
+                [w59:b25:g0.010000] -40.000000 dB  
+                [w64:b20:g0.020000] -33.979402 dB  
+                [w71:b19:g0.020000] -33.979402 dB  
+                [w76:b21:g0.020000] -33.979402 dB  
+                [w83:b22:g0.020000] -33.979402 dB  
+                [w87:b24:g0.010000] -40.000000 dB  
+                [w88:b26:g0.010000] -40.000000 dB  
+                [w90:b22:g0.010000] -40.000000 dB  
+                [w90:b25:g0.010000] -40.000000 dB  
+20 wheels,  29 entries
+keyContrib[132]=[w 5:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 5:b20:g0.010000] -40.000000 dB  
+                [w 5:b26:g0.020000] -33.979402 dB  
+                [w12:b19:g0.010000] -40.000000 dB  
+                [w17:b18:g0.010000] -40.000000 dB  
+                [w17:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w24:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w29:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w29:b23:g0.010000] -40.000000 dB  
+                [w34:b24:g0.010000] -40.000000 dB  
+                [w36:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b21:g0.010000] -40.000000 dB  
+                [w41:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b25:g0.010000] -40.000000 dB  
+                [w45:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b23:g0.010000] -40.000000 dB  
+                [w48:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w53:b18:g0.020000] -33.979402 dB  
+                [w53:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b24:g0.010000] -40.000000 dB  
+                [w60:b25:g0.010000] -40.000000 dB  
+                [w65:b20:g0.020000] -33.979402 dB  
+                [w72:b19:g0.020000] -33.979402 dB  
+                [w77:b21:g0.020000] -33.979402 dB  
+                [w84:b22:g0.020000] -33.979402 dB  
+                [w88:b24:g0.010000] -40.000000 dB  
+                [w89:b26:g0.010000] -40.000000 dB  
+                [w91:b22:g0.010000] -40.000000 dB  
+                [w91:b25:g0.010000] -40.000000 dB  
+20 wheels,  29 entries
+keyContrib[133]=[w 1:b25:g0.020000] -33.979402 dB  
+                [w 6:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 6:b20:g0.010000] -40.000000 dB  
+                [w 6:b26:g0.020000] -33.979402 dB  
+                [w18:b18:g0.010000] -40.000000 dB  
+                [w18:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b22:g0.010000] -40.000000 dB  
+                [w30:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b23:g0.010000] -40.000000 dB  
+                [w37:b19:g0.010000] -40.000000 dB  
+                [w37:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b24:g0.010000] -40.000000 dB  
+                [w42:b21:g0.010000] -40.000000 dB  
+                [w42:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b22:g0.010000] -40.000000 dB  
+                [w46:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w49:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w54:b18:g0.020000] -33.979402 dB  
+                [w54:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b24:g0.010000] -40.000000 dB  
+                [w66:b20:g0.020000] -33.979402 dB  
+                [w73:b19:g0.020000] -33.979402 dB  
+                [w76:b21:g0.010000] -40.000000 dB  
+                [w78:b21:g0.010000] -40.000000 dB  
+                [w85:b23:g0.020000] -33.979402 dB  
+                [w89:b24:g0.010000] -40.000000 dB  
+                [w90:b26:g0.010000] -40.000000 dB  
+20 wheels,  28 entries
+keyContrib[134]=[w 2:b25:g0.020000] -33.979402 dB  
+                [w 7:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 7:b20:g0.010000] -40.000000 dB  
+                [w 7:b26:g0.020000] -33.979402 dB  
+                [w19:b18:g0.010000] -40.000000 dB  
+                [w19:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w26:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b23:g0.010000] -40.000000 dB  
+                [w34:b19:g0.010000] -40.000000 dB  
+                [w38:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b24:g0.010000] -40.000000 dB  
+                [w43:b21:g0.010000] -40.000000 dB  
+                [w43:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w50:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w55:b18:g0.020000] -33.979402 dB  
+                [w55:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b24:g0.010000] -40.000000 dB  
+                [w67:b20:g0.020000] -33.979402 dB  
+                [w74:b19:g0.020000] -33.979402 dB  
+                [w79:b21:g0.020000] -33.979402 dB  
+                [w86:b23:g0.020000] -33.979402 dB  
+                [w86:b25:g0.010000] -40.000000 dB  
+                [w90:b24:g0.010000] -40.000000 dB  
+                [w91:b26:g0.010000] -40.000000 dB  
+19 wheels,  26 entries
+keyContrib[135]=[w 3:b25:g0.020000] -33.979402 dB  
+                [w 8:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 8:b20:g0.010000] -40.000000 dB  
+                [w 8:b26:g0.020000] -33.979402 dB  
+                [w20:b18:g0.010000] -40.000000 dB  
+                [w20:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w27:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w27:b22:g0.010000] -40.000000 dB  
+                [w32:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b23:g0.010000] -40.000000 dB  
+                [w39:b19:g0.010000] -40.000000 dB  
+                [w39:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b24:g0.010000] -40.000000 dB  
+                [w44:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b26:g0.010000] -40.000000 dB  
+                [w46:b22:g0.010000] -40.000000 dB  
+                [w48:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w51:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b18:g0.020000] -33.979402 dB  
+                [w56:b23:g0.010000] -40.000000 dB  
+                [w56:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b24:g0.010000] -40.000000 dB  
+                [w68:b20:g0.020000] -33.979402 dB  
+                [w75:b19:g0.020000] -33.979402 dB  
+                [w80:b21:g0.020000] -33.979402 dB  
+                [w87:b21:g0.010000] -40.000000 dB  
+                [w87:b23:g0.010000] -40.000000 dB  
+                [w87:b25:g0.010000] -40.000000 dB  
+                [w91:b24:g0.010000] -40.000000 dB  
+19 wheels,  29 entries
+keyContrib[136]=[w 1:b24:g0.020000] -33.979402 dB  
+                [w 4:b25:g0.020000] -33.979402 dB  
+                [w 9:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w 9:b20:g0.010000] -40.000000 dB  
+                [w 9:b26:g0.020000] -33.979402 dB  
+                [w21:b18:g0.010000] -40.000000 dB  
+                [w21:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b22:g0.010000] -40.000000 dB  
+                [w33:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w34:b23:g0.010000] -40.000000 dB  
+                [w40:b19:g0.010000] -40.000000 dB  
+                [w40:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b26:g0.010000] -40.000000 dB  
+                [w47:b22:g0.010000] -40.000000 dB  
+                [w49:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w52:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b18:g0.020000] -33.979402 dB  
+                [w57:b23:g0.010000] -40.000000 dB  
+                [w57:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w69:b20:g0.020000] -33.979402 dB  
+                [w76:b19:g0.020000] -33.979402 dB  
+                [w81:b21:g0.020000] -33.979402 dB  
+                [w88:b21:g0.010000] -40.000000 dB  
+                [w88:b23:g0.010000] -40.000000 dB  
+                [w88:b25:g0.010000] -40.000000 dB  
+17 wheels,  27 entries
+keyContrib[137]=[w 2:b24:g0.020000] -33.979402 dB  
+                [w 5:b25:g0.020000] -33.979402 dB  
+                [w10:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w10:b20:g0.010000] -40.000000 dB  
+                [w10:b26:g0.020000] -33.979402 dB  
+                [w22:b18:g0.010000] -40.000000 dB  
+                [w22:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w26:b21:g0.010000] -40.000000 dB  
+                [w29:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w29:b22:g0.010000] -40.000000 dB  
+                [w34:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b23:g0.010000] -40.000000 dB  
+                [w41:b19:g0.010000] -40.000000 dB  
+                [w41:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b21:g0.010000] -40.000000 dB  
+                [w46:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w46:b26:g0.010000] -40.000000 dB  
+                [w48:b22:g0.010000] -40.000000 dB  
+                [w50:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w53:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b18:g0.020000] -33.979402 dB  
+                [w58:b23:g0.010000] -40.000000 dB  
+                [w58:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w70:b20:g0.020000] -33.979402 dB  
+                [w77:b19:g0.020000] -33.979402 dB  
+                [w82:b21:g0.010000] -40.000000 dB  
+                [w86:b24:g0.010000] -40.000000 dB  
+                [w89:b23:g0.010000] -40.000000 dB  
+                [w89:b25:g0.010000] -40.000000 dB  
+20 wheels,  29 entries
+keyContrib[138]=[w 3:b24:g0.020000] -33.979402 dB  
+                [w 6:b25:g0.020000] -33.979402 dB  
+                [w11:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w11:b20:g0.010000] -40.000000 dB  
+                [w11:b26:g0.020000] -33.979402 dB  
+                [w23:b18:g0.010000] -40.000000 dB  
+                [w23:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b22:g0.010000] -40.000000 dB  
+                [w35:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b23:g0.010000] -40.000000 dB  
+                [w42:b19:g0.010000] -40.000000 dB  
+                [w42:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b26:g0.010000] -40.000000 dB  
+                [w51:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w54:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b18:g0.020000] -33.979402 dB  
+                [w59:b23:g0.010000] -40.000000 dB  
+                [w59:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w71:b20:g0.020000] -33.979402 dB  
+                [w76:b19:g0.010000] -40.000000 dB  
+                [w78:b19:g0.010000] -40.000000 dB  
+                [w83:b21:g0.020000] -33.979402 dB  
+                [w85:b22:g0.020000] -33.979402 dB  
+                [w87:b24:g0.010000] -40.000000 dB  
+                [w90:b21:g0.010000] -40.000000 dB  
+                [w90:b23:g0.010000] -40.000000 dB  
+                [w90:b25:g0.010000] -40.000000 dB  
+19 wheels,  29 entries
+keyContrib[139]=[w 4:b24:g0.020000] -33.979402 dB  
+                [w 7:b25:g0.020000] -33.979402 dB  
+                [w12:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w12:b20:g0.010000] -40.000000 dB  
+                [w12:b26:g0.020000] -33.979402 dB  
+                [w24:b18:g0.010000] -40.000000 dB  
+                [w24:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b22:g0.010000] -40.000000 dB  
+                [w36:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b23:g0.010000] -40.000000 dB  
+                [w43:b19:g0.010000] -40.000000 dB  
+                [w43:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b26:g0.010000] -40.000000 dB  
+                [w52:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w55:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b18:g0.020000] -33.979402 dB  
+                [w60:b23:g0.010000] -40.000000 dB  
+                [w60:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w72:b20:g0.020000] -33.979402 dB  
+                [w79:b19:g0.020000] -33.979402 dB  
+                [w84:b21:g0.020000] -33.979402 dB  
+                [w86:b22:g0.020000] -33.979402 dB  
+                [w88:b24:g0.010000] -40.000000 dB  
+                [w91:b21:g0.010000] -40.000000 dB  
+                [w91:b23:g0.010000] -40.000000 dB  
+                [w91:b25:g0.010000] -40.000000 dB  
+18 wheels,  28 entries
+keyContrib[140]=[w 1:b18:g0.010000] -40.000000 dB  
+                [w 1:b23:g0.020000] -33.979402 dB  
+                [w 5:b24:g0.020000] -33.979402 dB  
+                [w 8:b25:g0.020000] -33.979402 dB  
+                [w13:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w13:b26:g0.020000] -33.979402 dB  
+                [w25:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b21:g0.010000] -40.000000 dB  
+                [w32:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b20:g0.010000] -40.000000 dB  
+                [w37:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b22:g0.010000] -40.000000 dB  
+                [w44:b21:g0.010000] -40.000000 dB  
+                [w44:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b25:g0.010000] -40.000000 dB  
+                [w49:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w53:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b22:g0.010000] -40.000000 dB  
+                [w56:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b18:g0.020000] -33.979402 dB  
+                [w61:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w73:b20:g0.020000] -33.979402 dB  
+                [w73:b26:g0.010000] -40.000000 dB  
+                [w80:b19:g0.020000] -33.979402 dB  
+                [w87:b19:g0.010000] -40.000000 dB  
+                [w87:b22:g0.010000] -40.000000 dB  
+                [w89:b24:g0.010000] -40.000000 dB  
+16 wheels,  27 entries
+keyContrib[141]=[w 2:b18:g0.010000] -40.000000 dB  
+                [w 2:b23:g0.020000] -33.979402 dB  
+                [w 6:b24:g0.020000] -33.979402 dB  
+                [w 9:b25:g0.020000] -33.979402 dB  
+                [w14:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w14:b26:g0.020000] -33.979402 dB  
+                [w26:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w33:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w34:b20:g0.010000] -40.000000 dB  
+                [w34:b22:g0.010000] -40.000000 dB  
+                [w38:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b25:g0.010000] -40.000000 dB  
+                [w50:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w54:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b22:g0.010000] -40.000000 dB  
+                [w57:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b18:g0.020000] -33.979402 dB  
+                [w62:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w74:b20:g0.020000] -33.979402 dB  
+                [w74:b26:g0.010000] -40.000000 dB  
+                [w81:b19:g0.020000] -33.979402 dB  
+                [w86:b23:g0.010000] -40.000000 dB  
+                [w88:b19:g0.010000] -40.000000 dB  
+                [w88:b22:g0.010000] -40.000000 dB  
+                [w90:b24:g0.010000] -40.000000 dB  
+18 wheels,  26 entries
+keyContrib[142]=[w 3:b18:g0.010000] -40.000000 dB  
+                [w 3:b23:g0.020000] -33.979402 dB  
+                [w 7:b24:g0.020000] -33.979402 dB  
+                [w10:b25:g0.020000] -33.979402 dB  
+                [w15:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w15:b26:g0.020000] -33.979402 dB  
+                [w26:b19:g0.010000] -40.000000 dB  
+                [w27:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w27:b21:g0.010000] -40.000000 dB  
+                [w34:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b20:g0.010000] -40.000000 dB  
+                [w39:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b22:g0.010000] -40.000000 dB  
+                [w45:b19:g0.010000] -40.000000 dB  
+                [w46:b21:g0.010000] -40.000000 dB  
+                [w46:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w46:b25:g0.010000] -40.000000 dB  
+                [w51:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w55:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b22:g0.010000] -40.000000 dB  
+                [w58:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b18:g0.020000] -33.979402 dB  
+                [w63:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w75:b20:g0.020000] -33.979402 dB  
+                [w75:b26:g0.010000] -40.000000 dB  
+                [w82:b19:g0.010000] -40.000000 dB  
+                [w87:b23:g0.010000] -40.000000 dB  
+                [w89:b22:g0.010000] -40.000000 dB  
+                [w91:b24:g0.010000] -40.000000 dB  
+19 wheels,  29 entries
+keyContrib[143]=[w 4:b18:g0.010000] -40.000000 dB  
+                [w 4:b23:g0.020000] -33.979402 dB  
+                [w 8:b24:g0.020000] -33.979402 dB  
+                [w11:b25:g0.020000] -33.979402 dB  
+                [w16:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w16:b26:g0.020000] -33.979402 dB  
+                [w28:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b21:g0.010000] -40.000000 dB  
+                [w35:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b20:g0.010000] -40.000000 dB  
+                [w40:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b22:g0.010000] -40.000000 dB  
+                [w44:b24:g0.010000] -40.000000 dB  
+                [w47:b21:g0.010000] -40.000000 dB  
+                [w47:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b25:g0.010000] -40.000000 dB  
+                [w52:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b22:g0.010000] -40.000000 dB  
+                [w59:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w64:b18:g0.020000] -33.979402 dB  
+                [w64:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w76:b20:g0.020000] -33.979402 dB  
+                [w76:b26:g0.010000] -40.000000 dB  
+                [w83:b19:g0.020000] -33.979402 dB  
+                [w88:b23:g0.010000] -40.000000 dB  
+                [w90:b19:g0.010000] -40.000000 dB  
+                [w90:b22:g0.010000] -40.000000 dB  
+17 wheels,  28 entries
+keyContrib[144]=[w 5:b18:g0.010000] -40.000000 dB  
+                [w 5:b23:g0.020000] -33.979402 dB  
+                [w 9:b24:g0.020000] -33.979402 dB  
+                [w12:b25:g0.020000] -33.979402 dB  
+                [w17:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w17:b26:g0.020000] -33.979402 dB  
+                [w29:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w29:b21:g0.010000] -40.000000 dB  
+                [w36:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b20:g0.010000] -40.000000 dB  
+                [w41:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b22:g0.010000] -40.000000 dB  
+                [w45:b24:g0.010000] -40.000000 dB  
+                [w48:b21:g0.010000] -40.000000 dB  
+                [w48:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b25:g0.010000] -40.000000 dB  
+                [w53:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b22:g0.010000] -40.000000 dB  
+                [w60:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w65:b18:g0.020000] -33.979402 dB  
+                [w65:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w77:b20:g0.020000] -33.979402 dB  
+                [w77:b26:g0.010000] -40.000000 dB  
+                [w84:b19:g0.020000] -33.979402 dB  
+                [w89:b23:g0.010000] -40.000000 dB  
+                [w91:b19:g0.010000] -40.000000 dB  
+                [w91:b22:g0.010000] -40.000000 dB  
+17 wheels,  28 entries
+keyContrib[145]=[w 1:b22:g0.020000] -33.979402 dB  
+                [w 6:b18:g0.010000] -40.000000 dB  
+                [w 6:b23:g0.020000] -33.979402 dB  
+                [w10:b24:g0.020000] -33.979402 dB  
+                [w13:b25:g0.020000] -33.979402 dB  
+                [w18:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w18:b26:g0.020000] -33.979402 dB  
+                [w25:b19:g0.010000] -40.000000 dB  
+                [w30:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b21:g0.010000] -40.000000 dB  
+                [w37:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w42:b20:g0.010000] -40.000000 dB  
+                [w42:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b19:g0.010000] -40.000000 dB  
+                [w46:b24:g0.010000] -40.000000 dB  
+                [w49:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w54:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w66:b18:g0.020000] -33.979402 dB  
+                [w66:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w73:b25:g0.010000] -40.000000 dB  
+                [w76:b20:g0.010000] -40.000000 dB  
+                [w76:b26:g0.010000] -40.000000 dB  
+                [w78:b20:g0.010000] -40.000000 dB  
+                [w85:b21:g0.020000] -33.979402 dB  
+                [w90:b23:g0.010000] -40.000000 dB  
+21 wheels,  27 entries
+keyContrib[146]=[w 2:b22:g0.020000] -33.979402 dB  
+                [w 7:b18:g0.010000] -40.000000 dB  
+                [w 7:b23:g0.020000] -33.979402 dB  
+                [w11:b24:g0.020000] -33.979402 dB  
+                [w14:b25:g0.020000] -33.979402 dB  
+                [w19:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w19:b26:g0.020000] -33.979402 dB  
+                [w31:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b21:g0.010000] -40.000000 dB  
+                [w38:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w43:b20:g0.010000] -40.000000 dB  
+                [w43:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b24:g0.010000] -40.000000 dB  
+                [w50:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w55:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w67:b18:g0.020000] -33.979402 dB  
+                [w67:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w74:b25:g0.010000] -40.000000 dB  
+                [w79:b20:g0.020000] -33.979402 dB  
+                [w79:b26:g0.010000] -40.000000 dB  
+                [w86:b21:g0.020000] -33.979402 dB  
+                [w86:b22:g0.010000] -40.000000 dB  
+                [w91:b23:g0.010000] -40.000000 dB  
+18 wheels,  25 entries
+keyContrib[147]=[w 3:b22:g0.020000] -33.979402 dB  
+                [w 8:b18:g0.010000] -40.000000 dB  
+                [w 8:b23:g0.020000] -33.979402 dB  
+                [w12:b24:g0.020000] -33.979402 dB  
+                [w15:b25:g0.020000] -33.979402 dB  
+                [w20:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w20:b26:g0.020000] -33.979402 dB  
+                [w27:b19:g0.010000] -40.000000 dB  
+                [w32:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w37:b21:g0.010000] -40.000000 dB  
+                [w39:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b23:g0.010000] -40.000000 dB  
+                [w46:b19:g0.010000] -40.000000 dB  
+                [w48:b24:g0.010000] -40.000000 dB  
+                [w51:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b21:g0.010000] -40.000000 dB  
+                [w56:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w68:b18:g0.020000] -33.979402 dB  
+                [w68:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w75:b25:g0.010000] -40.000000 dB  
+                [w80:b20:g0.020000] -33.979402 dB  
+                [w80:b26:g0.010000] -40.000000 dB  
+                [w87:b20:g0.010000] -40.000000 dB  
+                [w87:b21:g0.010000] -40.000000 dB  
+                [w87:b22:g0.010000] -40.000000 dB  
+20 wheels,  28 entries
+keyContrib[148]=[w 4:b22:g0.020000] -33.979402 dB  
+                [w 9:b18:g0.010000] -40.000000 dB  
+                [w 9:b23:g0.020000] -33.979402 dB  
+                [w13:b24:g0.020000] -33.979402 dB  
+                [w16:b25:g0.020000] -33.979402 dB  
+                [w21:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w21:b26:g0.020000] -33.979402 dB  
+                [w28:b19:g0.010000] -40.000000 dB  
+                [w33:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w34:b21:g0.010000] -40.000000 dB  
+                [w40:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b23:g0.010000] -40.000000 dB  
+                [w47:b19:g0.010000] -40.000000 dB  
+                [w52:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b21:g0.010000] -40.000000 dB  
+                [w57:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w64:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w69:b18:g0.020000] -33.979402 dB  
+                [w69:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w73:b24:g0.010000] -40.000000 dB  
+                [w76:b25:g0.010000] -40.000000 dB  
+                [w81:b20:g0.020000] -33.979402 dB  
+                [w81:b26:g0.010000] -40.000000 dB  
+                [w88:b20:g0.010000] -40.000000 dB  
+                [w88:b21:g0.010000] -40.000000 dB  
+                [w88:b22:g0.010000] -40.000000 dB  
+20 wheels,  28 entries
+keyContrib[149]=[w 5:b22:g0.020000] -33.979402 dB  
+                [w10:b18:g0.010000] -40.000000 dB  
+                [w10:b23:g0.020000] -33.979402 dB  
+                [w14:b24:g0.020000] -33.979402 dB  
+                [w17:b25:g0.020000] -33.979402 dB  
+                [w22:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w22:b26:g0.020000] -33.979402 dB  
+                [w26:b20:g0.010000] -40.000000 dB  
+                [w29:b19:g0.010000] -40.000000 dB  
+                [w34:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w39:b21:g0.010000] -40.000000 dB  
+                [w41:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b20:g0.010000] -40.000000 dB  
+                [w46:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w46:b23:g0.010000] -40.000000 dB  
+                [w48:b19:g0.010000] -40.000000 dB  
+                [w53:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b21:g0.010000] -40.000000 dB  
+                [w58:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w65:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w70:b18:g0.020000] -33.979402 dB  
+                [w70:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w74:b24:g0.010000] -40.000000 dB  
+                [w77:b25:g0.010000] -40.000000 dB  
+                [w82:b20:g0.010000] -40.000000 dB  
+                [w82:b26:g0.010000] -40.000000 dB  
+                [w89:b21:g0.010000] -40.000000 dB  
+                [w89:b22:g0.010000] -40.000000 dB  
+22 wheels,  29 entries
+keyContrib[150]=[w 6:b22:g0.020000] -33.979402 dB  
+                [w11:b18:g0.010000] -40.000000 dB  
+                [w11:b23:g0.020000] -33.979402 dB  
+                [w15:b24:g0.020000] -33.979402 dB  
+                [w18:b25:g0.020000] -33.979402 dB  
+                [w23:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w23:b26:g0.020000] -33.979402 dB  
+                [w30:b19:g0.010000] -40.000000 dB  
+                [w35:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w40:b21:g0.010000] -40.000000 dB  
+                [w42:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b23:g0.010000] -40.000000 dB  
+                [w54:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b21:g0.010000] -40.000000 dB  
+                [w59:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w66:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w71:b18:g0.020000] -33.979402 dB  
+                [w71:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w75:b24:g0.010000] -40.000000 dB  
+                [w76:b25:g0.010000] -40.000000 dB  
+                [w83:b20:g0.020000] -33.979402 dB  
+                [w83:b26:g0.010000] -40.000000 dB  
+                [w85:b19:g0.020000] -33.979402 dB  
+                [w90:b20:g0.010000] -40.000000 dB  
+                [w90:b21:g0.010000] -40.000000 dB  
+                [w90:b22:g0.010000] -40.000000 dB  
+20 wheels,  28 entries
+keyContrib[151]=[w 7:b22:g0.020000] -33.979402 dB  
+                [w12:b18:g0.010000] -40.000000 dB  
+                [w12:b23:g0.020000] -33.979402 dB  
+                [w16:b24:g0.020000] -33.979402 dB  
+                [w19:b25:g0.020000] -33.979402 dB  
+                [w24:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w24:b26:g0.020000] -33.979402 dB  
+                [w31:b19:g0.010000] -40.000000 dB  
+                [w36:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w41:b21:g0.010000] -40.000000 dB  
+                [w43:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b23:g0.010000] -40.000000 dB  
+                [w55:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b21:g0.010000] -40.000000 dB  
+                [w60:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w64:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w67:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w72:b18:g0.020000] -33.979402 dB  
+                [w72:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w76:b24:g0.010000] -40.000000 dB  
+                [w79:b25:g0.010000] -40.000000 dB  
+                [w84:b20:g0.020000] -33.979402 dB  
+                [w84:b26:g0.010000] -40.000000 dB  
+                [w86:b19:g0.020000] -33.979402 dB  
+                [w91:b20:g0.010000] -40.000000 dB  
+                [w91:b21:g0.010000] -40.000000 dB  
+                [w91:b22:g0.010000] -40.000000 dB  
+20 wheels,  28 entries
+keyContrib[152]=[w 1:b21:g0.020000] -33.979402 dB  
+                [w 8:b22:g0.020000] -33.979402 dB  
+                [w13:b23:g0.020000] -33.979402 dB  
+                [w17:b24:g0.020000] -33.979402 dB  
+                [w20:b25:g0.020000] -33.979402 dB  
+                [w25:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w25:b20:g0.010000] -40.000000 dB  
+                [w25:b26:g0.020000] -33.979402 dB  
+                [w37:b18:g0.010000] -40.000000 dB  
+                [w37:b19:g0.010000] -40.000000 dB  
+                [w37:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b20:g0.010000] -40.000000 dB  
+                [w44:b22:g0.010000] -40.000000 dB  
+                [w49:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b19:g0.010000] -40.000000 dB  
+                [w56:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b26:g0.010000] -40.000000 dB  
+                [w65:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w68:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w73:b18:g0.020000] -33.979402 dB  
+                [w73:b23:g0.010000] -40.000000 dB  
+                [w73:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w77:b24:g0.010000] -40.000000 dB  
+                [w80:b25:g0.010000] -40.000000 dB  
+                [w87:b19:g0.010000] -40.000000 dB  
+17 wheels,  27 entries
+keyContrib[153]=[w 2:b21:g0.020000] -33.979402 dB  
+                [w 9:b22:g0.020000] -33.979402 dB  
+                [w14:b23:g0.020000] -33.979402 dB  
+                [w18:b24:g0.020000] -33.979402 dB  
+                [w21:b25:g0.020000] -33.979402 dB  
+                [w26:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w26:b26:g0.020000] -33.979402 dB  
+                [w34:b18:g0.010000] -40.000000 dB  
+                [w34:b19:g0.010000] -40.000000 dB  
+                [w38:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w45:b22:g0.010000] -40.000000 dB  
+                [w50:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w57:b19:g0.010000] -40.000000 dB  
+                [w57:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b26:g0.010000] -40.000000 dB  
+                [w66:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w69:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w74:b18:g0.020000] -33.979402 dB  
+                [w74:b23:g0.010000] -40.000000 dB  
+                [w74:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w76:b24:g0.010000] -40.000000 dB  
+                [w81:b25:g0.010000] -40.000000 dB  
+                [w86:b21:g0.010000] -40.000000 dB  
+                [w88:b19:g0.010000] -40.000000 dB  
+19 wheels,  26 entries
+keyContrib[154]=[w 3:b21:g0.020000] -33.979402 dB  
+                [w10:b22:g0.020000] -33.979402 dB  
+                [w15:b23:g0.020000] -33.979402 dB  
+                [w19:b24:g0.020000] -33.979402 dB  
+                [w22:b25:g0.020000] -33.979402 dB  
+                [w27:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w27:b20:g0.010000] -40.000000 dB  
+                [w27:b26:g0.020000] -33.979402 dB  
+                [w39:b18:g0.010000] -40.000000 dB  
+                [w39:b19:g0.010000] -40.000000 dB  
+                [w39:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w46:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w46:b20:g0.010000] -40.000000 dB  
+                [w46:b22:g0.010000] -40.000000 dB  
+                [w51:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w58:b19:g0.010000] -40.000000 dB  
+                [w58:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b26:g0.010000] -40.000000 dB  
+                [w67:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w70:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w75:b18:g0.020000] -33.979402 dB  
+                [w75:b23:g0.010000] -40.000000 dB  
+                [w75:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w79:b24:g0.010000] -40.000000 dB  
+                [w82:b25:g0.010000] -40.000000 dB  
+                [w87:b21:g0.010000] -40.000000 dB  
+                [w89:b19:g0.010000] -40.000000 dB  
+18 wheels,  28 entries
+keyContrib[155]=[w 4:b21:g0.020000] -33.979402 dB  
+                [w11:b22:g0.020000] -33.979402 dB  
+                [w16:b23:g0.020000] -33.979402 dB  
+                [w20:b24:g0.020000] -33.979402 dB  
+                [w23:b25:g0.020000] -33.979402 dB  
+                [w28:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w28:b20:g0.010000] -40.000000 dB  
+                [w28:b26:g0.010000] -40.000000 dB  
+                [w30:b26:g0.010000] -40.000000 dB  
+                [w40:b18:g0.010000] -40.000000 dB  
+                [w40:b19:g0.010000] -40.000000 dB  
+                [w40:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w47:b20:g0.010000] -40.000000 dB  
+                [w47:b22:g0.010000] -40.000000 dB  
+                [w52:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w59:b19:g0.010000] -40.000000 dB  
+                [w59:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w64:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w66:b26:g0.010000] -40.000000 dB  
+                [w68:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w71:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w76:b18:g0.020000] -33.979402 dB  
+                [w76:b23:g0.010000] -40.000000 dB  
+                [w76:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w80:b24:g0.010000] -40.000000 dB  
+                [w83:b25:g0.010000] -40.000000 dB  
+                [w88:b21:g0.010000] -40.000000 dB  
+                [w90:b19:g0.010000] -40.000000 dB  
+20 wheels,  29 entries
+keyContrib[156]=[w 5:b21:g0.020000] -33.979402 dB  
+                [w12:b22:g0.020000] -33.979402 dB  
+                [w17:b23:g0.020000] -33.979402 dB  
+                [w21:b24:g0.020000] -33.979402 dB  
+                [w24:b25:g0.020000] -33.979402 dB  
+                [w29:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w29:b20:g0.010000] -40.000000 dB  
+                [w29:b26:g0.020000] -33.979402 dB  
+                [w41:b18:g0.010000] -40.000000 dB  
+                [w41:b19:g0.010000] -40.000000 dB  
+                [w41:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w48:b20:g0.010000] -40.000000 dB  
+                [w48:b22:g0.010000] -40.000000 dB  
+                [w53:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w60:b19:g0.010000] -40.000000 dB  
+                [w60:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w65:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w65:b26:g0.010000] -40.000000 dB  
+                [w69:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w72:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w77:b18:g0.020000] -33.979402 dB  
+                [w77:b23:g0.010000] -40.000000 dB  
+                [w77:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w81:b24:g0.010000] -40.000000 dB  
+                [w84:b25:g0.010000] -40.000000 dB  
+                [w89:b21:g0.010000] -40.000000 dB  
+                [w91:b19:g0.010000] -40.000000 dB  
+18 wheels,  28 entries
+keyContrib[157]=[w 1:b19:g0.020000] -33.979402 dB  
+                [w 6:b21:g0.020000] -33.979402 dB  
+                [w13:b22:g0.020000] -33.979402 dB  
+                [w18:b23:g0.020000] -33.979402 dB  
+                [w22:b24:g0.020000] -33.979402 dB  
+                [w25:b25:g0.020000] -33.979402 dB  
+                [w30:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w30:b20:g0.010000] -40.000000 dB  
+                [w30:b26:g0.010000] -40.000000 dB  
+                [w42:b18:g0.010000] -40.000000 dB  
+                [w42:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w49:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w54:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w61:b25:g0.010000] -40.000000 dB  
+                [w66:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w70:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w73:b22:g0.010000] -40.000000 dB  
+                [w73:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w76:b18:g0.010000] -40.000000 dB  
+                [w76:b23:g0.010000] -40.000000 dB  
+                [w78:b18:g0.010000] -40.000000 dB  
+                [w78:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w82:b24:g0.010000] -40.000000 dB  
+                [w85:b20:g0.020000] -33.979402 dB  
+                [w90:b21:g0.010000] -40.000000 dB  
+19 wheels,  26 entries
+keyContrib[158]=[w 2:b19:g0.020000] -33.979402 dB  
+                [w 7:b21:g0.020000] -33.979402 dB  
+                [w14:b22:g0.020000] -33.979402 dB  
+                [w19:b23:g0.020000] -33.979402 dB  
+                [w23:b24:g0.020000] -33.979402 dB  
+                [w26:b25:g0.020000] -33.979402 dB  
+                [w31:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w31:b20:g0.010000] -40.000000 dB  
+                [w31:b26:g0.020000] -33.979402 dB  
+                [w43:b18:g0.010000] -40.000000 dB  
+                [w43:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w50:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w55:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w62:b25:g0.010000] -40.000000 dB  
+                [w67:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w67:b26:g0.010000] -40.000000 dB  
+                [w71:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w74:b22:g0.010000] -40.000000 dB  
+                [w74:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w79:b18:g0.020000] -33.979402 dB  
+                [w79:b23:g0.010000] -40.000000 dB  
+                [w79:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w83:b24:g0.010000] -40.000000 dB  
+                [w86:b19:g0.010000] -40.000000 dB  
+                [w86:b20:g0.020000] -33.979402 dB  
+                [w91:b21:g0.010000] -40.000000 dB  
+18 wheels,  27 entries
+keyContrib[159]=[w 3:b19:g0.020000] -33.979402 dB  
+                [w 8:b21:g0.020000] -33.979402 dB  
+                [w15:b22:g0.020000] -33.979402 dB  
+                [w20:b23:g0.020000] -33.979402 dB  
+                [w24:b24:g0.020000] -33.979402 dB  
+                [w27:b25:g0.020000] -33.979402 dB  
+                [w32:b18:g0.990000]  -0.087296 dB  IIIIIIII
+                [w32:b26:g0.020000] -33.979402 dB  
+                [w37:b20:g0.010000] -40.000000 dB  
+                [w44:b20:g0.990000]  -0.087296 dB  IIIIIIII
+                [w44:b21:g0.010000] -40.000000 dB  
+                [w51:b19:g0.990000]  -0.087296 dB  IIIIIIII
+                [w56:b20:g0.010000] -40.000000 dB  
+                [w56:b21:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b22:g0.990000]  -0.087296 dB  IIIIIIII
+                [w63:b25:g0.010000] -40.000000 dB  
+                [w68:b23:g0.990000]  -0.087296 dB  IIIIIIII
+                [w68:b26:g0.010000] -40.000000 dB  
+                [w72:b24:g0.990000]  -0.087296 dB  IIIIIIII
+                [w75:b22:g0.010000] -40.000000 dB  
+                [w75:b25:g0.990000]  -0.087296 dB  IIIIIIII
+                [w80:b18:g0.020000] -33.979402 dB  
+                [w80:b23:g0.010000] -40.000000 dB  
+                [w80:b26:g0.990000]  -0.087296 dB  IIIIIIII
+                [w84:b24:g0.010000] -40.000000 dB  
+                [w87:b18:g0.010000] -40.000000 dB  
+                [w87:b19:g0.010000] -40.000000 dB  
+                [w87:b20:g0.010000] -40.000000 dB  
+18 wheels,  28 entries
