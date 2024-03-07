@@ -71,6 +71,11 @@ ifeq ($(origin CC),default)
 CC=g++
 endif
 
+ifneq ($(SANITIZE),)
+CC=clang++
+override CFLAGS += -fsanitize=address,undefined
+endif
+
 IS_WIN=
 PKG_GL_LIBS=
 ifneq ($(IS_OSX),)

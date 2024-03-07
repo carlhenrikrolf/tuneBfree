@@ -9,7 +9,6 @@ jobs:
         uses: actions/checkout@v4
         with:
             submodules: 'true'
-      - run: make formatcheck
       - name: Build
         run: |
             sudo apt-get update
@@ -101,3 +100,29 @@ jobs:
         with:
             name: build_windows
             path: build
+  checks:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            submodules: 'true'
+      - run: make formatcheck
+      - name: Build
+        run: |
+            sudo apt-get update
+            sudo apt-get upgrade -y
+            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev xxd g++
+            export SANITIZE=yes
+            make
+      - name: Test with sanitizers
+        run: |
+            git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
+            sudo mkdir -p /usr/local/lib
+            sudo cp ~/MTS-ESP/libMTS/Linux/x86_64/libMTS.so /usr/local/lib/
+            python3 -m venv .env
+            source .env/bin/activate
+            git clone --recurse-submodules https://github.com/narenratan/mtsespy.git ~/mtsespy
+            python3 -m pip install ~/mtsespy
+            python3 -m pip install pytest
+            pytest tests
