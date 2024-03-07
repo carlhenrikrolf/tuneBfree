@@ -2972,7 +2972,7 @@ void initToneGenerator(struct b_tonegen *t, void *m)
 
     applyDefaultConfiguration(t);
 
-    getFrequencies(t->frequency);
+    getFrequencies(t->frequency, NOF_FREQS);
 
 #if DEBUG_TONEGEN_OSC
     dumpConfigLists(t, "osc_cfglists.txt");

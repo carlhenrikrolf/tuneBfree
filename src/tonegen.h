@@ -75,6 +75,12 @@ typedef struct deflist_element {
 #define NOF_WHEELS 91
 
 /**
+ * Number of frequencies stored in the frequency array which
+ * oscillator frequencies are chosen from.
+ */
+#define NOF_FREQS 256
+
+/**
  * Keys are numbered thus:
  *   0-- 63, upper manual (  0-- 60 in use)
  *  64--127, lower manual ( 64--124 in use)
@@ -542,7 +548,7 @@ struct b_tonegen {
 /*
  * Frequencies pulled with MTS-ESP
  */
-    double frequency[128];
+    double frequency[NOF_FREQS];
 };
 
 extern void setToneGeneratorModel (struct b_tonegen* t, int variant);

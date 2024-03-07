@@ -126,6 +126,10 @@ jobs:
             python3 -m pip install ~/mtsespy
             python3 -m pip install pytest
             pytest -k 'not regression' tests
+      - name: Doctest tests
+        run: |
+            cd src
+            make tests
   regression_test:
     runs-on: ubuntu-20.04
     steps:
