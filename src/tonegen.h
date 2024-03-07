@@ -538,6 +538,11 @@ struct b_tonegen {
 	struct b_vibrato inst_vibrato;
 
 	void* midi_cfg_ptr;
+
+/*
+ * Frequencies pulled with MTS-ESP
+ */
+    double frequency[128];
 };
 
 extern void setToneGeneratorModel (struct b_tonegen* t, int variant);

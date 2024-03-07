@@ -34,8 +34,8 @@
 #include <cmath>
 
 #include "global_inst.h"
-#include "libMTSClient.h"
 #include "main.h"
+#include "tuning.h"
 
 /* These are assertion support macros. */
 /* In range? : A <= V < B  */
@@ -687,7 +687,7 @@ static double taperingModel(int key, int bus)
     return dBToGain(tapering);
 }
 
-static double getOscillatorFrequency(MTSClient *client, int i)
+static double getOscillatorFrequency(struct b_tonegen* t, int i)
 {
     /*
      * Note number offset chosen so middle C has correct pitch with default
@@ -695,7 +695,7 @@ static double getOscillatorFrequency(MTSClient *client, int i)
      * required for one period Upper frequency cutoff chosen to avoid integer
      * overflow in fitWave
      */
-    return std::fmin(std::fmax(MTS_NoteToFrequency(client, 23 + i, 0), 12.0), 2.5e10);
+    return std::fmin(std::fmax(t->frequency[23 + i], 12.0), 2.5e10);
 }
 
 /**
@@ -745,14 +745,11 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 #endif
 
     double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
-    // TODO just pull frequencies once
     double frequency[92];
-    MTSClient *client = MTS_RegisterClient();
     for (int i = 1; i <= 91; i++)
     {
-        frequency[i] = getOscillatorFrequency(client, i);
+        frequency[i] = getOscillatorFrequency(t, i);
     }
-    MTS_DeregisterClient(client);
 
     /**
      * Now that the frequency of each tonewheel can be set freely, we need to
@@ -1521,7 +1518,6 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
         break;
     }
 
-    MTSClient *client = MTS_RegisterClient();
     for (i = 1; i <= nofOscillators; i++)
     {
         int j;
@@ -1580,7 +1576,7 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
 			osp->frequency = baseTuning * pow (2.0, tun / 12.0);
 		}
 #endif
-        osp->frequency = getOscillatorFrequency(client, i);
+        osp->frequency = getOscillatorFrequency(t, i);
 
         /*
          * The oscGenerateFragment() routine assumes that samples are at least
@@ -1653,7 +1649,6 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
                      osp->attenuation, osp->frequency);
 
     } /* for each oscillator struct */
-    MTS_DeregisterClient(client);
 }
 
 /**
@@ -2976,6 +2971,8 @@ void initToneGenerator(struct b_tonegen *t, void *m)
     }
 
     applyDefaultConfiguration(t);
+
+    getFrequencies(t->frequency);
 
 #if DEBUG_TONEGEN_OSC
     dumpConfigLists(t, "osc_cfglists.txt");

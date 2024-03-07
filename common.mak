@@ -206,6 +206,7 @@ LV2OBJ= \
   ../src/state.cpp \
   ../src/tonegen.cpp \
   ../libs/MTS-ESP/Client/libMTSClient.cpp \
+  ../src/tuning.cpp \
   ../src/pgmParser.cpp \
   ../src/memstream.cpp \
   ../src/midnam.cpp \

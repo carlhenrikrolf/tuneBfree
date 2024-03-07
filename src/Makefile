@@ -24,6 +24,7 @@ OBJS= \
 	midnam.o \
 	memstream.o \
 	libMTSClient.o \
+	tuning.o \
 	../b_reverb/reverb.cpp \
 	../b_whirl/eqcomp.cpp \
 	../b_whirl/whirl.cpp \
@@ -42,6 +43,7 @@ HEADERS = \
 	tonegen.h \
 	defaultpgm.h \
 	memstream.h \
+	tuning.h \
 	../b_reverb/reverb.h \
 	../b_whirl/eqcomp.h \
 	../b_whirl/whirl.h \
