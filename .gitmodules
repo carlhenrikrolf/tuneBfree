@@ -7,3 +7,6 @@
 [submodule "libs/lv2"]
 	path = libs/lv2
 	url = https://github.com/lv2/lv2.git
+[submodule "libs/doctest"]
+	path = libs/doctest
+	url = https://github.com/doctest/doctest.git

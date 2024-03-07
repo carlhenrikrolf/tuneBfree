@@ -135,7 +135,7 @@ libMTSClient.o: ../libs/MTS-ESP/Client/libMTSClient.cpp
 	$(CXX) -c ../libs/MTS-ESP/Client/libMTSClient.cpp -o libMTSClient.o
 
 clean:
-	rm -f *.o core *.log *~ setBfree$(EXE_EXT) configd programd
+	rm -f *.o core *.log *~ setBfree$(EXE_EXT) configd programd tests
 
 install: setBfree
 	install -d $(DESTDIR)$(bindir)
@@ -153,5 +153,19 @@ uninstall:
 	-rmdir $(DESTDIR)$(sharedir)/cfg
 	-rmdir $(DESTDIR)$(sharedir)/pgm
 	-rmdir $(DESTDIR)$(sharedir)
+
+tests: tuning.h tuning.cpp
+	clang++ \
+	-g \
+	-Wall \
+	-fsanitize=address,undefined \
+	-o tests \
+	-DTESTS \
+	-I../libs/doctest/doctest \
+	-I../libs/MTS-ESP/Client \
+	../libs/MTS-ESP/Client/libMTSClient.cpp \
+	tuning.cpp \
+
+	./tests
 
 .PHONY: clean all install uninstall program

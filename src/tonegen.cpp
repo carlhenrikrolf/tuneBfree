@@ -687,7 +687,7 @@ static double taperingModel(int key, int bus)
     return dBToGain(tapering);
 }
 
-static double getOscillatorFrequency(struct b_tonegen* t, int i)
+static double getOscillatorFrequency(struct b_tonegen *t, int i)
 {
     /*
      * Note number offset chosen so middle C has correct pitch with default
