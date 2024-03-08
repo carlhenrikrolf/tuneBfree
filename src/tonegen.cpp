@@ -2956,9 +2956,9 @@ void initToneGenerator(struct b_tonegen *t, void *m)
         t->envAtkClkMaxLength = BUFFER_SIZE_SAMPLES;
     }
 
-    applyDefaultConfiguration(t);
-
     getFrequencies(t->frequency, NOF_FREQS);
+
+    applyDefaultConfiguration(t);
 
 #if DEBUG_TONEGEN_OSC
     dumpConfigLists(t, "osc_cfglists.txt");
