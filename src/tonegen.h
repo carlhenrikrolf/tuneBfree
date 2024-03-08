@@ -72,13 +72,13 @@ typedef struct deflist_element {
  * Note that the first one is numbered 1 and the last 91, so allocations
  * must add one.
  */
-#define NOF_WHEELS 91
+#define NOF_WHEELS 256
 
 /**
  * Number of frequencies stored in the frequency array which
  * oscillator frequencies are chosen from.
  */
-#define NOF_FREQS 256
+#define NOF_FREQS 300
 
 /**
  * Keys are numbered thus:
