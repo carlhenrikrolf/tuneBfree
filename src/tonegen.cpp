@@ -729,8 +729,8 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 #endif
 
     double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
-    double frequency[92];
-    for (int i = 1; i <= 91; i++)
+    double frequency[NOF_WHEELS + 1];
+    for (int i = 1; i <= NOF_WHEELS; i++)
     {
         frequency[i] = getOscillatorFrequency(t, i);
     }
@@ -754,7 +754,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
             { /* For each bus contact */
                 smallestCentDiff = std::numeric_limits<float>::infinity();
                 bestTerminalNumber = 0;
-                for (terminalNumber = 1; terminalNumber <= 91; terminalNumber++)
+                for (terminalNumber = 1; terminalNumber <= NOF_WHEELS; terminalNumber++)
                 { /* For each possible terminal */
                     ratio = frequency[terminalNumber] / frequency[k + 13];
                     centDiff = 1200 * std::fabs(std::log2(targetRatio[b] / ratio));
@@ -764,9 +764,9 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                         bestTerminalNumber = terminalNumber;
                     }
                 }
-                // If the best terminal is 1 or 91 then it's likely the search has just
+                // If the best terminal is 1 or NOF_WHEELS then it's likely the search has just
                 // hit the end of the range and we don't have a good approximation
-                if ((bestTerminalNumber != 1) && (bestTerminalNumber != 91))
+                if ((bestTerminalNumber != 1) && (bestTerminalNumber != NOF_WHEELS))
                 {
                     lep = newConfigListElement(t);
                     LE_TERMINAL_OF(lep) = (short)bestTerminalNumber;
@@ -1462,29 +1462,7 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
     struct _oscillator *osp;
     double harmonicsList[MAX_PARTIALS];
 
-    switch (variant)
-    {
-    case 0:
-        nofOscillators = 91;
-        // baseTuning     = t->tuning / 8.0;
-        // tuningOsc      = 10;
-        break;
-
-    case 1:
-        nofOscillators = 82;
-        // baseTuning     = t->tuning / 8.0;
-        // tuningOsc      = 1;
-        break;
-
-    case 2:
-        nofOscillators = 91;
-        // baseTuning     = t->tuning / 8.0;
-        // tuningOsc      = 10;
-        break;
-
-    default:
-        assert(0);
-    } /* switch variant */
+    nofOscillators = NOF_WHEELS;
 
     /*
      * Apply equalisation curve. This sets the attenuation field in the
