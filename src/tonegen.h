@@ -437,8 +437,8 @@ struct b_tonegen {
 
 	int    eqMacro;
 	double eqvCeiling;  /**< Normalizing manual osc eq. */
-	double eqvAtt[NOF_WHEELS + 1]; /**< Values from config file */
-	char   eqvSet[NOF_WHEELS + 1]; /**< Value is set by a config command */
+	double eqvAtt[NOF_WHEELS + 128]; /**< Values from config file */
+	char   eqvSet[NOF_WHEELS + 128]; /**< Value is set by a config command */
 
 	/*
  * EQ_SPLINE parameters.
