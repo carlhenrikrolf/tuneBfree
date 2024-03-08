@@ -73,7 +73,8 @@ endif
 
 ifneq ($(SANITIZE),)
 CC=clang++
-override CFLAGS += -fsanitize=address,undefined
+CXX=clang++
+override CFLAGS += -fsanitize=address,undefined -fno-sanitize-recover=address,undefined
 endif
 
 IS_WIN=
