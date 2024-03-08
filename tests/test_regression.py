@@ -20,6 +20,9 @@ def same(filename1, filename2):
     return filecmp.cmp(filename1, filename2, shallow=False)
 
 
+mts.reinitialize()
+
+
 @pytest.mark.parametrize("test_dir", TEST_DIRS)
 def test_osc_files(test_dir, tmp_path):
     """
