@@ -23,7 +23,7 @@ def same(filename1, filename2):
 mts.reinitialize()
 
 
-@pytest.mark.parametrize("test_dir", TEST_DIRS)
+@pytest.mark.parametrize("test_dir", TEST_DIRS, ids=lambda x: x.name)
 def test_osc_files(test_dir, tmp_path):
     """
     Test that the oscillator debug files remain the same.
