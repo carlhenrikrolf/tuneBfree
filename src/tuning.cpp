@@ -37,45 +37,66 @@ static void getMTSESPFrequencies(double *frequency)
  * 128 tonewheels without using multichannel MTS-ESP to specify all the
  * frequencies.
  *
- * This function works for any whole-number period less than 100; I would guess
- * that the most common cases would be 2 (any octave repeating scale) or 3
- * (e.g. for Bohlen-Pierce). It cannot find non-integer periods, e.g. scales
- * with stretched octaves. In case it cannot find the period it returns -1 for
- * scale size and period.
+ * If this function cannot find the period it sets the scale size and period to -1.
  */
-static void inferScaleSize(double *frequency, int *scaleSizeRet, int *periodRet)
+static void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
 {
-    int scaleSize = 0;
-    int period;
-    int i, j;
-    double target;
-    for (period = 2; period <= 100; period++)
+    int scaleSize, i;
+    float period;
+    bool mismatch;
+
+    // Check for integer periods first
+    // This means e.g. EDOs return 2.0 for the period rather than one step
+
+    for (period = 2.0; period < 10.0; period++)
     {
-        for (i = 0; i <= 126; i++)
+        for (scaleSize = 1; scaleSize < 128; scaleSize++)
         {
-            if (frequency[i] > 10.0)
-            { /* Do not use very small frequencies to avoid numerical errors */
-                target = period * frequency[i];
-                for (j = i; j <= 126; j++)
+            mismatch = false;
+            for (i = 0; i < 128 - scaleSize; i++)
+            {
+                if (std::fabs(frequency[i + scaleSize] / frequency[i] - period) > 1e-6)
                 {
-                    if ((std::fabs(frequency[j] - target) < 1e-6) &&
-                        (std::fabs(frequency[j + 1] - period * frequency[i + 1]) < 1e-6))
-                    { /* If frequencies j, i and j+1, i+1 are related by period */
-                        scaleSize = j - i;
-                        goto end;
-                    }
+                    mismatch = true;
+                    break;
                 }
+            }
+            if (not mismatch)
+            {
+                *scaleSizeRet = scaleSize;
+                *periodRet = period;
+                return;
             }
         }
     }
-end:
-    if (scaleSize == 0)
+
+    // Check for non-integer periods
+
+    for (scaleSize = 1; scaleSize < 128; scaleSize++)
     {
-        scaleSize = -1;
-        period = -1;
+        period = frequency[scaleSize] / frequency[0];
+        mismatch = false;
+        for (i = 0; i < 128 - scaleSize; i++)
+        {
+            if (std::fabs(frequency[i + scaleSize] / frequency[i] - period) > 1e-6)
+            {
+                mismatch = true;
+                break;
+            }
+        }
+        if (not mismatch)
+        {
+            *scaleSizeRet = scaleSize;
+            *periodRet = period;
+            return;
+        }
     }
-    *scaleSizeRet = scaleSize;
-    *periodRet = period;
+
+    // If no period could be found
+
+    *scaleSizeRet = -1;
+    *periodRet = -1.0;
+    return;
 };
 
 /**
@@ -87,7 +108,8 @@ end:
  */
 static void extendFrequencies(double *frequency, int length)
 {
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
     assert(scaleSize <= 128);
     if (scaleSize > 0)
@@ -182,10 +204,11 @@ TEST_CASE("Testing inferPeriod 12TET")
 {
     double frequency[128] = {0.0};
     getMTSESPFrequencies(frequency);
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
     CHECK(scaleSize == 12);
-    CHECK(period == 2);
+    CHECK(period == 2.0);
 }
 
 TEST_CASE("Testing inferPeriod 19TET")
@@ -224,10 +247,11 @@ TEST_CASE("Testing inferPeriod 19TET")
         2335.0770616524906, 2421.8369610261457, 2511.8204140818916, 2605.1472211279147,
         2701.9415745249967, 2802.3323423369116, 2906.453117117072,  3014.4425210285954,
     };
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
     CHECK(scaleSize == 19);
-    CHECK(period == 2);
+    CHECK(period == 2.0);
 }
 
 TEST_CASE("Testing inferPeriod Bohlen-Pierce")
@@ -266,10 +290,11 @@ TEST_CASE("Testing inferPeriod Bohlen-Pierce")
         41665.66131135036,  45339.832779278986, 49338.00092818817,  53688.736512111325,
         58423.129718254924, 63575.01236804554,  69181.19955346883,  75281.7528992329,
     };
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
     CHECK(scaleSize == 13);
-    CHECK(period == 3);
+    CHECK(period == 3.0);
 }
 
 TEST_CASE("Testing inferPeriod p4.scl")
@@ -319,10 +344,11 @@ TEST_CASE("Testing inferPeriod p4.scl")
         6210417319191003.0,     8694584246867417.0,     1.7389168493734834e+16,
         2.6083752740602216e+16, 4.347292123433707e+16,
     };
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
     CHECK(scaleSize == 4);
-    CHECK(period == 7);
+    CHECK(period == 7.0);
 }
 
 TEST_CASE("Testing inferPeriod bagpipe4.scl (period 1190 cents)")
@@ -361,10 +387,11 @@ TEST_CASE("Testing inferPeriod bagpipe4.scl (period 1190 cents)")
         24260.509257537404, 26956.121397263774, 28303.927467126967, 32161.038674991334,
         28140.90884061741,  32161.038674991334, 36181.16850936524,  40201.298343739145,
     };
-    int scaleSize, period;
+    int scaleSize;
+    float period;
     inferScaleSize(frequency, &scaleSize, &period);
-    CHECK(scaleSize == -1);
-    CHECK(period == -1);
+    CHECK(scaleSize == 9);
+    CHECK(period == 1.9884808063507080);
 }
 
 TEST_CASE("Testing extendFrequencies bagpipe4.scl (period 1190 cents)")
@@ -407,8 +434,8 @@ TEST_CASE("Testing extendFrequencies bagpipe4.scl (period 1190 cents)")
     CHECK(frequency[255] == 0.0);
 
     extendFrequencies(frequency, 256);
-    CHECK(frequency[128] == frequency[127]);
-    CHECK(frequency[255] == frequency[127]);
+    CHECK(frequency[128] == 42881.3840096949352301);
+    CHECK(frequency[255] == 728988980.0540838241577148);
 }
 
 TEST_CASE("Testing getPairedWheel")
