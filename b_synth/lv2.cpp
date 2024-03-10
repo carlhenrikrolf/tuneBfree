@@ -51,6 +51,8 @@
 #include "lv2/state/state.h"
 #include "lv2/worker/worker.h"
 
+#include "libMTSClient.h"
+
 #include "cfgParser.h"
 #include "global_inst.h"
 #include "main.h"
@@ -108,6 +110,9 @@ typedef struct
     uint32_t counter;
     double sin_phase;
     bool dirty;
+
+    MTSClient *client;
+    double previousFrequency[2];
 
 } B3S;
 
@@ -970,6 +975,8 @@ static LV2_Handle instantiate(const LV2_Descriptor *descriptor, double rate,
 
     SampleRateD = rate;
 
+    b3s->client = MTS_RegisterClient();
+
     int i;
     for (i = 0; features[i]; ++i)
     {
@@ -1191,6 +1198,29 @@ static void run(LV2_Handle instance, uint32_t n_samples)
     float *audio[2];
     b3s->dirty = false;
 
+    /* Reinitialize synth if MTS-ESP tuning has changed */
+    double newFrequency0 = MTS_NoteToFrequency(b3s->client, 0, 0);
+    double newFrequency1 = MTS_NoteToFrequency(b3s->client, 127, 0);
+    if ((newFrequency0 != b3s->previousFrequency[0]) ||
+        (newFrequency1 != b3s->previousFrequency[1]))
+    {
+#ifdef DEBUGPRINT
+        fprintf(stderr, "Reinitializing after MTS-ESP tuning change\n");
+#endif
+        b3s->inst_offline = (b_instance *)calloc(1, sizeof(struct b_instance));
+        allocSynth(b3s->inst_offline);
+        // clone midi map only
+        rc_loop_state(b3s->inst->state, clone_map_cb, b3s->inst_offline);
+        // copy program info
+        memcpy(b3s->inst_offline->progs, b3s->inst->progs, sizeof(struct b_programme));
+        initSynth(b3s->inst_offline, SampleRateD);
+        // replay CCs after synth init
+        rc_loop_state(b3s->inst->state, clone_cb_mcc, b3s->inst_offline);
+        b3s->previousFrequency[0] = newFrequency0;
+        b3s->previousFrequency[1] = newFrequency1;
+        b3s->swap_instances = 1;
+    }
+
     audio[0] = b3s->outL;
     audio[1] = b3s->outR;
 
@@ -1390,6 +1420,7 @@ static void cleanup(LV2_Handle instance)
     B3S *b3s = (B3S *)instance;
     freeSynth(b3s->inst);
     freeSynth(b3s->inst_offline);
+    MTS_DeregisterClient(b3s->client);
     free(instance);
 }
 

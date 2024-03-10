@@ -10,12 +10,7 @@ Built LV2 plugins are available for Mac, Windows, and Linux on the github
 Tuning
 ------
 The tuning can be set using an MTS-ESP master like [MTS-ESP
-Mini](https://oddsound.com/mtsespmini.php). For now the tuning is set on
-initialization; it is not continuously updated. You can force a tuning update
-by changing any parameter in the Tuning section of Advanced Config. The
-Advanced Config can be accessed by typing ~ with your mouse over the GUI, or by
-clicking the silver panel on the top right (next to the question mark) and then
-the silver transformer on the left.
+Mini](https://oddsound.com/mtsespmini.php).
 
 Building
 --------
