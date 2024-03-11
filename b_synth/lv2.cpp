@@ -39,11 +39,6 @@
 #include <sys/types.h>
 #endif
 
-#ifdef WITH_SIGNATURE // gpg signed verified binary
-#include "gp3.h"
-#include WITH_SIGNATURE // pubkey
-#endif
-
 /* LV2 */
 #include "lv2/atom/util.h"
 #include "lv2/core/lv2.h"
@@ -214,56 +209,6 @@ static void freeSynth(struct b_instance *inst)
 #define MIN(A, B) (((A) < (B)) ? (A) : (B))
 #endif
 
-#ifdef WITH_SIGNATURE
-static void scramble(B3S *b3s, float *const buf, const size_t n_samples)
-{
-    if (b3s->thirtysec == 0)
-        return;
-    const uint32_t nc = b3s->counter + n_samples;
-    float p;
-
-    if (nc < b3s->thirtysec)
-    {
-        b3s->counter += n_samples;
-        return;
-    }
-    if (nc > b3s->thirtysec + SampleRateD * 1)
-    {
-        const float f = 8284.f / SampleRateD;
-        p = b3s->sin_phase;
-        for (int i = 0; i < n_samples; ++i, p += f)
-        {
-            const float g = i / (float)n_samples;
-            buf[i] = buf[i] * g + .125f * (1.f - g) * sinf(p);
-        }
-        b3s->counter = 0;
-        b3s->sin_phase = 0;
-        return;
-    }
-    else if (b3s->counter >= b3s->thirtysec)
-    {
-        const float f = 8284.f / SampleRateD;
-        p = b3s->sin_phase;
-        for (int i = 0; i < n_samples; ++i, p += f)
-        {
-            buf[i] = .125f * sinf(p);
-        }
-    }
-    else
-    {
-        const float f = 8284.f / SampleRateD;
-        p = b3s->sin_phase;
-        for (int i = 0; i < n_samples; ++i, p += f)
-        {
-            const float g = i / (float)n_samples;
-            buf[i] = buf[i] * (1.f - g) + .125f * g * sinf(p);
-        }
-    }
-    b3s->sin_phase = fmod(p, 2.0 * M_PI);
-    b3s->counter += n_samples;
-}
-#endif
-
 static uint32_t synthSound(B3S *instance, uint32_t written, uint32_t nframes, float **out)
 {
     B3S *b3s = (B3S *)instance;
@@ -278,9 +223,6 @@ static uint32_t synthSound(B3S *instance, uint32_t written, uint32_t nframes, fl
             oscGenerateFragment(instance->inst->synth, b3s->bufA, BUFFER_SIZE_SAMPLES);
             preamp(instance->inst->preamp, b3s->bufA, b3s->bufB, BUFFER_SIZE_SAMPLES);
             reverb(instance->inst->reverb, b3s->bufB, b3s->bufC, BUFFER_SIZE_SAMPLES);
-#ifdef WITH_SIGNATURE
-            scramble(b3s, b3s->bufC, BUFFER_SIZE_SAMPLES);
-#endif
             whirlProc3(instance->inst->whirl, b3s->bufC, b3s->bufL[0], b3s->bufL[1], b3s->bufD[0],
                        b3s->bufD[1], BUFFER_SIZE_SAMPLES);
         }
@@ -1081,87 +1023,6 @@ static LV2_Handle instantiate(const LV2_Descriptor *descriptor, double rate,
 
     strcpy(b3s->lv2nfo, "v" VERSION);
     b3s->thirtysec = 0;
-#ifdef WITH_SIGNATURE
-    {
-        b3s->thirtysec = 30 * rate;
-        b3s->counter = 0;
-        b3s->sin_phase = 0;
-
-        gp3_initialize();
-        load_master_key(); // in header WITH_SIGNATURE
-        gp3_loglevel(GP3L_SILENT);
-        int rc = -1;
-        char signature_file0[1024] = "";
-        char signature_file1[1024] = "";
-#ifdef _WIN32
-        ExpandEnvironmentStrings("%localappdata%\\" SIGFILE, signature_file0, 1024);
-        ExpandEnvironmentStrings("%localappdata%\\x42_license.txt", signature_file1, 1024);
-#else
-        const char *home = getenv("HOME");
-        if (home && (strlen(home) + strlen(SIGFILE) + 3) < 1024)
-        {
-            sprintf(signature_file0, "%s/.%s", home, SIGFILE);
-        }
-        if (home && (strlen(home) + 18) < 1024)
-        {
-            sprintf(signature_file1, "%s/.x42_license.txt", home);
-        }
-#endif
-        if (!access(signature_file0, R_OK))
-        {
-            rc = gp3_checksigfile(signature_file0);
-        }
-        else if (!access(signature_file1, R_OK))
-        {
-            rc = gp3_checksigfile(signature_file1);
-        }
-        if (rc == 0)
-        {
-            bool ok = false;
-            char data[8192];
-            char *tmp = NULL;
-            uint32_t len = gp3_get_text(data, sizeof(data));
-            if (len == sizeof(data))
-            {
-                data[sizeof(data) - 1] = '\0';
-            }
-            else
-            {
-                data[len] = '\0';
-            }
-            if ((tmp = strchr(data, '\n')))
-            {
-                *tmp = 0;
-            }
-            b3s->lv2nfo[sizeof(b3s->lv2nfo) - 1] = 0;
-            if (tmp++ && *tmp)
-            {
-                if ((tmp = strstr(tmp, SB3_URI)))
-                {
-                    char *t1, *t2;
-                    ok = true;
-                    t1 = tmp + 1 + strlen(SB3_URI);
-                    t2 = strchr(t1, '\n');
-                    if (t2)
-                    {
-                        *t2 = 0;
-                    }
-                    if (strlen(t1) > 0 && strncmp(t1, VERSION, strlen(t1)))
-                    {
-                        ok = false;
-                    }
-                }
-            }
-            if (ok)
-            {
-                b3s->thirtysec = 0;
-                strncat(b3s->lv2nfo, " ", sizeof(b3s->lv2nfo) - strlen(b3s->lv2nfo));
-                strncat(b3s->lv2nfo, data, sizeof(b3s->lv2nfo) - strlen(b3s->lv2nfo));
-            }
-        }
-        gp3_cleanup();
-    }
-#endif
     return (LV2_Handle)b3s;
 }
 
