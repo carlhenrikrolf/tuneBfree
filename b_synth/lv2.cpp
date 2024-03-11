@@ -112,7 +112,7 @@ typedef struct
     bool dirty;
 
     MTSClient *client;
-    double previousFrequency[2];
+    double previousFrequency[128];
 
 } B3S;
 
@@ -1199,10 +1199,19 @@ static void run(LV2_Handle instance, uint32_t n_samples)
     b3s->dirty = false;
 
     /* Reinitialize synth if MTS-ESP tuning has changed */
-    double newFrequency0 = MTS_NoteToFrequency(b3s->client, 0, 0);
-    double newFrequency1 = MTS_NoteToFrequency(b3s->client, 127, 0);
-    if ((newFrequency0 != b3s->previousFrequency[0]) ||
-        (newFrequency1 != b3s->previousFrequency[1]))
+    int i;
+    bool tuningChanged = false;
+    double newFrequency[128];
+
+    for (i = 0; i < 128; i++)
+    {
+        newFrequency[i] = MTS_NoteToFrequency(b3s->client, i, 0);
+        if (newFrequency[i] != b3s->previousFrequency[i])
+        {
+            tuningChanged = true;
+        }
+    }
+    if (tuningChanged)
     {
 #ifdef DEBUGPRINT
         fprintf(stderr, "Reinitializing after MTS-ESP tuning change\n");
@@ -1216,8 +1225,10 @@ static void run(LV2_Handle instance, uint32_t n_samples)
         initSynth(b3s->inst_offline, SampleRateD);
         // replay CCs after synth init
         rc_loop_state(b3s->inst->state, clone_cb_mcc, b3s->inst_offline);
-        b3s->previousFrequency[0] = newFrequency0;
-        b3s->previousFrequency[1] = newFrequency1;
+        for (i = 0; i < 128; i++)
+        {
+            b3s->previousFrequency[i] = newFrequency[i];
+        }
         b3s->swap_instances = 1;
     }
 
