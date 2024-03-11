@@ -19,6 +19,7 @@
 #ifndef GLOBAL_INST_H
 #define GLOBAL_INST_H
 
+#ifndef TESTS
 #include "midi.h"
 #include "overdrive.h"
 #include "program.h"
@@ -26,6 +27,7 @@
 #include "tonegen.h"
 #include "vibrato.h"
 #include "whirl.h"
+#endif
 
 typedef struct b_instance {
 	struct b_reverb*    reverb;

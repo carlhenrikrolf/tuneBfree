@@ -39,6 +39,11 @@
 #include "program.h"
 #include "state.h"
 
+#ifdef TESTS
+#include "doctest.h"
+#include "tonegen.h"
+#endif
+
 /*
  * Symbolic names for functions that can be governed by MIDI controllers.
  * These names are used by the configuration machinery to allow arbitrary
@@ -339,12 +344,14 @@ int getCCFunctionId(const char *name)
     return -1;
 }
 
+#ifndef TESTS
 static void parseCCFlags(midiccflags_t *f, const char *param)
 {
     int l = strlen(param);
     if (param[l - 1] == '-')
         *f |= MFLAG_INV;
 }
+#endif
 
 int getCCFunctionCount() { return sizeof(ccFuncNames) / sizeof(char *); }
 
@@ -496,7 +503,9 @@ static inline void controlFunctionHook(void *mcfg, ctrl_function *ctrlF, unsigne
 #if 0 // debug hook
   printf("fn: %d (%s)-> %d\n", ctrlF->id, ccFuncNames[ctrlF->id], val);
 #endif
+#ifndef TESTS
     rc_add_midicc(m->rcstate, ctrlF->id, val);
+#endif
     if (m->hookfn)
     {
         m->hookfn(ctrlF->id, ccFuncNames[ctrlF->id], val & 0x7f, ctrlF->mm, m->hookarg);
@@ -1004,6 +1013,7 @@ void setMIDINoteShift(void *mcfg, char offset)
     loadKeyTableC(m);
 }
 
+#ifndef TESTS
 /*
  * This call configures this module.
  */
@@ -1136,6 +1146,7 @@ int midiConfig(void *mcfg, ConfigContext *cfg)
 
     return ack;
 }
+#endif
 
 void initMidiTables(void *mcfg)
 {
@@ -1174,7 +1185,9 @@ static void remember_dynamic_CC_change(void *instp, int chn, int param, int fnid
     }
 
     cfg.value = value;
+#ifndef TESTS
     rc_add_cfg(inst->state, &cfg);
+#endif
 }
 
 static unsigned char map_to_real_key(struct b_midicfg *m, const unsigned char channel,
@@ -1232,7 +1245,9 @@ void process_midi_event(void *instp, const struct bmidi_event_t *ev)
                       map_to_real_key(m, ev->channel, ev->d.tone.note));
         break;
     case PROGRAM_CHANGE:
+#ifndef TESTS
         installProgram(inst, ev->d.control.value);
+#endif
         break;
     case CONTROL_CHANGE:
 #ifdef DEBUG_MIDI_CC
@@ -1561,3 +1576,49 @@ static const ConfigDoc doc[] = {
     DOC_SENTINEL};
 
 const ConfigDoc *midiDoc() { return doc; }
+
+#ifdef TESTS
+TEST_CASE("Testing allocMidiCfg")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    CHECK(mcfg->rcvChA == 0);
+    CHECK(mcfg->rcvChB == 1);
+    CHECK(mcfg->rcvChC == 2);
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing initMidiTables")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    initMidiTables(mcfg);
+
+    CHECK(mcfg->keyTableA[0] == 255);
+    CHECK(mcfg->keyTableA[35] == 255);
+    CHECK(mcfg->keyTableA[36] == 0);
+    CHECK(mcfg->keyTableA[37] == 1);
+    CHECK(mcfg->keyTableA[95] == 59);
+    CHECK(mcfg->keyTableA[96] == 60);
+    CHECK(mcfg->keyTableA[97] == 255);
+    CHECK(mcfg->keyTableA[127] == 255);
+
+    CHECK(mcfg->keyTableB[0] == 255);
+    CHECK(mcfg->keyTableB[35] == 255);
+    CHECK(mcfg->keyTableB[36] == 64);
+    CHECK(mcfg->keyTableB[37] == 65);
+    CHECK(mcfg->keyTableB[95] == 123);
+    CHECK(mcfg->keyTableB[96] == 124);
+    CHECK(mcfg->keyTableB[97] == 255);
+    CHECK(mcfg->keyTableB[127] == 255);
+
+    CHECK(mcfg->keyTableC[0] == 255);
+    CHECK(mcfg->keyTableC[23] == 255);
+    CHECK(mcfg->keyTableC[24] == 128);
+    CHECK(mcfg->keyTableC[25] == 129);
+    CHECK(mcfg->keyTableC[54] == 158);
+    CHECK(mcfg->keyTableC[55] == 159);
+    CHECK(mcfg->keyTableC[56] == 255);
+    CHECK(mcfg->keyTableC[127] == 255);
+
+    freeMidiCfg(mcfg);
+}
+#endif

@@ -158,7 +158,7 @@ uninstall:
 	-rmdir $(DESTDIR)$(sharedir)/pgm
 	-rmdir $(DESTDIR)$(sharedir)
 
-tests: tuning.h tuning.cpp
+tests: tuning.h tuning.cpp tonegen.h tonegen.cpp midi.h midi.cpp
 	clang++ \
 	-g \
 	-Wall \
@@ -168,7 +168,9 @@ tests: tuning.h tuning.cpp
 	-I../libs/doctest/doctest \
 	-I../libs/MTS-ESP/Client \
 	../libs/MTS-ESP/Client/libMTSClient.cpp \
+	tonegen.cpp \
 	tuning.cpp \
+	midi.cpp \
 
 	./tests
 

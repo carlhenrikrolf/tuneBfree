@@ -32,10 +32,18 @@
 #include <strings.h>
 
 #include <cmath>
+#include <limits>
 
 #include "global_inst.h"
 #include "main.h"
 #include "tuning.h"
+
+#ifdef TESTS
+#include "doctest.h"
+#include "tonegen.h"
+#include "midi.h"
+double SampleRateD = 48000.0;
+#endif
 
 /* These are assertion support macros. */
 /* In range? : A <= V < B  */
@@ -2152,6 +2160,7 @@ static int dumpOscToText(struct b_tonegen *t, char *fname)
 }
 #endif
 
+#ifndef TESTS
 /**
  * This routine configures this module.
  */
@@ -2539,6 +2548,7 @@ int oscConfig(struct b_tonegen *t, ConfigContext *cfg)
     }
     return ack;
 }
+#endif
 
 /**
  * This routine initialises the envelope shape tables.
@@ -3666,7 +3676,7 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
 
     if (t->oldRouting & RT_VIB)
     {
-#if 1
+#ifndef TESTS
         vibratoProc(&t->inst_vibrato, vibBuffer, vibYBuffr, BUFFER_SIZE_SAMPLES);
 #else
         size_t ii;
@@ -3751,7 +3761,9 @@ struct b_tonegen *allocTonegen()
     if (!t)
         return NULL;
     initValues(t);
+#ifndef TESTS
     resetVibrato(t);
+#endif
     return (t);
 }
 
@@ -3857,3 +3869,331 @@ static const ConfigDoc doc[] = {
     DOC_SENTINEL};
 
 const ConfigDoc *oscDoc() { return doc; }
+
+#ifdef TESTS
+TEST_CASE("Testing initValues")
+{
+    struct b_tonegen *t = (struct b_tonegen *)calloc(1, sizeof(struct b_tonegen));
+    assert(t);
+    initValues(t);
+    CHECK(t->activeOscLEnd == 0);
+    CHECK(t->percDrawbarNormalGain == 0.6051200032234192);
+    CHECK(t->wheel_Harmonics[0] == 1.0);
+    CHECK(t->wheel_Harmonics[1] == 0.0);
+    CHECK(t->wheel_Harmonics[MAX_PARTIALS - 1] == 0.0);
+    free(t);
+}
+
+TEST_CASE("Testing dbToGain")
+{
+    CHECK(dBToGain(0.0) == 1.0);
+    CHECK(dBToGain(20.0) == 10.0);
+    CHECK(dBToGain(-20.0) == 0.1);
+}
+
+TEST_CASE("Testing drnd")
+{
+    double r = drnd();
+    CHECK(0.0 <= r);
+    CHECK(r <= 1.0);
+}
+
+TEST_CASE("Testing newConfigListElement ssf")
+{
+    struct b_tonegen *t = allocTonegen();
+    ListElement *c = newConfigListElement(t);
+    c->u.ssf.sa = 2;
+    c->u.ssf.sb = 3;
+    c->u.ssf.fc = 4.0;
+    CHECK(c->u.ssf.sa == 2);
+    CHECK(c->u.ssf.sb == 3);
+    CHECK(c->u.ssf.fc == 4.0);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing newConfigListElement ff")
+{
+    struct b_tonegen *t = allocTonegen();
+    ListElement *c = newConfigListElement(t);
+    c->u.ff.fa = 5.0;
+    c->u.ff.fb = 6.0;
+    CHECK(c->u.ff.fa == 5.0);
+    CHECK(c->u.ff.fb == 6.0);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing newRuntimeListElement ssf")
+{
+    struct b_tonegen *t = allocTonegen();
+    ListElement *c = newRuntimeListElement(t);
+    c->u.ssf.sa = 2;
+    c->u.ssf.sb = 3;
+    c->u.ssf.fc = 4.0;
+    CHECK(c->u.ssf.sa == 2);
+    CHECK(c->u.ssf.sb == 3);
+    CHECK(c->u.ssf.fc == 4.0);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing newRuntimeListElement ff")
+{
+    struct b_tonegen *t = allocTonegen();
+    ListElement *c = newRuntimeListElement(t);
+    c->u.ff.fa = 5.0;
+    c->u.ff.fb = 6.0;
+    CHECK(c->u.ff.fa == 5.0);
+    CHECK(c->u.ff.fb == 6.0);
+    freeToneGenerator(t);
+}
+
+/* This test gives a use-after-free
+TEST_CASE("Testing appendListElement")
+{
+    struct b_tonegen* t = allocTonegen();
+    ListElement* c = newConfigListElement(t);
+    c->u.ssf.sa = 2;
+    c->u.ssf.sb = 3;
+    c->u.ssf.fc = 4.0;
+    appendListElement(&(t->leConfig), c);
+    CHECK(t->leConfig->next->u.ssf.sa == 2);
+    CHECK(t->leConfig->next->u.ssf.sb == 3);
+    CHECK(t->leConfig->next->u.ssf.fc == 4.0);
+    freeToneGenerator(t);
+}
+*/
+
+TEST_CASE("Testing setToneGeneratorModel")
+{
+    struct b_tonegen *t = allocTonegen();
+    setToneGeneratorModel(t, TG_91FB00);
+    CHECK(t->tgVariant == TG_91FB00);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing setWavePrecision")
+{
+    struct b_tonegen *t = allocTonegen();
+    setWavePrecision(t, 0.01);
+    CHECK(t->tgPrecision == 0.01);
+    setWavePrecision(t, -0.1);
+    CHECK(t->tgPrecision == 0.01);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing setTuning")
+{
+    struct b_tonegen *t = allocTonegen();
+    setTuning(t, 330.0);
+    CHECK(t->tuning == 330.0);
+    setTuning(t, 1000.0);
+    CHECK(t->tuning == 330.0);
+    setTuning(t, 50.0);
+    CHECK(t->tuning == 330.0);
+    setTuning(t, 550.0);
+    CHECK(t->tuning == 550.0);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing taperingModel")
+{
+    CHECK(taperingModel(11, 0) == pow(10.0, -0.5));
+    CHECK(taperingModel(13, 0) == pow(10.0, -7.0 / 20.0));
+}
+
+/* Need to pass non-null midi config pointer
+TEST_CASE("Testing getOscillatorFrequency")
+{
+    struct b_tonegen *t = allocTonegen();
+    void *m = nullptr;
+    initToneGenerator(t, m);
+    double a = 32.70319566257483;
+    double b = 5919.91076338615039;
+    CHECK(getOscillatorFrequency(t, 1) == a);
+    CHECK(getOscillatorFrequency(t, 1 + 12) == 2 * a);
+    CHECK(getOscillatorFrequency(t, 91 - 12) == b / 2);
+    CHECK(getOscillatorFrequency(t, 91) == b);
+    freeToneGenerator(t);
+}
+*/
+
+TEST_CASE("Testing applyManualDefaults")
+{
+    struct b_tonegen *t = allocTonegen();
+    getFrequencies(t->frequency, NOF_FREQS);
+    double g1 = 0.6683439016342163;
+    double g2 = 0.4466835856437683;
+
+    // Upper manual
+    applyManualDefaults(t, 64, 9);
+    CHECK(t->keyTaper[64]->u.ssf.sa == 20);
+    CHECK(t->keyTaper[64]->u.ssf.sb == 10);
+    CHECK(t->keyTaper[64]->u.ssf.fc == g1);
+    CHECK(t->keyTaper[64]->next->u.ssf.sa == 13);
+    CHECK(t->keyTaper[64]->next->u.ssf.sb == 11);
+    CHECK(t->keyTaper[64]->next->u.ssf.fc == g2);
+    CHECK(t->keyTaper[64]->next->next->u.ssf.sa == 25);
+    CHECK(t->keyTaper[64]->next->next->u.ssf.sb == 12);
+    CHECK(t->keyTaper[64]->next->next->u.ssf.fc == g1);
+
+    // Lower manual
+    applyManualDefaults(t, 0, 0);
+    CHECK(t->keyTaper[0]->u.ssf.sa == 20);
+    CHECK(t->keyTaper[0]->u.ssf.sb == 1);
+    CHECK(t->keyTaper[0]->u.ssf.fc == g1);
+    CHECK(t->keyTaper[0]->next->u.ssf.sa == 13);
+    CHECK(t->keyTaper[0]->next->u.ssf.sb == 2);
+    CHECK(t->keyTaper[0]->next->u.ssf.fc == g2);
+    CHECK(t->keyTaper[0]->next->next->u.ssf.sa == 25);
+    CHECK(t->keyTaper[0]->next->next->u.ssf.sb == 3);
+    CHECK(t->keyTaper[0]->next->next->u.ssf.fc == g1);
+
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing applyPedalDefaults")
+{
+    struct b_tonegen *t = allocTonegen();
+    applyPedalDefaults(t, 32);
+    CHECK(t->keyTaper[128]->u.ssf.sa == 1);
+    CHECK(t->keyTaper[128]->u.ssf.sb == 18);
+    CHECK(t->keyTaper[128]->u.ssf.fc == 1.0);
+    CHECK(t->keyTaper[159]->u.ssf.sa == 32);
+    CHECK(t->keyTaper[159]->u.ssf.sb == 18);
+    CHECK(t->keyTaper[159]->u.ssf.fc == 1.0);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing applyDefaultCrosstalk")
+{
+    struct b_tonegen *t = allocTonegen();
+    getFrequencies(t->frequency, NOF_FREQS);
+    applyManualDefaults(t, 0, 0);
+    applyDefaultCrosstalk(t, 0, 0);
+    CHECK(t->keyCrosstalk[0]->u.ssf.sa == 20);
+    CHECK(t->keyCrosstalk[0]->u.ssf.sb == 0);
+    CHECK(t->keyCrosstalk[0]->u.ssf.fc == 0.0066834390163421631);
+    CHECK(t->keyCrosstalk[60]->u.ssf.sa == 80);
+    CHECK(t->keyCrosstalk[60]->u.ssf.sb == 0);
+    CHECK(t->keyCrosstalk[60]->u.ssf.fc == 0.0223872121423482895);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing findEastWestNeighbours")
+{
+    int east = 0;
+    int west = 0;
+    findEastWestNeighbours(northTransformers, 44, &east, &west);
+    CHECK(east == 68);
+    CHECK(west == 61);
+}
+
+TEST_CASE("Testing findTransformerNeighbours")
+{
+    int east = 0;
+    int west = 0;
+    findTransformerNeighbours(44, &east, &west);
+    CHECK(east == 68);
+    CHECK(west == 61);
+}
+
+TEST_CASE("Testing applyDefaultConfiguration")
+{
+    struct b_tonegen *t = allocTonegen();
+    getFrequencies(t->frequency, NOF_FREQS);
+    applyDefaultConfiguration(t);
+    CHECK(t->terminalMix[1]->u.ssf.sa == 1);
+    CHECK(t->terminalMix[1]->u.ssf.fc == 0.9900000095367432);
+    CHECK(t->terminalMix[91]->u.ssf.sa == 91);
+    CHECK(t->terminalMix[91]->u.ssf.fc == 0.9900000095367432);
+    CHECK(t->terminalMix[NOF_WHEELS]->u.ssf.sa == NOF_WHEELS);
+    CHECK(t->terminalMix[NOF_WHEELS]->u.ssf.fc == 0.9900000095367432);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing cpmInsert")
+{
+    struct b_tonegen *t = allocTonegen();
+    unsigned char cpmBus[NOF_WHEELS + 1][NOF_BUSES];
+    float cpmGain[NOF_WHEELS][NOF_BUSES] = {{0.0}};
+    short wheelNumber[NOF_WHEELS + 1] = {0};
+    short rowLength[NOF_WHEELS] = {0};
+    int endRow = 0;
+
+    getFrequencies(t->frequency, NOF_FREQS);
+    applyDefaultConfiguration(t);
+    cpmInsert(t, t->keyTaper[0], cpmBus, cpmGain, wheelNumber, rowLength, &endRow);
+
+    CHECK(endRow == 3);
+    CHECK(rowLength[0] == 1);
+    CHECK(rowLength[1] == 1);
+    CHECK(rowLength[2] == 1);
+    CHECK(rowLength[3] == 0);
+    CHECK(wheelNumber[0] == 20);
+    CHECK(wheelNumber[1] == 68);
+    CHECK(wheelNumber[2] == 8);
+    CHECK(wheelNumber[3] == 0);
+    CHECK(cpmGain[0][0] == doctest::Approx(0.66166));
+    CHECK(cpmGain[1][0] == doctest::Approx(0.0133669));
+    CHECK(cpmGain[0][1] == 0.0);
+
+    freeToneGenerator(t);
+}
+
+TEST_CASE("Testing fitWave")
+{
+    double middle_c = 440 * std::pow(2.0, -9.0 / 12.0);
+    int n = 1000000000;
+
+    // Vary precision with no limits on number of samples
+    CHECK(fitWave(middle_c, 0.0001, 1, n) == 610766);
+    CHECK(fitWave(middle_c, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c, 0.01, 1, n) == 14494);
+    CHECK(fitWave(middle_c, 0.1, 1, n) == 367);
+    CHECK(fitWave(middle_c, 1.0, 1, n) == 183);
+
+    // Vary precision with limits on number of samples
+    CHECK(fitWave(middle_c, 0.0001, 384, 4096) == 2752);
+    CHECK(fitWave(middle_c, 0.001, 384, 4096) == 2752);
+    CHECK(fitWave(middle_c, 0.01, 384, 4096) == 2752);
+    CHECK(fitWave(middle_c, 0.1, 384, 4096) == 2385);
+    CHECK(fitWave(middle_c, 1.0, 384, 4096) == 550);
+
+    // Vary frequency with no limits on number of samples
+    CHECK(fitWave(middle_c / 32.0, 0.001, 1, n) == 2495169);
+    CHECK(fitWave(middle_c / 16.0, 0.001, 1, n) == 2286749);
+    CHECK(fitWave(middle_c / 8.0, 0.001, 1, n) == 104210);
+    CHECK(fitWave(middle_c / 4.0, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c * 2.0, 0.001, 1, n) == 52105);
+    CHECK(fitWave(middle_c * 4.0, 0.001, 1, n) == 22429);
+    CHECK(fitWave(middle_c * 8.0, 0.001, 1, n) == 14838);
+    CHECK(fitWave(middle_c * 16.0, 0.001, 1, n) == 7419);
+    CHECK(fitWave(middle_c * 32.0, 0.001, 1, n) == 86);
+
+    // Vary frequency with limits on number of samples
+    // Very low frequency fails assert
+    CHECK(fitWave(middle_c / 16.0, 0.001, 384, 4096) == 2935);
+    CHECK(fitWave(middle_c / 8.0, 0.001, 384, 4096) == 1468);
+    CHECK(fitWave(middle_c / 4.0, 0.001, 384, 4096) == 734);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096) == 734);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096) == 734);
+    CHECK(fitWave(middle_c, 0.001, 384, 4096) == 2752);
+    CHECK(fitWave(middle_c * 2.0, 0.001, 384, 4096) == 1376);
+    CHECK(fitWave(middle_c * 4.0, 0.001, 384, 4096) == 688);
+    CHECK(fitWave(middle_c * 8.0, 0.001, 384, 4096) == 688);
+    CHECK(fitWave(middle_c * 16.0, 0.001, 384, 4096) == 516);
+    CHECK(fitWave(middle_c * 32.0, 0.001, 384, 4096) == 430);
+}
+
+/* Need to pass non-null midi config pointer
+TEST_CASE("Testing initToneGenerator")
+{
+    struct b_tonegen *t = allocTonegen();
+    void *m = nullptr;
+    initToneGenerator(t, m);
+    freeToneGenerator(t);
+}
+*/
+#endif
