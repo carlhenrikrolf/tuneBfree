@@ -1578,6 +1578,9 @@ static const ConfigDoc doc[] = {
 const ConfigDoc *midiDoc() { return doc; }
 
 #ifdef TESTS
+
+#define UNMAPPED_KEY 255
+
 TEST_CASE("Testing allocMidiCfg")
 {
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
@@ -1592,32 +1595,104 @@ TEST_CASE("Testing initMidiTables")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
     initMidiTables(mcfg);
 
-    CHECK(mcfg->keyTableA[0] == 255);
-    CHECK(mcfg->keyTableA[35] == 255);
+    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[35] == UNMAPPED_KEY);
     CHECK(mcfg->keyTableA[36] == 0);
     CHECK(mcfg->keyTableA[37] == 1);
     CHECK(mcfg->keyTableA[95] == 59);
     CHECK(mcfg->keyTableA[96] == 60);
-    CHECK(mcfg->keyTableA[97] == 255);
-    CHECK(mcfg->keyTableA[127] == 255);
+    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
 
-    CHECK(mcfg->keyTableB[0] == 255);
-    CHECK(mcfg->keyTableB[35] == 255);
+    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[35] == UNMAPPED_KEY);
     CHECK(mcfg->keyTableB[36] == 64);
     CHECK(mcfg->keyTableB[37] == 65);
     CHECK(mcfg->keyTableB[95] == 123);
     CHECK(mcfg->keyTableB[96] == 124);
-    CHECK(mcfg->keyTableB[97] == 255);
-    CHECK(mcfg->keyTableB[127] == 255);
+    CHECK(mcfg->keyTableB[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
 
-    CHECK(mcfg->keyTableC[0] == 255);
-    CHECK(mcfg->keyTableC[23] == 255);
+    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[23] == UNMAPPED_KEY);
     CHECK(mcfg->keyTableC[24] == 128);
     CHECK(mcfg->keyTableC[25] == 129);
     CHECK(mcfg->keyTableC[54] == 158);
     CHECK(mcfg->keyTableC[55] == 159);
-    CHECK(mcfg->keyTableC[56] == 255);
-    CHECK(mcfg->keyTableC[127] == 255);
+    CHECK(mcfg->keyTableC[56] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing setKeyboardTranspose")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    initMidiTables(mcfg);
+
+    setKeyboardTranspose(mcfg, 1);
+
+    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[35] == 0);
+    CHECK(mcfg->keyTableA[36] == 1);
+    CHECK(mcfg->keyTableA[37] == 2);
+    CHECK(mcfg->keyTableA[95] == 60);
+    CHECK(mcfg->keyTableA[96] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+
+    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[35] == 64);
+    CHECK(mcfg->keyTableB[36] == 65);
+    CHECK(mcfg->keyTableB[37] == 66);
+    CHECK(mcfg->keyTableB[95] == 124);
+    CHECK(mcfg->keyTableB[96] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
+
+    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[23] == 128);
+    CHECK(mcfg->keyTableC[24] == 129);
+    CHECK(mcfg->keyTableC[25] == 130);
+    CHECK(mcfg->keyTableC[54] == 159);
+    CHECK(mcfg->keyTableC[55] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[56] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing map_to_real_key")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    initMidiTables(mcfg);
+
+    CHECK(map_to_real_key(mcfg, 0, 0) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 0, 35) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 0, 36) == 0);
+    CHECK(map_to_real_key(mcfg, 0, 37) == 1);
+    CHECK(map_to_real_key(mcfg, 0, 95) == 59);
+    CHECK(map_to_real_key(mcfg, 0, 96) == 60);
+    CHECK(map_to_real_key(mcfg, 0, 97) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 0, 127) == UNMAPPED_KEY);
+
+    CHECK(map_to_real_key(mcfg, 1, 0) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 1, 35) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 1, 36) == 64);
+    CHECK(map_to_real_key(mcfg, 1, 37) == 65);
+    CHECK(map_to_real_key(mcfg, 1, 95) == 123);
+    CHECK(map_to_real_key(mcfg, 1, 96) == 124);
+    CHECK(map_to_real_key(mcfg, 1, 97) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 1, 127) == UNMAPPED_KEY);
+
+    CHECK(map_to_real_key(mcfg, 2, 0) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 2, 23) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 2, 24) == 128);
+    CHECK(map_to_real_key(mcfg, 2, 25) == 129);
+    CHECK(map_to_real_key(mcfg, 2, 48) == 152);
+    CHECK(map_to_real_key(mcfg, 2, 49) == 153);
+    CHECK(map_to_real_key(mcfg, 2, 50) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 2, 127) == UNMAPPED_KEY);
 
     freeMidiCfg(mcfg);
 }
