@@ -3,7 +3,7 @@ TX=../b_synth/textures/
 WINDRES=windres
 
 override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl -I../b_synth/
-override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -DLV2SYNTH -DREQUIRE_UI
+override CFLAGS+= -DLV2SYNTH -DREQUIRE_UI
 
 ifeq ($(FONTFILE),verabd.h)
   override CFLAGS+= -DBUILTINFONT

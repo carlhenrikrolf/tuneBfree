@@ -7,7 +7,7 @@ ifneq ($(MOD),)
 endif
 
 LOADLIBES = -lm
-override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -fvisibility=hidden
+override CFLAGS+= -fvisibility=hidden
 
 targets=whirl.o eqcomp.o
 
@@ -79,7 +79,7 @@ $(LV2NAME)$(LIB_EXT): $(DSP_SRC) $(DSP_DEPS) Makefile
 		-shared $(LV2LDFLAGS) $(LDFLAGS)
 
 JACKCFLAGS=$(CFLAGS) $(GLUICFLAGS) $(LIC_CFLAGS) -Wno-unused-function
-JACKCFLAGS+=`$(PKG_CONFIG) --cflags jack lv2 pango pangocairo $(PKG_GL_LIBS)`
+JACKCFLAGS+=`$(PKG_CONFIG) --cflags jack pango pangocairo $(PKG_GL_LIBS)`
 JACKLIBS=-lm $(GLUILIBS) $(LIC_LOADLIBES)
 
 $(eval x42_whirl_JACKSRC = lv2.c whirl.c)

@@ -3,7 +3,7 @@ include ../common.mak
 include ../git2lv2.mk
 
 LOADLIBES = -lm
-override CFLAGS+=`$(PKG_CONFIG) --cflags lv2` -fvisibility=hidden
+override CFLAGS+= -fvisibility=hidden
 
 targets=reverb.o
 
