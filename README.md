@@ -12,6 +12,12 @@ Tuning
 The tuning can be set using an MTS-ESP master like [MTS-ESP
 Mini](https://oddsound.com/mtsespmini.php).
 
+[Arseniiv](https://github.com/arseniiv) wrote a great guide to tuning tuneBfree
+which is in the repo
+[here](https://github.com/narenratan/tuneBfree/blob/main/guide.md) - thanks
+very much for that!
+
+
 Building
 --------
 On Linux, install libjack-dev, libglu1-mesa-dev, libftgl-dev, and xxd
