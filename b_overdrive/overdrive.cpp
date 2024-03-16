@@ -1,6 +1,47 @@
+/**
+ * OVERDRIVE
+ *
+ * In tuneBfree the original setBfree overdrive has been replaced with a version
+ * of the wonderful Airwindows Density algorithm whose source is available here:
+ *
+ *   https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/Density
+ *
+ * The Airwindows website https://www.airwindows.com/ and Patreon
+ * https://www.patreon.com/airwindows are also hopefully of interest.
+ *
+ * Thank you Chris from Airwindows!
+ *
+ * The Density plugin itself is MIT licensed. The version used here is slightly
+ * adapted - in any case I am including the license and copyright notice below.
+ *
+ ***************************************************************************************
+ *      MIT License
+ *
+ *      Copyright (c) 2018 Chris Johnson
+ *
+ *      Permission is hereby granted, free of charge, to any person obtaining a copy
+ *      of this software and associated documentation files (the "Software"), to deal
+ *      in the Software without restriction, including without limitation the rights
+ *      to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *      copies of the Software, and to permit persons to whom the Software is
+ *      furnished to do so, subject to the following conditions:
+ *
+ *      The above copyright notice and this permission notice shall be included in all
+ *      copies or substantial portions of the Software.
+ *
+ *      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *      IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *      FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *      AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *      LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ *      OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ *      SOFTWARE.
+ *
+ ***************************************************************************************
+ *
+ */
+
 #ifndef CONFIGDOCONLY
-/* Interpolation filter at digital frequency 0.25 */
-/* Decimation filter at digital frequency 0.25 */
 #include "overdrive.h"
 
 #include <math.h>
@@ -8,113 +49,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Decimation filter definition */
-static const float aaldef[33] = {-0.000000000000000001561469772894539464010892418355247457384394,
-                                 -0.001887878403067588806152343750000000000000000000000000000000,
-                                 0.000000000000000002244913588548488609774461677304202567029279,
-                                 0.003862478304654359817504882812500000000000000000000000000000,
-                                 -0.000000000000000004191197191582164338825335081484269039719948,
-                                 -0.008242466486990451812744140625000000000000000000000000000000,
-                                 0.000000000000000007104016524965676315133203400087325007916661,
-                                 0.015947114676237106323242187500000000000000000000000000000000,
-                                 -0.000000000000000010539920475899652678713341868999009420804214,
-                                 -0.028676560148596763610839843750000000000000000000000000000000,
-                                 0.000000000000000013975825254014241595321155209319385903654620,
-                                 0.050718560814857482910156250000000000000000000000000000000000,
-                                 -0.000000000000000016888644173807447295115186092218095836869907,
-                                 -0.098015904426574707031250000000000000000000000000000000000000,
-                                 0.000000000000000018834927363250816747652222060693816274579149,
-                                 0.315941751003265380859375000000000000000000000000000000000000,
-                                 0.500705778598785400390625000000000000000000000000000000000000,
-                                 0.315941751003265380859375000000000000000000000000000000000000,
-                                 0.000000000000000018834927363250816747652222060693816274579149,
-                                 -0.098015904426574707031250000000000000000000000000000000000000,
-                                 -0.000000000000000016888644173807447295115186092218095836869907,
-                                 0.050718560814857482910156250000000000000000000000000000000000,
-                                 0.000000000000000013975825254014241595321155209319385903654620,
-                                 -0.028676560148596763610839843750000000000000000000000000000000,
-                                 -0.000000000000000010539920475899652678713341868999009420804214,
-                                 0.015947114676237106323242187500000000000000000000000000000000,
-                                 0.000000000000000007104016524965676315133203400087325007916661,
-                                 -0.008242466486990451812744140625000000000000000000000000000000,
-                                 -0.000000000000000004191197191582164338825335081484269039719948,
-                                 0.003862478304654359817504882812500000000000000000000000000000,
-                                 0.000000000000000002244913588548488609774461677304202567029279,
-                                 -0.001887878403067588806152343750000000000000000000000000000000,
-                                 -0.000000000000000001561469772894539464010892418355247457384394};
-
-/* Weight count for wi[][] above. */
-static const int wiLen[4] = {9, 8, 8, 8};
-
-/* Interpolation filter definition */
-static const float ipwdef[33] = {-0.000000000000000001561469772894539464010892418355247457384394,
-                                 -0.001887878403067588806152343750000000000000000000000000000000,
-                                 0.000000000000000002244913588548488609774461677304202567029279,
-                                 0.003862478304654359817504882812500000000000000000000000000000,
-                                 -0.000000000000000004191197191582164338825335081484269039719948,
-                                 -0.008242466486990451812744140625000000000000000000000000000000,
-                                 0.000000000000000007104016524965676315133203400087325007916661,
-                                 0.015947114676237106323242187500000000000000000000000000000000,
-                                 -0.000000000000000010539920475899652678713341868999009420804214,
-                                 -0.028676560148596763610839843750000000000000000000000000000000,
-                                 0.000000000000000013975825254014241595321155209319385903654620,
-                                 0.050718560814857482910156250000000000000000000000000000000000,
-                                 -0.000000000000000016888644173807447295115186092218095836869907,
-                                 -0.098015904426574707031250000000000000000000000000000000000000,
-                                 0.000000000000000018834927363250816747652222060693816274579149,
-                                 0.315941751003265380859375000000000000000000000000000000000000,
-                                 0.500705778598785400390625000000000000000000000000000000000000,
-                                 0.315941751003265380859375000000000000000000000000000000000000,
-                                 0.000000000000000018834927363250816747652222060693816274579149,
-                                 -0.098015904426574707031250000000000000000000000000000000000000,
-                                 -0.000000000000000016888644173807447295115186092218095836869907,
-                                 0.050718560814857482910156250000000000000000000000000000000000,
-                                 0.000000000000000013975825254014241595321155209319385903654620,
-                                 -0.028676560148596763610839843750000000000000000000000000000000,
-                                 -0.000000000000000010539920475899652678713341868999009420804214,
-                                 0.015947114676237106323242187500000000000000000000000000000000,
-                                 0.000000000000000007104016524965676315133203400087325007916661,
-                                 -0.008242466486990451812744140625000000000000000000000000000000,
-                                 -0.000000000000000004191197191582164338825335081484269039719948,
-                                 0.003862478304654359817504882812500000000000000000000000000000,
-                                 0.000000000000000002244913588548488609774461677304202567029279,
-                                 -0.001887878403067588806152343750000000000000000000000000000000,
-                                 -0.000000000000000001561469772894539464010892418355247457384394};
-
 struct b_preamp
 {
-    /* Input history buffer */
-    float xzb[64];
-    /* Input history writer */
-    float *xzp;
-    /* Input history end sentinel */
-    float *xzpe;
+    // For Airwindows Density
+    double iirSampleAL;
+    double iirSampleBL;
+    bool fpFlip;
+    uint32_t fpdL;
+    // parameters. Always 0-1, and we scale/alter them elsewhere.
+    float A; // Density
+    float B; // Highpass
+    float C; // Out Level
+    float D; // Dry/Wet
 
-    /* Negative index access wrap sentinel */
-    float *xzwp;
-    /* Transfer-function output history buffer */
-    float yzb[128];
-    /* Transfer-function output writer */
-    float *yzp;
-    /* Transfer-function output history end sentinel */
-    float *yzpe;
-    /* Transfer-function output history wrap sentinel */
-    float *yzwp;
-    /* Zero-filled filter of interpolation length */
-    float ipolZeros[33];
-    /* Sample-specific runtime interpolation FIRs */
-    float wi[4][9];
-    /* Decimation filter runtime */
-    float aal[33];
-    /* Decimation filter end sentinel */
-    float *aalEnd;
-    size_t ipolFilterLength;
-    size_t aalFilterLength;
-    /* Zero-filled filter of anti-aliasing length */
-    float aalZeros[33];
     /* Clean/overdrive switch */
     int isClean;
     float outputGain;
+
+    double SampleRateD;
 
     /* Input gain */
     float inputGain;
@@ -138,85 +90,133 @@ struct b_preamp
 };
 /*  *** END STRUCT *** */
 
-/* Remember to call this first with the filter definitions */
-/* ipolDef is the interpolation filter definition */
-/* aalDef is the anti-aliasing filter definition */
-static void mixFilterWeights(void *pa, const float *ipolDef, const float *aalDef)
+/**
+ * Airwindows Density algorithm
+ *
+ * See https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/Density
+ * and comment at the top of this file.
+ *
+ * Adapted here for mono and to wire into the setBfree b_preamp.
+ */
+float *airwindows_density(void *pa, float *in1, float *out1, int sampleFrames)
 {
     struct b_preamp *pp = (struct b_preamp *)pa;
-    int i;
-    float sum = 0.0;
 
-    float mix[33];
+    float A = pp->A;
+    float B = pp->B;
+    float C = pp->C;
+    float D = pp->D;
 
-    /* Copy the interpolation filter weights */
+    double overallscale = 1.0;
+    overallscale /= 44100.0;
+    overallscale *= pp->SampleRateD;
 
-    for (i = 0; i < 33; i++)
+    // Don't use negative density here
+    // double density = (A*5.0)-1.0;
+    double density = A * 4.0;
+
+    double iirAmount = pow(B, 3) / overallscale;
+    double output = C;
+    double wet = D;
+    double dry = 1.0 - wet;
+    double bridgerectifier;
+    double out = fabs(density);
+    density = density * fabs(density);
+    double count;
+
+    double inputSampleL;
+    double drySampleL;
+
+    while (--sampleFrames >= 0)
     {
-        mix[i] = ipolDef[i];
-        sum += fabs(mix[i]);
+        inputSampleL = *in1;
+        if (fabs(inputSampleL) < 1.18e-23)
+            inputSampleL = pp->fpdL * 1.18e-17;
+        drySampleL = inputSampleL;
+
+        if (pp->fpFlip)
+        {
+            pp->iirSampleAL = (pp->iirSampleAL * (1.0 - iirAmount)) + (inputSampleL * iirAmount);
+            inputSampleL -= pp->iirSampleAL;
+        }
+        else
+        {
+            pp->iirSampleBL = (pp->iirSampleBL * (1.0 - iirAmount)) + (inputSampleL * iirAmount);
+            inputSampleL -= pp->iirSampleBL;
+        }
+        // highpass section
+        pp->fpFlip = !pp->fpFlip;
+
+        count = density;
+        while (count > 1.0)
+        {
+            bridgerectifier = fabs(inputSampleL) * 1.57079633;
+            if (bridgerectifier > 1.57079633)
+                bridgerectifier = 1.57079633;
+            // max value for sine function
+            bridgerectifier = sin(bridgerectifier);
+            if (inputSampleL > 0.0)
+                inputSampleL = bridgerectifier;
+            else
+                inputSampleL = -bridgerectifier;
+
+            count = count - 1.0;
+        }
+        // we have now accounted for any really high density settings.
+
+        while (out > 1.0)
+            out = out - 1.0;
+
+        bridgerectifier = fabs(inputSampleL) * 1.57079633;
+        if (bridgerectifier > 1.57079633)
+            bridgerectifier = 1.57079633;
+        // max value for sine function
+        if (density > 0)
+            bridgerectifier = sin(bridgerectifier);
+        else
+            bridgerectifier = 1 - cos(bridgerectifier);
+        // produce either boosted or starved version
+        if (inputSampleL > 0)
+            inputSampleL = (inputSampleL * (1 - out)) + (bridgerectifier * out);
+        else
+            inputSampleL = (inputSampleL * (1 - out)) - (bridgerectifier * out);
+        // blend according to density control
+
+        if (output < 1.0)
+        {
+            inputSampleL *= output;
+        }
+        if (wet < 1.0)
+        {
+            inputSampleL = (drySampleL * dry) + (inputSampleL * wet);
+        }
+        // nice little output stage template: if we have another scale of floating point
+        // number, we really don't want to meaninglessly multiply that by 1.0.
+
+        // begin 32 bit floating point dither
+        int expon;
+        frexpf((float)inputSampleL, &expon);
+        pp->fpdL ^= pp->fpdL << 13;
+        pp->fpdL ^= pp->fpdL >> 17;
+        pp->fpdL ^= pp->fpdL << 5;
+        inputSampleL += ((double(pp->fpdL) - uint32_t(0x7fffffff)) * 5.5e-36l * pow(2, expon + 62));
+        // end 32 bit floating point dither
+
+        *out1 = inputSampleL;
+
+        in1++;
+        out1++;
     }
+    return out1;
+}
 
-    /* Normalize the copy */
+float *overdrive(void *pa, float *inBuf, float *outBuf, size_t buflen)
+{
+    return airwindows_density(pa, inBuf, outBuf, buflen);
+}
 
-    for (i = 0; i < 33; i++)
-    {
-        mix[i] /= sum;
-    }
-
-    /* Install in correct sequence in runtime array of weights */
-
-    pp->wi[0][0] = mix[0];
-    pp->wi[0][1] = mix[4];
-    pp->wi[0][2] = mix[8];
-    pp->wi[0][3] = mix[12];
-    pp->wi[0][4] = mix[16];
-    pp->wi[0][5] = mix[20];
-    pp->wi[0][6] = mix[24];
-    pp->wi[0][7] = mix[28];
-    pp->wi[0][8] = mix[32];
-    pp->wi[1][0] = mix[3];
-    pp->wi[1][1] = mix[7];
-    pp->wi[1][2] = mix[11];
-    pp->wi[1][3] = mix[15];
-    pp->wi[1][4] = mix[19];
-    pp->wi[1][5] = mix[23];
-    pp->wi[1][6] = mix[27];
-    pp->wi[1][7] = mix[31];
-    pp->wi[2][0] = mix[2];
-    pp->wi[2][1] = mix[6];
-    pp->wi[2][2] = mix[10];
-    pp->wi[2][3] = mix[14];
-    pp->wi[2][4] = mix[18];
-    pp->wi[2][5] = mix[22];
-    pp->wi[2][6] = mix[26];
-    pp->wi[2][7] = mix[30];
-    pp->wi[3][0] = mix[1];
-    pp->wi[3][1] = mix[5];
-    pp->wi[3][2] = mix[9];
-    pp->wi[3][3] = mix[13];
-    pp->wi[3][4] = mix[17];
-    pp->wi[3][5] = mix[21];
-    pp->wi[3][6] = mix[25];
-    pp->wi[3][7] = mix[29];
-
-    /* Copy the anti-aliasing filter definition */
-
-    sum = 0.0;
-    for (i = 0; i < 33; i++)
-    {
-        mix[i] = aalDef[i];
-        sum += fabs(mix[i]);
-    }
-
-    /* Normalize the weights to unit gain and install */
-
-    for (i = 0; i < 33; i++)
-    {
-        pp->aal[i] = mix[i] / sum;
-    }
-} /* preFilterCompile */
-
+#if 0
+// Original setBfree overdrive
 float *overdrive(void *pa, const float *inBuf, float *outBuf, size_t buflen)
 {
     struct b_preamp *pp = (struct b_preamp *)pa;
@@ -364,6 +364,7 @@ float *overdrive(void *pa, const float *inBuf, float *outBuf, size_t buflen)
     /* End of for-loop over input buffer */
     return outBuf;
 } /* overdrive */
+#endif
 
 /* Adapter function */
 float *preamp(void *pa, float *inBuf, float *outBuf, size_t bufLengthSamples)
@@ -384,18 +385,24 @@ float *preamp(void *pa, float *inBuf, float *outBuf, size_t bufLengthSamples)
 void *allocPreamp()
 {
     struct b_preamp *pp = (struct b_preamp *)calloc(1, sizeof(struct b_preamp));
-    pp->xzp = &(pp->xzb[0]);
-    pp->xzpe = &(pp->xzb[64]);
-    pp->xzwp = &(pp->xzb[9]);
-    pp->yzp = &(pp->yzb[0]);
-    pp->yzpe = &(pp->yzb[128]);
-    pp->yzwp = &(pp->yzb[33]);
-    pp->aalEnd = &(pp->aal[33]);
-    pp->ipolFilterLength = 33;
-    pp->aalFilterLength = 33;
+
+    pp->A = 0.0;
+    pp->B = 0.0;
+    pp->C = 1.0;
+    pp->D = 0.5;
+    pp->iirSampleAL = 0.0;
+    pp->iirSampleBL = 0.0;
+    pp->fpFlip = true;
+    uint32_t fpdL = 1.0;
+    while (fpdL < 16386)
+        fpdL = rand() * UINT32_MAX;
+    pp->fpdL = fpdL;
+
     pp->isClean = 1;
     pp->outputGain = 0.8795;
     pp->inputGain = 3.5675;
+
+    pp->SampleRateD = 0.0;
 
     pp->sagZ = 0.0;
     pp->sagFb = 0.991;
@@ -576,17 +583,48 @@ void setOutputGain(void *pa, unsigned char uc)
 
 void fsetOutputGain(void *d, float f) { setOutputGain(d, (unsigned char)(f * 127.0)); }
 
-/* Legacy function */
-void initPreamp(void *pa, void *m)
+float linseg(float a, float b, float p, float q, float x)
+{
+    return p + (x - a) * (q - p) / (b - a);
+}
+
+void setCharacter(void *pa, unsigned char uc)
 {
     struct b_preamp *pp = (struct b_preamp *)pa;
-    mixFilterWeights(pa, ipwdef, aaldef);
+    float A = 0.001 + ((1.0 - 0.001) * (((float)uc) / 127.0));
+    pp->A = A;
+
+    /*
+     * A is used as the Density parameter in Airwindows Density
+     * C is used as the Out-level parameter
+     * The setBfree GUI has one knob (Character/Gain) mapped to A
+     * Increasing A gives more overdrive and also more volume, so we lower C to compensate
+     * The curve is chosen so output volume sounds roughly constant as A increases.
+     */
+    double Aval[5] = {0.0, 0.25, 0.50, 0.75, 1.00};
+    double Cval[5] = {1.0, 0.70, 0.25, 0.15, 0.13};
+    int i;
+    for (i = 0; i < 4; i++)
+    {
+        if (A <= Aval[i + 1])
+        {
+            pp->C = linseg(Aval[i], Aval[i + 1], Cval[i], Cval[i + 1], A);
+            return;
+        }
+    }
+}
+
+/* Legacy function */
+void initPreamp(void *pa, void *m, double SampleRateD)
+{
+    struct b_preamp *pp = (struct b_preamp *)pa;
+    pp->SampleRateD = SampleRateD;
     useMIDIControlFunction(m, "xov.ctl_biased", ctl_biased, pa);
     useMIDIControlFunction(m, "xov.ctl_biased_fb", ctl_biased_fb, pa);
     useMIDIControlFunction(m, "xov.ctl_biased_fb2", ctl_biased_fb2, pa);
     useMIDIControlFunction(m, "xov.ctl_biased_gfb", ctl_biased_gfb, pa);
     useMIDIControlFunction(m, "xov.ctl_sagtobias", ctl_sagtoBias, pa);
-    useMIDIControlFunction(m, "overdrive.character", ctl_biased_fat, pa);
+    useMIDIControlFunction(m, "overdrive.character", setCharacter, pa);
     cfg_biased(pa, 0.5347);
     pp->adwFb = 0.5821;
     useMIDIControlFunction(m, "overdrive.enable", setCleanCC, pa);

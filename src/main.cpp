@@ -522,7 +522,7 @@ static void initAll()
 
     fprintf(stderr, "Overdrive : ");
     fflush(stderr);
-    initPreamp(inst.preamp, inst.midicfg);
+    initPreamp(inst.preamp, inst.midicfg, SampleRateD);
 
     fprintf(stderr, "Reverb : ");
     fflush(stderr);

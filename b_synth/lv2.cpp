@@ -169,7 +169,7 @@ void initSynth(struct b_instance *inst, double rate)
     /* initAll() */
     initToneGenerator(inst->synth, inst->midicfg);
     initVibrato(inst->synth, inst->midicfg);
-    initPreamp(inst->preamp, inst->midicfg);
+    initPreamp(inst->preamp, inst->midicfg, rate);
     initReverb(inst->reverb, inst->midicfg, rate);
     initWhirl(inst->whirl, inst->midicfg, rate);
     initRunningConfig(inst->state, inst->midicfg);

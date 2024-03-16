@@ -26,7 +26,7 @@
 extern int ampConfig (void* pa, ConfigContext* cfg);
 extern const ConfigDoc* ampDoc ();
 
-extern void initPreamp (void* pa, void* m);
+extern void initPreamp (void* pa, void* m, double SampleRateD);
 extern void setClean (void* pa, int useClean);
 
 extern void* allocPreamp ();
