@@ -264,7 +264,7 @@ static int jack_audio_callback(jack_nframes_t nframes, void *arg)
             boffset = 0;
             oscGenerateFragment(inst.synth, bufA, BUFFER_SIZE_SAMPLES);
             preamp(inst.preamp, bufA, bufB, BUFFER_SIZE_SAMPLES);
-            reverb(inst.reverb, bufB, bufC, BUFFER_SIZE_SAMPLES);
+            inst.reverb->reverb(bufB, bufC, BUFFER_SIZE_SAMPLES);
 
 #ifdef HAVE_ZITACONVOLVE
             whirlProc2(inst.whirl, bufC, NULL, NULL, bufH[0], bufH[1], bufD[0], bufD[1],

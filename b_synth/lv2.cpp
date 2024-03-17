@@ -222,7 +222,7 @@ static uint32_t synthSound(B3S *instance, uint32_t written, uint32_t nframes, fl
             b3s->boffset = 0;
             oscGenerateFragment(instance->inst->synth, b3s->bufA, BUFFER_SIZE_SAMPLES);
             preamp(instance->inst->preamp, b3s->bufA, b3s->bufB, BUFFER_SIZE_SAMPLES);
-            reverb(instance->inst->reverb, b3s->bufB, b3s->bufC, BUFFER_SIZE_SAMPLES);
+            instance->inst->reverb->reverb(b3s->bufB, b3s->bufC, BUFFER_SIZE_SAMPLES);
             whirlProc3(instance->inst->whirl, b3s->bufC, b3s->bufL[0], b3s->bufL[1], b3s->bufD[0],
                        b3s->bufD[1], BUFFER_SIZE_SAMPLES);
         }
