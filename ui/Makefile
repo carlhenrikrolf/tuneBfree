@@ -31,7 +31,7 @@ endif
 
 ifeq ($(USEWEAKJACK),1)
   UICFLAGS+=-DUSE_WEAK_JACK
-  JACKEXTRA+=$(RW)weakjack/weak_libjack.cpp
+  JACKEXTRA+=$(RW)weakjack/weak_libjack.c
 else
   ifeq ($(shell $(PKG_CONFIG) --exists jack || echo no), no)
     $(error "JACK is required - install libjack-dev or libjack-jackd2-dev")
@@ -63,7 +63,7 @@ all: $(targets)
 	mkdir -p `dirname $(BUILT_UI_EXE_PATH)`
 	-cp setBfreeUI$(EXE_EXT) $(BUILT_UI_EXE_PATH)
 
-setBfreeUI$(EXE_EXT): $(RW)jackwrap.cpp $(LV2OBJ) $(OSXJACKWRAP) $(RW)weakjack/weak_libjack.def $(RW)weakjack/weak_libjack.h $(JACKEXTRA) \
+setBfreeUI$(EXE_EXT): $(RW)jackwrap.c $(LV2OBJ) $(OSXJACKWRAP) $(RW)weakjack/weak_libjack.def $(RW)weakjack/weak_libjack.h $(JACKEXTRA) \
 	../b_synth/lv2.cpp ../b_synth/uris.h desc.h \
 	../b_synth/ui.cpp $(UIDEPS) \
 	../src/cfgParser.h ../src/midi.h
@@ -74,7 +74,7 @@ setBfreeUI$(EXE_EXT): $(RW)jackwrap.cpp $(LV2OBJ) $(OSXJACKWRAP) $(RW)weakjack/w
 		-DAPPNAME="\"setBfree\"" \
 		-DJACK_DESCRIPT=\"$(DESC)\" \
 		-o setBfreeUI$(EXE_EXT) \
-		$(RW)jackwrap.cpp $(OSXJACKWRAP) $(JACKEXTRA) \
+		$(RW)jackwrap.c $(OSXJACKWRAP) $(JACKEXTRA) \
 		$(LV2OBJ) ../b_synth/lv2.cpp ../b_synth/ui.cpp \
 		$(LDFLAGS) $(UILIBS) $(LOADLIBES) $(LIC_LOADLIBES) \
 		-lm

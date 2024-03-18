@@ -4,9 +4,7 @@ export EXPORTED_VERSION
 FONTFILE ?= verabd.h
 export FONTFILE
 
-ifneq ($(wildcard robtk/robtk.mk),)
-  ROBTK ?= robtk/
-endif
+ROBTK ?= libs/robtk/
 
 ifneq ($(ROBTK),)
 RW=$(abspath $(ROBTK))/

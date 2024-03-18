@@ -60,7 +60,7 @@
 
 #ifdef XTERNAL_UI
 #undef OLD_SUIL
-#include "../robtk/gl/xternalui.h"
+#include "../libs/robtk/gl/xternalui.h"
 #endif
 
 #ifdef __APPLE__

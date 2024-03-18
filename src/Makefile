@@ -69,7 +69,7 @@ override CFLAGS+=`$(PKG_CONFIG) --cflags jack`
 ifeq ($(USEWEAKJACK),1)
   override CFLAGS+=-DUSE_WEAK_JACK -I$(RW)
   LOADLIBES+=-ldl
-  WEAKJACK=$(RW)weakjack/weak_libjack.cpp
+  WEAKJACK=$(RW)weakjack/weak_libjack.c
 else
   LOADLIBES+=`$(PKG_CONFIG) --libs jack`
 endif

@@ -1,7 +1,7 @@
 # TODO include this only once and export variables
 
 CFLAGS ?= $(OPTIMIZATIONS) -Wall -std=c++17
-override CFLAGS += -I../libs/MTS-ESP/Client -I../libs/lv2/include
+override CFLAGS += -I../libs/MTS-ESP/Client -I../libs/lv2/include -I../libs/robtk/
 
 IS_OSX=
 UNAME=$(shell uname)
@@ -77,6 +77,8 @@ CXX=clang++
 override CFLAGS += -fsanitize=address,undefined -fno-sanitize-recover=address,undefined
 endif
 
+PUGL_DIR=../libs/robtk/pugl/
+
 IS_WIN=
 PKG_GL_LIBS=
 ifneq ($(IS_OSX),)
@@ -85,7 +87,7 @@ ifneq ($(IS_OSX),)
   GLUILIBS=-framework Cocoa -framework OpenGL -framework CoreFoundation
   STRIPFLAGS=-u -r -arch all -s $(RW)lv2syms
   UI_TYPE=CocoaUI
-  PUGL_SRC=../pugl/pugl_osx.mm
+  PUGL_SRC=$(PUGL_DIR)/pugl_osx.mm
   EXTENDED_RE=-E
 else
   ifneq ($(XWIN),)
@@ -95,7 +97,7 @@ else
     EXE_EXT=.exe
     GLUILIBS=-lws2_32 -lwinmm -lopengl32 -lglu32 -lgdi32 -lcomdlg32 -lpthread
     UI_TYPE=WindowsUI
-    PUGL_SRC=../pugl/pugl_win.cpp
+    PUGL_SRC=$(PUGL_DIR)/pugl_win.cpp
     override CFLAGS+= -DHAVE_MEMSTREAM
     override LDFLAGS += -static-libgcc -static-libstdc++ -DPTW32_STATIC_LIB
     override LDFLAGS += -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
@@ -107,7 +109,7 @@ else
     GLUICFLAGS+=-pthread
     GLUILIBS=-lX11
     UI_TYPE=X11UI
-    PUGL_SRC=../pugl/pugl_x11.cpp
+    PUGL_SRC=$(PUGL_DIR)/pugl_x11.c
   endif
   EXTENDED_RE=-r
 endif
@@ -156,7 +158,7 @@ endif
 
 ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UICFLAGS=-I..
-  UIDEPS=../pugl/pugl.h ../pugl/pugl_internal.h ../b_synth/ui_model.h
+  UIDEPS=$(PUGL_DIR)/pugl.h $(PUGL_DIR)/pugl_internal.h ../b_synth/ui_model.h
   UIDEPS+=$(TX)drawbar.cpp $(TX)wood.cpp $(TX)dial.cpp
   UIDEPS+=$(TX)btn_vibl.cpp $(TX)btn_vibu.cpp $(TX)btn_overdrive.cpp $(TX)btn_perc_volume.cpp
   UIDEPS+=$(TX)btn_perc.cpp $(TX)btn_perc_decay.cpp $(TX)btn_perc_harmonic.cpp
@@ -167,8 +169,8 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
   UIDEPS+=$(TX)uim_tube1.cpp $(TX)uim_tube2.cpp
   ifeq ($(IS_OSX), yes)
     STATICLIBS?=$(HOMEBREW)/lib/
-    UIDEPS+=../pugl/pugl_osx.mm
-    UILIBS=../pugl/pugl_osx.mm -framework Cocoa -framework OpenGL
+    UIDEPS+=$(PUGL_DIR)/pugl_osx.mm
+    UILIBS=$(PUGL_DIR)/pugl_osx.mm -framework Cocoa -framework OpenGL
     UILIBS+=$(STATICLIBS)/libftgl.a $(STATICLIBS)/libfreetype.a
     # libbz2.a is found in homebrew/Cellar
     UILIBS+=`find $$(dirname $(STATICLIBS)) -name libbz2.a`
@@ -177,8 +179,8 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
     UILIBS+=-lm $(OSXCOMPAT)
   else
     ifeq ($(IS_WIN), yes)
-      UIDEPS+=../pugl/pugl_win.cpp
-      UILIBS=../pugl/pugl_win.cpp
+      UIDEPS+=$(PUGL_DIR)/pugl_win.cpp
+      UILIBS=$(PUGL_DIR)/pugl_win.cpp
       STATICLIBS?=/ucrt64/lib/
       UILIBS+=$(STATICLIBS)/libftgl.a $(STATICLIBS)/libfreetype.a
       # The libs on the two lines below are used by freetype
@@ -186,9 +188,9 @@ ifeq ($(LV2AVAIL)$(HAVE_UI)$(HAVE_IDLE), yesyesyes)
       UILIBS+=$(STATICLIBS)/libbz2.a $(STATICLIBS)/libgraphite2.a $(STATICLIBS)/librpcrt4.a $(STATICLIBS)/libz.a
       UILIBS+=-lws2_32 -lwinmm -lopengl32 -lglu32 -lgdi32 -lcomdlg32 -lpthread
     else
-      UIDEPS+=../pugl/pugl_x11.cpp
+      UIDEPS+=$(PUGL_DIR)/pugl_x11.c
       override CFLAGS+=`pkg-config --cflags glu`
-      UILIBS=../pugl/pugl_x11.cpp -lX11
+      UILIBS=$(PUGL_DIR)/pugl_x11.c -lX11
       ifeq ($(STATICBUILD), yes)
         UILIBS+=`pkg-config --libs glu`
         UILIBS+=`pkg-config --variable=libdir ftgl`/libftgl.a `pkg-config --variable=libdir ftgl`/libfreetype.a

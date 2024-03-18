@@ -10,3 +10,6 @@
 [submodule "libs/doctest"]
 	path = libs/doctest
 	url = https://github.com/doctest/doctest.git
+[submodule "libs/robtk"]
+	path = libs/robtk
+	url = https://github.com/x42/robtk.git
