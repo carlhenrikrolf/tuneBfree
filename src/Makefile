@@ -1,8 +1,5 @@
 include ../common.mak
 
-INCLUDEPATHS = -I../b_overdrive/ -I../b_whirl  -I../b_reverb -I../b_conv
-
-override CFLAGS += $(INCLUDEPATHS)
 override CFLAGS += -DSHAREDIR="\"$(sharedir)\""
 LOADLIBES = -lm -lpthread
 ifeq ($(XWIN),)
@@ -29,10 +26,10 @@ OBJS= \
 	memstream.o \
 	libMTSClient.o \
 	tuning.o \
-	../b_reverb/reverb.cpp \
-	../b_whirl/eqcomp.cpp \
-	../b_whirl/whirl.cpp \
-	../b_overdrive/overdrive.cpp
+	overdrive.o \
+	reverb.o \
+	eqcomp.o \
+	whirl.o \
 
 HEADERS = \
 	cfgParser.h \
@@ -48,10 +45,10 @@ HEADERS = \
 	defaultpgm.h \
 	memstream.h \
 	tuning.h \
-	../b_reverb/reverb.h \
-	../b_whirl/eqcomp.h \
-	../b_whirl/whirl.h \
-	../b_overdrive/overdrive.h
+	overdrive.h \
+	reverb.h \
+	eqcomp.h \
+	whirl.h \
 
 
 ifeq ($(shell $(PKG_CONFIG) --exists jack || echo no), no)
@@ -72,16 +69,6 @@ ifeq ($(USEWEAKJACK),1)
   WEAKJACK=$(RW)weakjack/weak_libjack.c
 else
   LOADLIBES+=`$(PKG_CONFIG) --libs jack`
-endif
-
-ifeq ($(shell $(PKG_CONFIG) --exists sndfile \
-	&& test -f /usr/include/zita-convolver.h -o -f /usr/local/include/zita-convolver.h \
-	&& echo yes), $(ENABLE_CONVOLUTION))
-  override CFLAGS+= -DHAVE_ZITACONVOLVE `$(PKG_CONFIG) --cflags sndfile`
-  LOADLIBES+=-lzita-convolver `$(PKG_CONFIG) --libs sndfile`
-  OBJS+=../b_conv/convolution.o
-  HEADERS+=../b_conv/convolution.h
-  BXCC=$(CXX)
 endif
 
 BUILT_EXE_PATH=../build/tuneBfree$(EXE_EXT)
@@ -114,26 +101,6 @@ program: programd ../pgm/default.pgm
 program.o: defaultpgm.h
 
 # override .o in parent dirs -- needed for parallel builds
-
-../b_reverb/reverb.o: ../b_reverb/reverb.[ch]
-	+$(MAKE) -C ../b_reverb reverb.o
-
-../b_whirl/eqcomp.o: ../b_whirl/eqcomp.[ch]
-	+$(MAKE) -C ../b_whirl eqcomp.o
-
-../b_whirl/whirl.o: ../b_whirl/whirl.[ch]
-	+$(MAKE) -C ../b_whirl whirl.o
-
-../b_overdrive/overdrive.o: \
-  ../b_overdrive/filterTools.[ch] \
-  ../b_overdrive/overdrive.h \
-  ../b_overdrive/overmaker.[ch] \
-  ../b_overdrive/overmakerdefs.h \
-  ../b_overdrive/ovt_biased.[ch]
-	+$(MAKE) -C ../b_overdrive overdrive.o
-
-../b_conv/convolution.o: ../b_conv/convolution.cc ../b_conv/convolution.h
-	+$(MAKE) -C ../b_conv convolution.o
 
 libMTSClient.o: ../libs/MTS-ESP/Client/libMTSClient.cpp
 	$(CXX) -c ../libs/MTS-ESP/Client/libMTSClient.cpp -o libMTSClient.o
@@ -171,6 +138,7 @@ tests: tuning.h tuning.cpp tonegen.h tonegen.cpp midi.h midi.cpp
 	tonegen.cpp \
 	tuning.cpp \
 	midi.cpp \
+	reverb.cpp \
 
 	./tests
 

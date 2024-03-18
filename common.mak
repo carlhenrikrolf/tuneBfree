@@ -218,9 +218,9 @@ LV2OBJ= \
   ../src/pgmParser.cpp \
   ../src/memstream.cpp \
   ../src/midnam.cpp \
-  ../b_whirl/eqcomp.cpp \
-  ../b_whirl/whirl.cpp \
-  ../b_overdrive/overdrive.cpp \
-  ../b_reverb/reverb.cpp \
+  ../src/overdrive.cpp \
+  ../src/reverb.cpp \
+  ../src/eqcomp.cpp \
+  ../src/whirl.cpp \
 
 override CXXFLAGS=$(CFLAGS)

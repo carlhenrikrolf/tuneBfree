@@ -2,7 +2,7 @@ include ../common.mak
 TX=../b_synth/textures/
 WINDRES=windres
 
-override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl -I../b_synth/
+override CFLAGS+= -I../src -I../b_synth/
 override CFLAGS+= -DLV2SYNTH -DREQUIRE_UI
 
 ifeq ($(FONTFILE),verabd.h)

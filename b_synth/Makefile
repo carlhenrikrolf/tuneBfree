@@ -3,7 +3,7 @@ include ../common.mak
 include ../git2lv2.mk
 
 LOADLIBES = -lm
-override CFLAGS+= -I../src -I../b_overdrive -I../b_reverb -I../b_whirl
+override CFLAGS+= -I../src
 override CFLAGS+= -DLV2SYNTH -fvisibility=hidden
 targets=
 
@@ -61,9 +61,9 @@ $(LV2GUI)$(LIB_EXT): ui.cpp uris.h $(UIDEPS) $(FONTFILE) $(LV2OBJ)
 		../src/program.cpp \
 		../src/vibrato.cpp \
 		../src/tonegen.cpp \
-		../b_whirl/whirl.cpp \
-		../b_overdrive/overdrive.cpp \
-		../b_reverb/reverb.cpp \
+		../src/overdrive.cpp \
+		../src/reverb.cpp \
+		../src/whirl.cpp \
 		-shared $(LV2LDFLAGS) $(LDFLAGS) $(UILIBS)
 
 verabd.h: VeraBd.ttf
