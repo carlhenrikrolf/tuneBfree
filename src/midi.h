@@ -60,8 +60,6 @@ extern void midiPrimeControllerMapping (void* mcfg);
 extern int midiConfig (void* mcfg, ConfigContext* cfg);
 extern const ConfigDoc* midiDoc ();
 
-extern void setMIDINoteShift (void* mcfg, char offset);
-
 extern void initMidiTables (void* mcfg);
 extern void initControllerTable (void* mcfg);
 extern int getCCFunctionId (const char* name);

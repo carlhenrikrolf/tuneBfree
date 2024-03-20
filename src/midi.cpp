@@ -1001,18 +1001,6 @@ void midiPrimeControllerMapping(void *mcfg)
 #endif
 }
 
-/*
- * Sets global transpose (for playing in alternate scales).
- */
-void setMIDINoteShift(void *mcfg, char offset)
-{
-    struct b_midicfg *m = (struct b_midicfg *)mcfg;
-    m->transpose = offset;
-    loadKeyTableA(m);
-    loadKeyTableB(m);
-    loadKeyTableC(m);
-}
-
 #ifndef TESTS
 /*
  * This call configures this module.
@@ -1590,6 +1578,23 @@ TEST_CASE("Testing allocMidiCfg")
     freeMidiCfg(mcfg);
 }
 
+/**
+ * m->keyTableA, m->keyTableB, and m->keyTableC map midi notes on midi channels 0, 1, and 2
+ * respectively to setBfree keys. setBfree keys correspond to physical pedals/keys on the organ.
+ * From default.cfg:
+ *
+ *    Key numbers:
+ *      0 --  60        Upper manual, low C -- high C
+ *     64 -- 124        Lower manual, low C -- high C
+ *    128 -- 159        Pedals, low C -- high G
+ *
+ * If no splits are being used, channel 0 maps to upper manual, channel 1 to lower manual, channel 2
+ * to pedals. So in that case keyTableA maps into [0, 60], keyTableB maps into [64, 124], and
+ * keyTableC maps into [128, 159].
+ *
+ * If upper manual splits are being used, keyTableA can map to any pedal or key
+ * (to allow playing pedals, upper manual, and lower manual all on midi channel 0)
+ */
 TEST_CASE("Testing initMidiTables")
 {
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
@@ -1662,6 +1667,43 @@ TEST_CASE("Testing setKeyboardTranspose")
     freeMidiCfg(mcfg);
 }
 
+TEST_CASE("Testing setKeyboardTranspose (negative transpose")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    initMidiTables(mcfg);
+
+    setKeyboardTranspose(mcfg, -1);
+
+    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[35] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[36] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[37] == 0);
+    CHECK(mcfg->keyTableA[95] == 58);
+    CHECK(mcfg->keyTableA[96] == 59);
+    CHECK(mcfg->keyTableA[97] == 60);
+    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+
+    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[35] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[36] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[37] == 64);
+    CHECK(mcfg->keyTableB[95] == 122);
+    CHECK(mcfg->keyTableB[96] == 123);
+    CHECK(mcfg->keyTableB[97] == 124);
+    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
+
+    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[23] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[24] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[25] == 128);
+    CHECK(mcfg->keyTableC[54] == 157);
+    CHECK(mcfg->keyTableC[55] == 158);
+    CHECK(mcfg->keyTableC[56] == 159);
+    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
 TEST_CASE("Testing map_to_real_key")
 {
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
@@ -1695,5 +1737,253 @@ TEST_CASE("Testing map_to_real_key")
     CHECK(map_to_real_key(mcfg, 2, 127) == UNMAPPED_KEY);
 
     freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableRegion")
+{
+    // static void loadKeyTableRegion(unsigned char *translationTable, int first_MIDINote,
+    //                               int last_MIDINote, int firstKey, int lastKey, int transpose,
+    //                               int excursionStrategy)
+    unsigned char keyTable[128] = {0};
+    loadKeyTableRegion(keyTable, 36, 127, 0, 60, 0, 0);
+    CHECK(keyTable[0] == 0);
+    CHECK(keyTable[1] == 0);
+    CHECK(keyTable[35] == 0);
+    CHECK(keyTable[36] == 0);
+    CHECK(keyTable[37] == 1);
+    CHECK(keyTable[95] == 59);
+    CHECK(keyTable[96] == 60);
+    CHECK(keyTable[97] == UNMAPPED_KEY);
+}
+
+TEST_CASE("Testing clearKeyTable")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+    loadKeyTableA(mcfg);
+
+    CHECK(mcfg->keyTableA[37] == 1);
+    clearKeyTable(mcfg->keyTableA);
+    CHECK(mcfg->keyTableA[37] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableA with splits")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+
+    mcfg->splitA_PL = 40;
+    mcfg->splitA_UL = 66;
+    loadKeyTableA(mcfg);
+
+    // Unmapped
+    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[23] == UNMAPPED_KEY);
+
+    // Mapped to pedals
+    CHECK(mcfg->keyTableA[24] == 128);
+    CHECK(mcfg->keyTableA[25] == 129);
+    CHECK(mcfg->keyTableA[38] == 142);
+    CHECK(mcfg->keyTableA[39] == 143);
+
+    // Mapped to lower manual
+    CHECK(mcfg->keyTableA[40] == 68);
+    CHECK(mcfg->keyTableA[41] == 69);
+    CHECK(mcfg->keyTableA[65] == 93);
+
+    // Mapped to upper manual
+    CHECK(mcfg->keyTableA[66] == 30);
+    CHECK(mcfg->keyTableA[95] == 59);
+    CHECK(mcfg->keyTableA[96] == 60);
+
+    // Unmapped
+    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableA with channel transpose")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+
+    loadKeyTableA(mcfg);
+    CHECK(mcfg->keyTableA[37] == 1);
+
+    mcfg->nshA = 2;
+    loadKeyTableA(mcfg);
+    CHECK(mcfg->keyTableA[37] == 3);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableB with channel transpose")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+
+    loadKeyTableB(mcfg);
+    CHECK(mcfg->keyTableB[37] == 65);
+
+    mcfg->nshB = 2;
+    loadKeyTableB(mcfg);
+    CHECK(mcfg->keyTableB[37] == 67);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableC with channel transpose")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+
+    loadKeyTableC(mcfg);
+    CHECK(mcfg->keyTableC[37] == 141);
+
+    mcfg->nshC = 2;
+    loadKeyTableC(mcfg);
+    CHECK(mcfg->keyTableC[37] == 143);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing loadKeyTableA with split transposes")
+{
+    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
+
+    mcfg->splitA_PL = 40;
+    mcfg->splitA_UL = 66;
+
+    mcfg->nshA_U = 2;  /* Channel A upper region transpose */
+    mcfg->nshA_PL = 3; /* Channel A pedal region transpose */
+    mcfg->nshA_UL = 4; /* Channel A lower region transpose */
+
+    loadKeyTableA(mcfg);
+
+    // Unmapped
+    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[23] == 130);
+
+    // Mapped to pedals
+    CHECK(mcfg->keyTableA[24] == 128 + 3);
+    CHECK(mcfg->keyTableA[25] == 129 + 3);
+    CHECK(mcfg->keyTableA[38] == 142 + 3);
+    CHECK(mcfg->keyTableA[39] == 143 + 3);
+
+    // Mapped to lower manual
+    CHECK(mcfg->keyTableA[40] == 68 + 4);
+    CHECK(mcfg->keyTableA[41] == 69 + 4);
+    CHECK(mcfg->keyTableA[65] == 93 + 4);
+
+    // Mapped to upper manual
+    CHECK(mcfg->keyTableA[66] == 30 + 2);
+    CHECK(mcfg->keyTableA[95] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[96] == UNMAPPED_KEY);
+
+    // Unmapped
+    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+
+    freeMidiCfg(mcfg);
+}
+
+TEST_CASE("Testing process_midi_event (upper manual)")
+{
+    b_instance inst;
+    memset(&inst, 0, sizeof(b_instance));
+    inst.midicfg = allocMidiCfg(nullptr);
+    initMidiTables(inst.midicfg);
+    inst.synth = allocTonegen();
+
+    struct bmidi_event_t bev;
+    memset(&bev, 0, sizeof(struct bmidi_event_t));
+
+    bev.type = NOTE_ON;
+    bev.channel = 0;
+    bev.d.tone.note = 96;
+    bev.d.tone.velocity = 80;
+
+    CHECK(inst.synth->activeKeys[60] == 0);
+    process_midi_event(&inst, &bev);
+    CHECK(inst.synth->activeKeys[60] == 1);
+    CHECK(inst.synth->upperKeyCount == 1);
+
+    freeMidiCfg(inst.midicfg);
+    freeToneGenerator(inst.synth);
+}
+
+TEST_CASE("Testing process_midi_event (lower manual)")
+{
+    b_instance inst;
+    memset(&inst, 0, sizeof(b_instance));
+    inst.midicfg = allocMidiCfg(nullptr);
+    initMidiTables(inst.midicfg);
+    inst.synth = allocTonegen();
+
+    struct bmidi_event_t bev;
+    memset(&bev, 0, sizeof(struct bmidi_event_t));
+
+    bev.type = NOTE_ON;
+    bev.channel = 1;
+    bev.d.tone.note = 96;
+    bev.d.tone.velocity = 80;
+
+    CHECK(inst.synth->activeKeys[124] == 0);
+    process_midi_event(&inst, &bev);
+    CHECK(inst.synth->activeKeys[124] == 1);
+    CHECK(inst.synth->upperKeyCount == 0);
+
+    freeMidiCfg(inst.midicfg);
+    freeToneGenerator(inst.synth);
+}
+
+TEST_CASE("Testing process_midi_event (pedals)")
+{
+    b_instance inst;
+    memset(&inst, 0, sizeof(b_instance));
+    inst.midicfg = allocMidiCfg(nullptr);
+    initMidiTables(inst.midicfg);
+    inst.synth = allocTonegen();
+
+    struct bmidi_event_t bev;
+    memset(&bev, 0, sizeof(struct bmidi_event_t));
+
+    bev.type = NOTE_ON;
+    bev.channel = 2;
+    bev.d.tone.note = 30;
+    bev.d.tone.velocity = 80;
+
+    CHECK(inst.synth->activeKeys[134] == 0);
+    process_midi_event(&inst, &bev);
+    CHECK(inst.synth->activeKeys[134] == 1);
+    CHECK(inst.synth->upperKeyCount == 0);
+
+    freeMidiCfg(inst.midicfg);
+    freeToneGenerator(inst.synth);
+}
+
+TEST_CASE("Testing process_midi_event (unmapped key)")
+{
+    b_instance inst;
+    memset(&inst, 0, sizeof(b_instance));
+    inst.midicfg = allocMidiCfg(nullptr);
+    initMidiTables(inst.midicfg);
+    inst.synth = allocTonegen();
+
+    struct bmidi_event_t bev;
+    memset(&bev, 0, sizeof(struct bmidi_event_t));
+
+    bev.type = NOTE_ON;
+    bev.channel = 0;
+    bev.d.tone.note = 0;
+    bev.d.tone.velocity = 80;
+
+    process_midi_event(&inst, &bev);
+    for (int i = 0; i < MAX_KEYS; i++)
+    {
+        CHECK(inst.synth->activeKeys[i] == 0);
+    }
+    CHECK(inst.synth->upperKeyCount == 0);
+
+    freeMidiCfg(inst.midicfg);
+    freeToneGenerator(inst.synth);
 }
 #endif
