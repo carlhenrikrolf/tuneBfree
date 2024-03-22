@@ -379,11 +379,13 @@ static void assignMIDIControllerFunction(ctrl_function *vec, unsigned char contr
     assert(vec != NULL);
     if (f != NULL)
     {
+#ifndef TESTS
         if ((vec[controller].fn != emptyControlFunction) && (vec[controller].fn != NULL))
         {
             fprintf(stderr, "midi.c:WARNING, multiple allocation of controller %d!\n",
                     (int)controller);
         }
+#endif
         vec[controller].fn = f;
         vec[controller].d = d;
         vec[controller].id = fn_id;
@@ -1982,6 +1984,39 @@ TEST_CASE("Testing process_midi_event (unmapped key)")
         CHECK(inst.synth->activeKeys[i] == 0);
     }
     CHECK(inst.synth->upperKeyCount == 0);
+
+    freeMidiCfg(inst.midicfg);
+    freeToneGenerator(inst.synth);
+}
+
+TEST_CASE("Testing middle C")
+{
+    b_instance inst;
+    memset(&inst, 0, sizeof(b_instance));
+    inst.midicfg = allocMidiCfg(nullptr);
+    initMidiTables(inst.midicfg);
+    inst.synth = allocTonegen();
+    initToneGenerator(inst.synth, inst.midicfg);
+
+    int midiNote = 60;
+    int key = 24;
+    int osc = 37;
+
+    struct b_midicfg *m = (struct b_midicfg *)inst.midicfg;
+    CHECK(m->keyTableA[midiNote] == key);
+
+    // Search for large contribution on bus 2 (third drawbar, for fundamental)
+    ListElement *lep = inst.synth->keyContrib[key];
+    while (lep->next)
+    {
+        if (lep->u.ssf.sb == 2 && lep->u.ssf.fc > 0.5)
+        {
+            break;
+        }
+        lep = lep->next;
+    }
+    CHECK(lep->u.ssf.sa == osc);
+    CHECK(inst.synth->oscillators[osc].frequency == doctest::Approx(261.626));
 
     freeMidiCfg(inst.midicfg);
     freeToneGenerator(inst.synth);
