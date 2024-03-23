@@ -4020,32 +4020,30 @@ TEST_CASE("Testing applyManualDefaults")
 {
     struct b_tonegen *t = allocTonegen();
     getFrequencies(t->frequency, NOF_FREQS);
-    double g1 = 0.6683439016342163;
-    double g2 = 0.4466835856437683;
-
-    // Upper manual
-    applyManualDefaults(t, 64, 9);
-    CHECK(t->keyTaper[64]->u.ssf.sa == 20);
-    CHECK(t->keyTaper[64]->u.ssf.sb == 10);
-    CHECK(t->keyTaper[64]->u.ssf.fc == g1);
-    CHECK(t->keyTaper[64]->next->u.ssf.sa == 13);
-    CHECK(t->keyTaper[64]->next->u.ssf.sb == 11);
-    CHECK(t->keyTaper[64]->next->u.ssf.fc == g2);
-    CHECK(t->keyTaper[64]->next->next->u.ssf.sa == 25);
-    CHECK(t->keyTaper[64]->next->next->u.ssf.sb == 12);
-    CHECK(t->keyTaper[64]->next->next->u.ssf.fc == g1);
 
     // Lower manual
+    applyManualDefaults(t, 64, 9);
+    CHECK(t->keyTaper[64 + 24]->u.ssf.sa == 25);
+    CHECK(t->keyTaper[64 + 24]->u.ssf.sb == 9);
+    CHECK(t->keyTaper[64 + 24]->u.ssf.fc == 1);
+    CHECK(t->keyTaper[64 + 24]->next->u.ssf.sa == 44);
+    CHECK(t->keyTaper[64 + 24]->next->u.ssf.sb == 10);
+    CHECK(t->keyTaper[64 + 24]->next->u.ssf.fc == 1);
+    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.sa == 37);
+    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.sb == 11);
+    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.fc == 1);
+
+    // Upper manual
     applyManualDefaults(t, 0, 0);
-    CHECK(t->keyTaper[0]->u.ssf.sa == 20);
-    CHECK(t->keyTaper[0]->u.ssf.sb == 1);
-    CHECK(t->keyTaper[0]->u.ssf.fc == g1);
-    CHECK(t->keyTaper[0]->next->u.ssf.sa == 13);
-    CHECK(t->keyTaper[0]->next->u.ssf.sb == 2);
-    CHECK(t->keyTaper[0]->next->u.ssf.fc == g2);
-    CHECK(t->keyTaper[0]->next->next->u.ssf.sa == 25);
-    CHECK(t->keyTaper[0]->next->next->u.ssf.sb == 3);
-    CHECK(t->keyTaper[0]->next->next->u.ssf.fc == g1);
+    CHECK(t->keyTaper[0 + 24]->u.ssf.sa == 25);
+    CHECK(t->keyTaper[0 + 24]->u.ssf.sb == 0);
+    CHECK(t->keyTaper[0 + 24]->u.ssf.fc == 1);
+    CHECK(t->keyTaper[0 + 24]->next->u.ssf.sa == 44);
+    CHECK(t->keyTaper[0 + 24]->next->u.ssf.sb == 1);
+    CHECK(t->keyTaper[0 + 24]->next->u.ssf.fc == 1);
+    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.sa == 37);
+    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.sb == 2);
+    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.fc == 1);
 
     freeToneGenerator(t);
 }
