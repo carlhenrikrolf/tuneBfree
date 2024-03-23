@@ -498,6 +498,13 @@ static double taperingModel(int key, int bus)
 {
     double tapering = taperReference;
 
+    /**
+     * When extending the playing range for tuneBfree the key numbers were
+     * shifted 36 higher. To keep equivalent tapering model behaviour the key
+     * number is shifted down by 36 here.
+     */
+    key = key - 36;
+
     switch (bus)
     {
     case 0: /* 16 */
@@ -682,12 +689,11 @@ static double taperingModel(int key, int bus)
 static double getOscillatorFrequency(struct b_tonegen *t, int i)
 {
     /*
-     * Note number offset chosen so middle C has correct pitch with default
-     * MTS-ESP tuning Lower frequency cutoff chosen to limit number of samples
-     * required for one period Upper frequency cutoff chosen to avoid integer
-     * overflow in fitWave
+     * Note number offset by -1 because oscillators/tonewheels are one-indexed.
+     * Lower frequency cutoff chosen to limit number of samples required for one period.
+     * Upper frequency cutoff chosen to avoid integer overflow in fitWave.
      */
-    return std::fmin(std::fmax(t->frequency[23 + i], 12.0), 2.5e10);
+    return std::fmin(std::fmax(t->frequency[i - 1], 12.0), 2.5e10);
 }
 
 /**
@@ -737,10 +743,10 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 #endif
 
     double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
-    double frequency[NOF_WHEELS + 1];
+    double oscFrequency[NOF_WHEELS + 1];
     for (int i = 1; i <= NOF_WHEELS; i++)
     {
-        frequency[i] = getOscillatorFrequency(t, i);
+        oscFrequency[i] = getOscillatorFrequency(t, i);
     }
 
     /**
@@ -752,8 +758,8 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 
     int terminalNumber, bestTerminalNumber;
     float ratio, centDiff, smallestCentDiff;
-    for (k = 0; k <= 60; k++)
-    {                                  /* Iterate over 60 keys */
+    for (k = 0; k < NOF_MIDI_NOTES; k++)
+    {                                  /* Iterate over 128 keys */
         int keyNumber = k + keyOffset; /* Determine the key's number */
         if (t->keyTaper[keyNumber] == NULL)
         { /* If taper is unset */
@@ -764,7 +770,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                 bestTerminalNumber = 0;
                 for (terminalNumber = 1; terminalNumber <= NOF_WHEELS; terminalNumber++)
                 { /* For each possible terminal */
-                    ratio = frequency[terminalNumber] / frequency[k + 13];
+                    ratio = oscFrequency[terminalNumber] / t->frequency[k];
                     centDiff = 1200 * std::fabs(std::log2(targetRatio[b] / ratio));
                     if (centDiff < smallestCentDiff)
                     {
@@ -772,6 +778,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                         bestTerminalNumber = terminalNumber;
                     }
                 }
+                assert(bestTerminalNumber != 0);
                 // If the best terminal is 1 or NOF_WHEELS then it's likely the search has just
                 // hit the end of the range and we don't have a good approximation
                 if ((bestTerminalNumber != 1) && (bestTerminalNumber != NOF_WHEELS))
@@ -799,6 +806,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 static void applyPedalDefaults(struct b_tonegen *t, int nofPedals)
 {
     int k;
+    // TODO add tonewheel choosing for pedal harmonics
     int PDoffset[9] = {-12, 7, 0, 12, 19, 24, 28, 31, 36};
     ListElement *lep;
 
@@ -806,17 +814,17 @@ static void applyPedalDefaults(struct b_tonegen *t, int nofPedals)
 
     for (k = 0; k < nofPedals; k++)
     {
-        int keyNumber = k + 128;
+        int keyNumber = k + 2 * NOF_MIDI_NOTES;
         if (t->keyTaper[keyNumber] == NULL)
         {
             int b;
             for (b = 0; b < 9; b++)
             {
                 int terminalNumber;
-                terminalNumber = (k + 13) + PDoffset[b];
+                terminalNumber = (k + 1) + PDoffset[b];
                 if (terminalNumber < 1)
                     continue;
-                if (91 < terminalNumber)
+                if (NOF_WHEELS < terminalNumber)
                     continue;
                 lep = newConfigListElement(t);
                 LE_TERMINAL_OF(lep) = (short)terminalNumber;
@@ -839,7 +847,7 @@ static void applyDefaultCrosstalk(struct b_tonegen *t, int keyOffset, int busOff
     int k;
     int b;
 
-    for (k = 0; k <= 60; k++)
+    for (k = 0; k < NOF_MIDI_NOTES; k++)
     {
         int keyNumber = k + keyOffset;
         if (t->keyCrosstalk[keyNumber] == NULL)
@@ -1013,12 +1021,12 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
     /* Key connections and taper */
 
     applyManualDefaults(t, 0, 0);
-    applyManualDefaults(t, 64, 9);
+    applyManualDefaults(t, NOF_MIDI_NOTES, 9);
     applyPedalDefaults(t, 32);
 
     /* Key crosstalk */
     applyDefaultCrosstalk(t, 0, 0);
-    applyDefaultCrosstalk(t, 64, 9);
+    applyDefaultCrosstalk(t, NOF_MIDI_NOTES, 9);
 
     /*
      * As yet there is no default crosstalk model for pedals, but they will
@@ -1123,11 +1131,6 @@ static void compilePlayMatrix(struct b_tonegen *t)
     for (k = 0; k < MAX_KEYS; k++)
     {
         ListElement *lep;
-        /* Skip unused keys (between manuals) */
-        if ((60 < k) && (k < 64))
-            continue;
-        if ((124 < k) && (k < 128))
-            continue;
         /* Reset the accumulation matrix */
         endRow = 0;
         /* Put in key taper information (info from the wiring model) */
@@ -3071,7 +3074,7 @@ void freeToneGenerator(struct b_tonegen *t)
  * This function is the entry point for the MIDI parser when it has received
  * a NOTE OFF message on a channel and note number mapped to a playing key.
  */
-void oscKeyOff(struct b_tonegen *t, unsigned char keyNumber, unsigned char realKey)
+void oscKeyOff(struct b_tonegen *t, short keyNumber, short realKey)
 {
     if (MAX_KEYS <= keyNumber)
         return;
@@ -3080,12 +3083,12 @@ void oscKeyOff(struct b_tonegen *t, unsigned char keyNumber, unsigned char realK
     {
         /* Flag the key as inactive */
         t->activeKeys[keyNumber] = 0;
-        if (realKey != 255)
+        if (realKey >= 0)
         {
             t->_activeKeys[realKey / 32] &= ~(1 << (realKey % 32));
         }
         /* Track upper manual keys for percussion trigger */
-        if (keyNumber < 64)
+        if (keyNumber < NOF_MIDI_NOTES)
         {
             t->upperKeyCount--;
         }
@@ -3109,7 +3112,7 @@ void oscKeyOff(struct b_tonegen *t, unsigned char keyNumber, unsigned char realK
  * This function is the entry point for the MIDI parser when it has received
  * a NOTE ON message on a channel and note number mapped to a playing key.
  */
-void oscKeyOn(struct b_tonegen *t, unsigned char keyNumber, unsigned char realKey)
+void oscKeyOn(struct b_tonegen *t, short keyNumber, short realKey)
 {
     if (MAX_KEYS <= keyNumber)
         return;
@@ -3120,12 +3123,12 @@ void oscKeyOn(struct b_tonegen *t, unsigned char keyNumber, unsigned char realKe
     }
     /* Mark the key as active */
     t->activeKeys[keyNumber] = 1;
-    if (realKey != 255)
+    if (realKey >= 0)
     {
         t->_activeKeys[realKey / 32] |= (1 << (realKey % 32));
     }
     /* Track upper manual for percussion trigger */
-    if (keyNumber < 64)
+    if (keyNumber < NOF_MIDI_NOTES)
     {
         t->upperKeyCount++;
     }
@@ -3996,8 +3999,8 @@ TEST_CASE("Testing setTuning")
 
 TEST_CASE("Testing taperingModel")
 {
-    CHECK(taperingModel(11, 0) == pow(10.0, -0.5));
-    CHECK(taperingModel(13, 0) == pow(10.0, -7.0 / 20.0));
+    CHECK(taperingModel(47, 0) == pow(10.0, -0.5));
+    CHECK(taperingModel(49, 0) == pow(10.0, -7.0 / 20.0));
 }
 
 /* Need to pass non-null midi config pointer
@@ -4022,28 +4025,28 @@ TEST_CASE("Testing applyManualDefaults")
     getFrequencies(t->frequency, NOF_FREQS);
 
     // Lower manual
-    applyManualDefaults(t, 64, 9);
-    CHECK(t->keyTaper[64 + 24]->u.ssf.sa == 25);
-    CHECK(t->keyTaper[64 + 24]->u.ssf.sb == 9);
-    CHECK(t->keyTaper[64 + 24]->u.ssf.fc == 1);
-    CHECK(t->keyTaper[64 + 24]->next->u.ssf.sa == 44);
-    CHECK(t->keyTaper[64 + 24]->next->u.ssf.sb == 10);
-    CHECK(t->keyTaper[64 + 24]->next->u.ssf.fc == 1);
-    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.sa == 37);
-    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.sb == 11);
-    CHECK(t->keyTaper[64 + 24]->next->next->u.ssf.fc == 1);
+    applyManualDefaults(t, 128, 9);
+    CHECK(t->keyTaper[128 + 24 + 36]->u.ssf.sa == 25 + 24);
+    CHECK(t->keyTaper[128 + 24 + 36]->u.ssf.sb == 9);
+    CHECK(t->keyTaper[128 + 24 + 36]->u.ssf.fc == 1);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->u.ssf.sa == 44 + 24);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->u.ssf.sb == 10);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->u.ssf.fc == 1);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->next->u.ssf.sa == 37 + 24);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->next->u.ssf.sb == 11);
+    CHECK(t->keyTaper[128 + 24 + 36]->next->next->u.ssf.fc == 1);
 
     // Upper manual
     applyManualDefaults(t, 0, 0);
-    CHECK(t->keyTaper[0 + 24]->u.ssf.sa == 25);
-    CHECK(t->keyTaper[0 + 24]->u.ssf.sb == 0);
-    CHECK(t->keyTaper[0 + 24]->u.ssf.fc == 1);
-    CHECK(t->keyTaper[0 + 24]->next->u.ssf.sa == 44);
-    CHECK(t->keyTaper[0 + 24]->next->u.ssf.sb == 1);
-    CHECK(t->keyTaper[0 + 24]->next->u.ssf.fc == 1);
-    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.sa == 37);
-    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.sb == 2);
-    CHECK(t->keyTaper[0 + 24]->next->next->u.ssf.fc == 1);
+    CHECK(t->keyTaper[0 + 24 + 36]->u.ssf.sa == 25 + 24);
+    CHECK(t->keyTaper[0 + 24 + 36]->u.ssf.sb == 0);
+    CHECK(t->keyTaper[0 + 24 + 36]->u.ssf.fc == 1);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->u.ssf.sa == 44 + 24);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->u.ssf.sb == 1);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->u.ssf.fc == 1);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->next->u.ssf.sa == 37 + 24);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->next->u.ssf.sb == 2);
+    CHECK(t->keyTaper[0 + 24 + 36]->next->next->u.ssf.fc == 1);
 
     freeToneGenerator(t);
 }
@@ -4052,12 +4055,12 @@ TEST_CASE("Testing applyPedalDefaults")
 {
     struct b_tonegen *t = allocTonegen();
     applyPedalDefaults(t, 32);
-    CHECK(t->keyTaper[128]->u.ssf.sa == 1);
-    CHECK(t->keyTaper[128]->u.ssf.sb == 18);
-    CHECK(t->keyTaper[128]->u.ssf.fc == 1.0);
-    CHECK(t->keyTaper[159]->u.ssf.sa == 32);
-    CHECK(t->keyTaper[159]->u.ssf.sb == 18);
-    CHECK(t->keyTaper[159]->u.ssf.fc == 1.0);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES]->u.ssf.sa == 8);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES]->u.ssf.sb == 19);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES]->u.ssf.fc == 1.0);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES + 31]->u.ssf.sa == 20);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES + 31]->u.ssf.sb == 18);
+    CHECK(t->keyTaper[2 * NOF_MIDI_NOTES + 31]->u.ssf.fc == 1.0);
     freeToneGenerator(t);
 }
 
@@ -4067,12 +4070,12 @@ TEST_CASE("Testing applyDefaultCrosstalk")
     getFrequencies(t->frequency, NOF_FREQS);
     applyManualDefaults(t, 0, 0);
     applyDefaultCrosstalk(t, 0, 0);
-    CHECK(t->keyCrosstalk[0]->u.ssf.sa == 20);
-    CHECK(t->keyCrosstalk[0]->u.ssf.sb == 0);
-    CHECK(t->keyCrosstalk[0]->u.ssf.fc == 0.0066834390163421631);
-    CHECK(t->keyCrosstalk[60]->u.ssf.sa == 80);
-    CHECK(t->keyCrosstalk[60]->u.ssf.sb == 0);
-    CHECK(t->keyCrosstalk[60]->u.ssf.fc == 0.0223872121423482895);
+    CHECK(t->keyCrosstalk[0 + 36]->u.ssf.sa == 20 + 24);
+    CHECK(t->keyCrosstalk[0 + 36]->u.ssf.sb == 0);
+    CHECK(t->keyCrosstalk[0 + 36]->u.ssf.fc == 0.0066834390163421631);
+    CHECK(t->keyCrosstalk[60 + 36]->u.ssf.sa == 80 + 24);
+    CHECK(t->keyCrosstalk[60 + 36]->u.ssf.sb == 0);
+    CHECK(t->keyCrosstalk[60 + 36]->u.ssf.fc == 0.0223872121423482895);
     freeToneGenerator(t);
 }
 
@@ -4126,10 +4129,10 @@ TEST_CASE("Testing cpmInsert")
     CHECK(rowLength[1] == 1);
     CHECK(rowLength[2] == 1);
     CHECK(rowLength[3] == 0);
-    CHECK(wheelNumber[0] == 20);
-    CHECK(wheelNumber[1] == 68);
-    CHECK(wheelNumber[2] == 8);
-    CHECK(wheelNumber[3] == 0);
+    CHECK(wheelNumber[0] == 8);
+    CHECK(wheelNumber[1] == 56);
+    CHECK(wheelNumber[2] == 20);
+    CHECK(wheelNumber[3] == 56);
     CHECK(cpmGain[0][0] == doctest::Approx(0.66166));
     CHECK(cpmGain[1][0] == doctest::Approx(0.0133669));
     CHECK(cpmGain[0][1] == 0.0);

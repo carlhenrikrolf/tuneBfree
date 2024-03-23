@@ -240,11 +240,11 @@ struct b_midicfg
      */
     int userExcursionStrategy;
 
-    unsigned char keyTableA[128]; /**< MIDI note to key transl. tbl */
-    unsigned char keyTableB[128]; /**< MIDI note to key transl. tbl */
-    unsigned char keyTableC[128]; /**< MIDI note to key transl. tbl */
+    short keyTableA[NOF_MIDI_NOTES]; /**< MIDI note to key transl. tbl */
+    short keyTableB[NOF_MIDI_NOTES]; /**< MIDI note to key transl. tbl */
+    short keyTableC[NOF_MIDI_NOTES]; /**< MIDI note to key transl. tbl */
 
-    unsigned char *keyTable[16]; /**< Tables per MIDI channel */
+    short *keyTable[16]; /**< Tables per MIDI channel */
 
     unsigned char ctrlUseA[CTRL_USE_MAX];
     unsigned char ctrlUseB[CTRL_USE_MAX];
@@ -671,136 +671,30 @@ void initControllerTable(void *mcfg)
 }
 
 /*
- * This function is used to map a region of the MIDI keyboard to a
- * region of setBfree keys. The supplied translation table will only be
- * written in the specified MIDI range.
- *
- * @param translationTable  Pointer to lookup table used by parser.
- * @param firstMIDINote     MIDI note number of the first note in the input.
- * @param lastMIDINote      MIDI note number of the last note in the input.
- * @param firstKey          First key number in the target region.
- * @param lastKey           Last key number in the target region.
- * @param transpose         Applies a small transpose to the target region.
- * @param excursionStrategy If zero, MIDI notes mapped outside the target
- *                          become silent. If 1, notes outside the target
- *                          wraps around to the closest octave key.
- */
-static void loadKeyTableRegion(unsigned char *translationTable, int first_MIDINote,
-                               int last_MIDINote, int firstKey, int lastKey, int transpose,
-                               int excursionStrategy)
-{
-    if (excursionStrategy == 2)
-    {
-        int key, note;
-        for (key = firstKey, note = first_MIDINote - transpose; key <= lastKey; key++, note++)
-        {
-            if (note < 1 || note > 127)
-                continue;
-            translationTable[note] = key;
-        }
-    }
-    else
-    {
-        int note;
-        int offset = transpose + firstKey - first_MIDINote;
-        int firstKeyAdjust = firstKey + 12 - (firstKey % 12);
-        int lastKeyAdjust = lastKey - (lastKey % 12) - 12;
-
-        for (note = first_MIDINote; note <= last_MIDINote; note++)
-        {
-            int key = note + offset;
-            if (key < firstKey)
-            {
-                key = (excursionStrategy == 1) ? firstKeyAdjust + (key % 12) : 255;
-            }
-            else if (lastKey < key)
-            {
-                key = (excursionStrategy == 1) ? lastKeyAdjust + (key % 12) : 255;
-            }
-            /* This may happen if the key range is smaller than an octave. */
-            if ((key < firstKey) || (lastKey < key))
-            {
-                key = 255;
-            }
-            translationTable[note] = key;
-        }
-    }
-}
-
-/*
- * Clears a note-to-key translation table by setting all entries to 255.
- */
-static void clearKeyTable(unsigned char *table)
-{
-    int i;
-    for (i = 0; i < 128; i++)
-    {
-        table[i] = 255;
-    }
-}
-
-/*
  * This function loads the channel A note-to-key translation table.
  */
 static void loadKeyTableA(struct b_midicfg *m)
 {
-    int left = 0;
-
-    clearKeyTable(m->keyTableA);
-
-    if (0 < m->splitA_PL)
+    int i, offset;
+    for (i = 0; i < NOF_MIDI_NOTES; i++)
     {
-        int firstkey = 128;
-        int trnp = m->transpose + m->nshA_PL;
-        int first_MIDI_Note = 24 - trnp;
-        if (first_MIDI_Note < 0)
+        if (i < m->splitA_PL)
         {
-            firstkey -= first_MIDI_Note;
-            first_MIDI_Note = 0;
+            offset = m->transpose + m->nshA_PL + 2 * NOF_MIDI_NOTES;
         }
-        loadKeyTableRegion(m->keyTableA, first_MIDI_Note, m->splitA_PL - 1, firstkey, 159, 0, 0);
-        left = m->splitA_PL;
-    }
-
-    if (left < m->splitA_UL)
-    {
-        int firstkey = 64;
-        int trnp = m->transpose + m->nshA_UL;
-        int first_MIDI_Note = 36 - trnp;
-
-        if (left > first_MIDI_Note)
+        else if (i < m->splitA_UL)
         {
-            firstkey += (left - first_MIDI_Note);
-            first_MIDI_Note = left;
+            offset = m->transpose + m->nshA_UL + NOF_MIDI_NOTES;
         }
-
-        if (first_MIDI_Note < 0)
+        else if (m->splitA_UL)
         {
-            firstkey -= first_MIDI_Note;
-            first_MIDI_Note = 0;
+            offset = m->transpose + m->nshA_U;
         }
-
-        loadKeyTableRegion(m->keyTableA, first_MIDI_Note, m->splitA_UL - 1, firstkey, 124, 0, 0);
-        left = m->splitA_UL;
-    }
-
-    {
-        int firstkey = 0;
-        int trnp = m->transpose + ((0 < left) ? m->nshA_U : m->nshA);
-        int first_MIDI_Note = 36 - trnp;
-
-        if (left > first_MIDI_Note)
+        else
         {
-            firstkey += (left - first_MIDI_Note);
-            first_MIDI_Note = left;
+            offset = m->transpose + m->nshA;
         }
-        if (first_MIDI_Note < 0)
-        {
-            firstkey -= first_MIDI_Note;
-            first_MIDI_Note = 0;
-        }
-
-        loadKeyTableRegion(m->keyTableA, first_MIDI_Note, 127, firstkey, 60, 0, 0);
+        m->keyTableA[i] = i + offset;
     }
 } /* loadKeyTableA */
 
@@ -809,10 +703,11 @@ static void loadKeyTableA(struct b_midicfg *m)
  */
 static void loadKeyTableB(struct b_midicfg *m)
 {
-    clearKeyTable(m->keyTableB);
-
-    loadKeyTableRegion(m->keyTableB, 36, 96, 64, 124, m->transpose + m->nshB,
-                       m->userExcursionStrategy);
+    int i;
+    for (i = 0; i < NOF_MIDI_NOTES; i++)
+    {
+        m->keyTableB[i] = NOF_MIDI_NOTES + i + m->transpose + m->nshB;
+    }
 }
 
 /*
@@ -820,10 +715,11 @@ static void loadKeyTableB(struct b_midicfg *m)
  */
 static void loadKeyTableC(struct b_midicfg *m)
 {
-    clearKeyTable(m->keyTableC);
-
-    loadKeyTableRegion(m->keyTableC, 24, 55, 128, 159, m->transpose + m->nshC,
-                       m->userExcursionStrategy);
+    int i;
+    for (i = 0; i < NOF_MIDI_NOTES; i++)
+    {
+        m->keyTableC[i] = 2 * NOF_MIDI_NOTES + i + m->transpose + m->nshC;
+    }
 }
 
 /*
@@ -1180,22 +1076,10 @@ static void remember_dynamic_CC_change(void *instp, int chn, int param, int fnid
 #endif
 }
 
-static unsigned char map_to_real_key(struct b_midicfg *m, const unsigned char channel,
-                                     const unsigned char note)
+static short map_to_real_key(struct b_midicfg *m, const unsigned char channel,
+                             const unsigned char note)
 {
-    if (channel == m->rcvChA && note >= 36 && note < 97)
-    {
-        return note - 36;
-    }
-    if (channel == m->rcvChB && note >= 36 && note < 97)
-    {
-        return 64 + note - 36;
-    }
-    if (channel == m->rcvChC && note >= 24 && note < 50)
-    {
-        return 128 + note - 24;
-    }
-    return 255;
+    return note + channel * NOF_MIDI_NOTES;
 }
 
 void midi_panic(void *inst)
@@ -1215,7 +1099,7 @@ void process_midi_event(void *instp, const struct bmidi_event_t *ev)
     switch (ev->type)
     {
     case NOTE_ON:
-        if (m->keyTable[ev->channel] && m->keyTable[ev->channel][ev->d.tone.note] != 255)
+        if (m->keyTable[ev->channel] && (m->keyTable[ev->channel][ev->d.tone.note] >= 0))
         {
             if (ev->d.tone.velocity > 0)
             {
@@ -1230,7 +1114,7 @@ void process_midi_event(void *instp, const struct bmidi_event_t *ev)
         }
         break;
     case NOTE_OFF:
-        if (m->keyTable[ev->channel] && m->keyTable[ev->channel][ev->d.tone.note] != 255)
+        if (m->keyTable[ev->channel] && (m->keyTable[ev->channel][ev->d.tone.note] >= 0))
             oscKeyOff(inst->synth, m->keyTable[ev->channel][ev->d.tone.note],
                       map_to_real_key(m, ev->channel, ev->d.tone.note));
         break;
@@ -1583,16 +1467,15 @@ TEST_CASE("Testing allocMidiCfg")
 /**
  * m->keyTableA, m->keyTableB, and m->keyTableC map midi notes on midi channels 0, 1, and 2
  * respectively to setBfree keys. setBfree keys correspond to physical pedals/keys on the organ.
- * From default.cfg:
  *
  *    Key numbers:
- *      0 --  60        Upper manual, low C -- high C
- *     64 -- 124        Lower manual, low C -- high C
- *    128 -- 159        Pedals, low C -- high G
+ *      0 -- 127        Upper manual
+ *    128 -- 255        Lower manual
+ *    256 -- 383        Pedals
  *
  * If no splits are being used, channel 0 maps to upper manual, channel 1 to lower manual, channel 2
- * to pedals. So in that case keyTableA maps into [0, 60], keyTableB maps into [64, 124], and
- * keyTableC maps into [128, 159].
+ * to pedals. So in that case keyTableA maps into [0, 127], keyTableB maps into [128, 255], and
+ * keyTableC maps into [255, 383].
  *
  * If upper manual splits are being used, keyTableA can map to any pedal or key
  * (to allow playing pedals, upper manual, and lower manual all on midi channel 0)
@@ -1602,32 +1485,32 @@ TEST_CASE("Testing initMidiTables")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
     initMidiTables(mcfg);
 
-    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[35] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[36] == 0);
-    CHECK(mcfg->keyTableA[37] == 1);
-    CHECK(mcfg->keyTableA[95] == 59);
-    CHECK(mcfg->keyTableA[96] == 60);
-    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[0] == 0);
+    CHECK(mcfg->keyTableA[35] == 35);
+    CHECK(mcfg->keyTableA[36] == 36);
+    CHECK(mcfg->keyTableA[37] == 37);
+    CHECK(mcfg->keyTableA[95] == 95);
+    CHECK(mcfg->keyTableA[96] == 96);
+    CHECK(mcfg->keyTableA[97] == 97);
+    CHECK(mcfg->keyTableA[127] == 127);
 
-    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[35] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[36] == 64);
-    CHECK(mcfg->keyTableB[37] == 65);
-    CHECK(mcfg->keyTableB[95] == 123);
-    CHECK(mcfg->keyTableB[96] == 124);
-    CHECK(mcfg->keyTableB[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[0] == 128);
+    CHECK(mcfg->keyTableB[35] == 128 + 35);
+    CHECK(mcfg->keyTableB[36] == 128 + 36);
+    CHECK(mcfg->keyTableB[37] == 128 + 37);
+    CHECK(mcfg->keyTableB[95] == 128 + 95);
+    CHECK(mcfg->keyTableB[96] == 128 + 96);
+    CHECK(mcfg->keyTableB[97] == 128 + 97);
+    CHECK(mcfg->keyTableB[127] == 128 + 127);
 
-    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[23] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[24] == 128);
-    CHECK(mcfg->keyTableC[25] == 129);
-    CHECK(mcfg->keyTableC[54] == 158);
-    CHECK(mcfg->keyTableC[55] == 159);
-    CHECK(mcfg->keyTableC[56] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[0] == 256);
+    CHECK(mcfg->keyTableC[23] == 256 + 23);
+    CHECK(mcfg->keyTableC[24] == 256 + 24);
+    CHECK(mcfg->keyTableC[25] == 256 + 25);
+    CHECK(mcfg->keyTableC[54] == 256 + 54);
+    CHECK(mcfg->keyTableC[55] == 256 + 55);
+    CHECK(mcfg->keyTableC[56] == 256 + 56);
+    CHECK(mcfg->keyTableC[127] == 256 + 127);
 
     freeMidiCfg(mcfg);
 }
@@ -1639,32 +1522,32 @@ TEST_CASE("Testing setKeyboardTranspose")
 
     setKeyboardTranspose(mcfg, 1);
 
-    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[35] == 0);
-    CHECK(mcfg->keyTableA[36] == 1);
-    CHECK(mcfg->keyTableA[37] == 2);
-    CHECK(mcfg->keyTableA[95] == 60);
-    CHECK(mcfg->keyTableA[96] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[0] == 0 + 1);
+    CHECK(mcfg->keyTableA[35] == 35 + 1);
+    CHECK(mcfg->keyTableA[36] == 36 + 1);
+    CHECK(mcfg->keyTableA[37] == 37 + 1);
+    CHECK(mcfg->keyTableA[95] == 95 + 1);
+    CHECK(mcfg->keyTableA[96] == 96 + 1);
+    CHECK(mcfg->keyTableA[97] == 97 + 1);
+    CHECK(mcfg->keyTableA[127] == 127 + 1);
 
-    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[35] == 64);
-    CHECK(mcfg->keyTableB[36] == 65);
-    CHECK(mcfg->keyTableB[37] == 66);
-    CHECK(mcfg->keyTableB[95] == 124);
-    CHECK(mcfg->keyTableB[96] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[0] == 128 + 1);
+    CHECK(mcfg->keyTableB[35] == 128 + 35 + 1);
+    CHECK(mcfg->keyTableB[36] == 128 + 36 + 1);
+    CHECK(mcfg->keyTableB[37] == 128 + 37 + 1);
+    CHECK(mcfg->keyTableB[95] == 128 + 95 + 1);
+    CHECK(mcfg->keyTableB[96] == 128 + 96 + 1);
+    CHECK(mcfg->keyTableB[97] == 128 + 97 + 1);
+    CHECK(mcfg->keyTableB[127] == 128 + 127 + 1);
 
-    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[23] == 128);
-    CHECK(mcfg->keyTableC[24] == 129);
-    CHECK(mcfg->keyTableC[25] == 130);
-    CHECK(mcfg->keyTableC[54] == 159);
-    CHECK(mcfg->keyTableC[55] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[56] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[0] == 256 + 1);
+    CHECK(mcfg->keyTableC[23] == 256 + 23 + 1);
+    CHECK(mcfg->keyTableC[24] == 256 + 24 + 1);
+    CHECK(mcfg->keyTableC[25] == 256 + 25 + 1);
+    CHECK(mcfg->keyTableC[54] == 256 + 54 + 1);
+    CHECK(mcfg->keyTableC[55] == 256 + 55 + 1);
+    CHECK(mcfg->keyTableC[56] == 256 + 56 + 1);
+    CHECK(mcfg->keyTableC[127] == 256 + 127 + 1);
 
     freeMidiCfg(mcfg);
 }
@@ -1676,32 +1559,32 @@ TEST_CASE("Testing setKeyboardTranspose (negative transpose")
 
     setKeyboardTranspose(mcfg, -1);
 
-    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[35] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[36] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[37] == 0);
-    CHECK(mcfg->keyTableA[95] == 58);
-    CHECK(mcfg->keyTableA[96] == 59);
-    CHECK(mcfg->keyTableA[97] == 60);
-    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[0] == 0 - 1);
+    CHECK(mcfg->keyTableA[35] == 35 - 1);
+    CHECK(mcfg->keyTableA[36] == 36 - 1);
+    CHECK(mcfg->keyTableA[37] == 37 - 1);
+    CHECK(mcfg->keyTableA[95] == 95 - 1);
+    CHECK(mcfg->keyTableA[96] == 96 - 1);
+    CHECK(mcfg->keyTableA[97] == 97 - 1);
+    CHECK(mcfg->keyTableA[127] == 127 - 1);
 
-    CHECK(mcfg->keyTableB[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[35] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[36] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableB[37] == 64);
-    CHECK(mcfg->keyTableB[95] == 122);
-    CHECK(mcfg->keyTableB[96] == 123);
-    CHECK(mcfg->keyTableB[97] == 124);
-    CHECK(mcfg->keyTableB[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableB[0] == 128 - 1);
+    CHECK(mcfg->keyTableB[35] == 128 + 35 - 1);
+    CHECK(mcfg->keyTableB[36] == 128 + 36 - 1);
+    CHECK(mcfg->keyTableB[37] == 128 + 37 - 1);
+    CHECK(mcfg->keyTableB[95] == 128 + 95 - 1);
+    CHECK(mcfg->keyTableB[96] == 128 + 96 - 1);
+    CHECK(mcfg->keyTableB[97] == 128 + 97 - 1);
+    CHECK(mcfg->keyTableB[127] == 128 + 127 - 1);
 
-    CHECK(mcfg->keyTableC[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[23] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[24] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableC[25] == 128);
-    CHECK(mcfg->keyTableC[54] == 157);
-    CHECK(mcfg->keyTableC[55] == 158);
-    CHECK(mcfg->keyTableC[56] == 159);
-    CHECK(mcfg->keyTableC[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableC[0] == 256 - 1);
+    CHECK(mcfg->keyTableC[23] == 256 + 23 - 1);
+    CHECK(mcfg->keyTableC[24] == 256 + 24 - 1);
+    CHECK(mcfg->keyTableC[25] == 256 + 25 - 1);
+    CHECK(mcfg->keyTableC[54] == 256 + 54 - 1);
+    CHECK(mcfg->keyTableC[55] == 256 + 55 - 1);
+    CHECK(mcfg->keyTableC[56] == 256 + 56 - 1);
+    CHECK(mcfg->keyTableC[127] == 256 + 127 - 1);
 
     freeMidiCfg(mcfg);
 }
@@ -1711,61 +1594,32 @@ TEST_CASE("Testing map_to_real_key")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
     initMidiTables(mcfg);
 
-    CHECK(map_to_real_key(mcfg, 0, 0) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 0, 35) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 0, 36) == 0);
-    CHECK(map_to_real_key(mcfg, 0, 37) == 1);
-    CHECK(map_to_real_key(mcfg, 0, 95) == 59);
-    CHECK(map_to_real_key(mcfg, 0, 96) == 60);
-    CHECK(map_to_real_key(mcfg, 0, 97) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 0, 127) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 0, 0) == 0);
+    CHECK(map_to_real_key(mcfg, 0, 35) == 35);
+    CHECK(map_to_real_key(mcfg, 0, 36) == 36);
+    CHECK(map_to_real_key(mcfg, 0, 37) == 37);
+    CHECK(map_to_real_key(mcfg, 0, 95) == 95);
+    CHECK(map_to_real_key(mcfg, 0, 96) == 96);
+    CHECK(map_to_real_key(mcfg, 0, 97) == 97);
+    CHECK(map_to_real_key(mcfg, 0, 127) == 127);
 
-    CHECK(map_to_real_key(mcfg, 1, 0) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 1, 35) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 1, 36) == 64);
-    CHECK(map_to_real_key(mcfg, 1, 37) == 65);
-    CHECK(map_to_real_key(mcfg, 1, 95) == 123);
-    CHECK(map_to_real_key(mcfg, 1, 96) == 124);
-    CHECK(map_to_real_key(mcfg, 1, 97) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 1, 127) == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 1, 0) == 128);
+    CHECK(map_to_real_key(mcfg, 1, 35) == 128 + 35);
+    CHECK(map_to_real_key(mcfg, 1, 36) == 128 + 36);
+    CHECK(map_to_real_key(mcfg, 1, 37) == 128 + 37);
+    CHECK(map_to_real_key(mcfg, 1, 95) == 128 + 95);
+    CHECK(map_to_real_key(mcfg, 1, 96) == 128 + 96);
+    CHECK(map_to_real_key(mcfg, 1, 97) == 128 + 97);
+    CHECK(map_to_real_key(mcfg, 1, 127) == 128 + 127);
 
-    CHECK(map_to_real_key(mcfg, 2, 0) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 2, 23) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 2, 24) == 128);
-    CHECK(map_to_real_key(mcfg, 2, 25) == 129);
-    CHECK(map_to_real_key(mcfg, 2, 48) == 152);
-    CHECK(map_to_real_key(mcfg, 2, 49) == 153);
-    CHECK(map_to_real_key(mcfg, 2, 50) == UNMAPPED_KEY);
-    CHECK(map_to_real_key(mcfg, 2, 127) == UNMAPPED_KEY);
-
-    freeMidiCfg(mcfg);
-}
-
-TEST_CASE("Testing loadKeyTableRegion")
-{
-    // static void loadKeyTableRegion(unsigned char *translationTable, int first_MIDINote,
-    //                               int last_MIDINote, int firstKey, int lastKey, int transpose,
-    //                               int excursionStrategy)
-    unsigned char keyTable[128] = {0};
-    loadKeyTableRegion(keyTable, 36, 127, 0, 60, 0, 0);
-    CHECK(keyTable[0] == 0);
-    CHECK(keyTable[1] == 0);
-    CHECK(keyTable[35] == 0);
-    CHECK(keyTable[36] == 0);
-    CHECK(keyTable[37] == 1);
-    CHECK(keyTable[95] == 59);
-    CHECK(keyTable[96] == 60);
-    CHECK(keyTable[97] == UNMAPPED_KEY);
-}
-
-TEST_CASE("Testing clearKeyTable")
-{
-    struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
-    loadKeyTableA(mcfg);
-
-    CHECK(mcfg->keyTableA[37] == 1);
-    clearKeyTable(mcfg->keyTableA);
-    CHECK(mcfg->keyTableA[37] == UNMAPPED_KEY);
+    CHECK(map_to_real_key(mcfg, 2, 0) == 256);
+    CHECK(map_to_real_key(mcfg, 2, 23) == 256 + 23);
+    CHECK(map_to_real_key(mcfg, 2, 24) == 256 + 24);
+    CHECK(map_to_real_key(mcfg, 2, 25) == 256 + 25);
+    CHECK(map_to_real_key(mcfg, 2, 48) == 256 + 48);
+    CHECK(map_to_real_key(mcfg, 2, 49) == 256 + 49);
+    CHECK(map_to_real_key(mcfg, 2, 50) == 256 + 50);
+    CHECK(map_to_real_key(mcfg, 2, 127) == 256 + 127);
 
     freeMidiCfg(mcfg);
 }
@@ -1778,29 +1632,25 @@ TEST_CASE("Testing loadKeyTableA with splits")
     mcfg->splitA_UL = 66;
     loadKeyTableA(mcfg);
 
-    // Unmapped
-    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[23] == UNMAPPED_KEY);
-
     // Mapped to pedals
-    CHECK(mcfg->keyTableA[24] == 128);
-    CHECK(mcfg->keyTableA[25] == 129);
-    CHECK(mcfg->keyTableA[38] == 142);
-    CHECK(mcfg->keyTableA[39] == 143);
+    CHECK(mcfg->keyTableA[0] == 256);
+    CHECK(mcfg->keyTableA[23] == 256 + 23);
+    CHECK(mcfg->keyTableA[24] == 256 + 24);
+    CHECK(mcfg->keyTableA[25] == 256 + 25);
+    CHECK(mcfg->keyTableA[38] == 256 + 38);
+    CHECK(mcfg->keyTableA[39] == 256 + 39);
 
     // Mapped to lower manual
-    CHECK(mcfg->keyTableA[40] == 68);
-    CHECK(mcfg->keyTableA[41] == 69);
-    CHECK(mcfg->keyTableA[65] == 93);
+    CHECK(mcfg->keyTableA[40] == 128 + 40);
+    CHECK(mcfg->keyTableA[41] == 128 + 41);
+    CHECK(mcfg->keyTableA[65] == 128 + 65);
 
     // Mapped to upper manual
-    CHECK(mcfg->keyTableA[66] == 30);
-    CHECK(mcfg->keyTableA[95] == 59);
-    CHECK(mcfg->keyTableA[96] == 60);
-
-    // Unmapped
-    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[66] == 66);
+    CHECK(mcfg->keyTableA[95] == 95);
+    CHECK(mcfg->keyTableA[96] == 96);
+    CHECK(mcfg->keyTableA[97] == 97);
+    CHECK(mcfg->keyTableA[127] == 127);
 
     freeMidiCfg(mcfg);
 }
@@ -1810,11 +1660,11 @@ TEST_CASE("Testing loadKeyTableA with channel transpose")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
 
     loadKeyTableA(mcfg);
-    CHECK(mcfg->keyTableA[37] == 1);
+    CHECK(mcfg->keyTableA[37] == 37);
 
     mcfg->nshA = 2;
     loadKeyTableA(mcfg);
-    CHECK(mcfg->keyTableA[37] == 3);
+    CHECK(mcfg->keyTableA[37] == 39);
 
     freeMidiCfg(mcfg);
 }
@@ -1824,11 +1674,11 @@ TEST_CASE("Testing loadKeyTableB with channel transpose")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
 
     loadKeyTableB(mcfg);
-    CHECK(mcfg->keyTableB[37] == 65);
+    CHECK(mcfg->keyTableB[37] == 128 + 37);
 
     mcfg->nshB = 2;
     loadKeyTableB(mcfg);
-    CHECK(mcfg->keyTableB[37] == 67);
+    CHECK(mcfg->keyTableB[37] == 128 + 37 + 2);
 
     freeMidiCfg(mcfg);
 }
@@ -1838,11 +1688,11 @@ TEST_CASE("Testing loadKeyTableC with channel transpose")
     struct b_midicfg *mcfg = (struct b_midicfg *)allocMidiCfg(nullptr);
 
     loadKeyTableC(mcfg);
-    CHECK(mcfg->keyTableC[37] == 141);
+    CHECK(mcfg->keyTableC[37] == 256 + 37);
 
     mcfg->nshC = 2;
     loadKeyTableC(mcfg);
-    CHECK(mcfg->keyTableC[37] == 143);
+    CHECK(mcfg->keyTableC[37] == 256 + 37 + 2);
 
     freeMidiCfg(mcfg);
 }
@@ -1860,29 +1710,25 @@ TEST_CASE("Testing loadKeyTableA with split transposes")
 
     loadKeyTableA(mcfg);
 
-    // Unmapped
-    CHECK(mcfg->keyTableA[0] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[23] == 130);
-
     // Mapped to pedals
-    CHECK(mcfg->keyTableA[24] == 128 + 3);
-    CHECK(mcfg->keyTableA[25] == 129 + 3);
-    CHECK(mcfg->keyTableA[38] == 142 + 3);
-    CHECK(mcfg->keyTableA[39] == 143 + 3);
+    CHECK(mcfg->keyTableA[0] == 256 + 3);
+    CHECK(mcfg->keyTableA[23] == 256 + 23 + 3);
+    CHECK(mcfg->keyTableA[24] == 256 + 24 + 3);
+    CHECK(mcfg->keyTableA[25] == 256 + 25 + 3);
+    CHECK(mcfg->keyTableA[38] == 256 + 38 + 3);
+    CHECK(mcfg->keyTableA[39] == 256 + 39 + 3);
 
     // Mapped to lower manual
-    CHECK(mcfg->keyTableA[40] == 68 + 4);
-    CHECK(mcfg->keyTableA[41] == 69 + 4);
-    CHECK(mcfg->keyTableA[65] == 93 + 4);
+    CHECK(mcfg->keyTableA[40] == 128 + 40 + 4);
+    CHECK(mcfg->keyTableA[41] == 128 + 41 + 4);
+    CHECK(mcfg->keyTableA[65] == 128 + 65 + 4);
 
     // Mapped to upper manual
-    CHECK(mcfg->keyTableA[66] == 30 + 2);
-    CHECK(mcfg->keyTableA[95] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[96] == UNMAPPED_KEY);
-
-    // Unmapped
-    CHECK(mcfg->keyTableA[97] == UNMAPPED_KEY);
-    CHECK(mcfg->keyTableA[127] == UNMAPPED_KEY);
+    CHECK(mcfg->keyTableA[66] == 66 + 2);
+    CHECK(mcfg->keyTableA[95] == 95 + 2);
+    CHECK(mcfg->keyTableA[96] == 96 + 2);
+    CHECK(mcfg->keyTableA[97] == 97 + 2);
+    CHECK(mcfg->keyTableA[127] == 127 + 2);
 
     freeMidiCfg(mcfg);
 }
@@ -1903,9 +1749,9 @@ TEST_CASE("Testing process_midi_event (upper manual)")
     bev.d.tone.note = 96;
     bev.d.tone.velocity = 80;
 
-    CHECK(inst.synth->activeKeys[60] == 0);
+    CHECK(inst.synth->activeKeys[96] == 0);
     process_midi_event(&inst, &bev);
-    CHECK(inst.synth->activeKeys[60] == 1);
+    CHECK(inst.synth->activeKeys[96] == 1);
     CHECK(inst.synth->upperKeyCount == 1);
 
     freeMidiCfg(inst.midicfg);
@@ -1928,9 +1774,9 @@ TEST_CASE("Testing process_midi_event (lower manual)")
     bev.d.tone.note = 96;
     bev.d.tone.velocity = 80;
 
-    CHECK(inst.synth->activeKeys[124] == 0);
+    CHECK(inst.synth->activeKeys[128 + 96] == 0);
     process_midi_event(&inst, &bev);
-    CHECK(inst.synth->activeKeys[124] == 1);
+    CHECK(inst.synth->activeKeys[128 + 96] == 1);
     CHECK(inst.synth->upperKeyCount == 0);
 
     freeMidiCfg(inst.midicfg);
@@ -1953,9 +1799,9 @@ TEST_CASE("Testing process_midi_event (pedals)")
     bev.d.tone.note = 30;
     bev.d.tone.velocity = 80;
 
-    CHECK(inst.synth->activeKeys[134] == 0);
+    CHECK(inst.synth->activeKeys[256 + 30] == 0);
     process_midi_event(&inst, &bev);
-    CHECK(inst.synth->activeKeys[134] == 1);
+    CHECK(inst.synth->activeKeys[256 + 30] == 1);
     CHECK(inst.synth->upperKeyCount == 0);
 
     freeMidiCfg(inst.midicfg);
@@ -1968,6 +1814,7 @@ TEST_CASE("Testing process_midi_event (unmapped key)")
     memset(&inst, 0, sizeof(b_instance));
     inst.midicfg = allocMidiCfg(nullptr);
     initMidiTables(inst.midicfg);
+    setKeyboardTranspose(inst.midicfg, -1);
     inst.synth = allocTonegen();
 
     struct bmidi_event_t bev;
@@ -1999,8 +1846,8 @@ TEST_CASE("Testing middle C")
     initToneGenerator(inst.synth, inst.midicfg);
 
     int midiNote = 60;
-    int key = 24;
-    int osc = 37;
+    int key = 60;
+    int osc = 61;
 
     struct b_midicfg *m = (struct b_midicfg *)inst.midicfg;
     CHECK(m->keyTableA[midiNote] == key);

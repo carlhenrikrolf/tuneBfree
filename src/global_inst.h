@@ -56,4 +56,6 @@ typedef struct b_instance {
         }
 /* clang-format on */
 
+#define NOF_MIDI_NOTES 128
+
 #endif

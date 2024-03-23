@@ -86,7 +86,7 @@ typedef struct deflist_element {
  *  64--127, lower manual ( 64--124 in use)
  * 128--160, pedal        (128--159 in use)
  */
-#define MAX_KEYS 160
+#define MAX_KEYS 384
 
 /**
  * Active oscillator table element.
@@ -575,8 +575,8 @@ extern const ConfigDoc* oscDoc ();
 extern void initToneGenerator (struct b_tonegen* t, void* m);
 extern void freeToneGenerator (struct b_tonegen* t);
 
-extern void oscKeyOff (struct b_tonegen* t, unsigned char midiNote, unsigned char realKey);
-extern void oscKeyOn (struct b_tonegen* t, unsigned char midiNote, unsigned char realKey);
+extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);
+extern void oscKeyOn (struct b_tonegen* t, short midiNote, short realKey);
 extern void setDrawBars (void* inst, unsigned int manual, unsigned int setting[]);
 extern void oscGenerateFragment (struct b_tonegen* t, float* buf, size_t lengthSamples);
 
