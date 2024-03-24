@@ -579,6 +579,7 @@ extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);
 extern void oscKeyOn (struct b_tonegen* t, short midiNote, short realKey);
 extern void setDrawBars (void* inst, unsigned int manual, unsigned int setting[]);
 extern void oscGenerateFragment (struct b_tonegen* t, float* buf, size_t lengthSamples);
+extern void setDrawBar(struct b_tonegen *t, int bus, unsigned int setting);
 
 struct b_tonegen* allocTonegen ();
 

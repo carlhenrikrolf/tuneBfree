@@ -45,6 +45,11 @@
 double SampleRateD = 48000.0;
 #endif
 
+#ifdef CLAP
+#include "tonegen.h"
+double SampleRateD = 48000.0;
+#endif
+
 /* These are assertion support macros. */
 /* In range? : A <= V < B  */
 #define inRng(A, V, B) (((A) <= (V)) && ((V) < (B)))
@@ -2163,7 +2168,7 @@ static int dumpOscToText(struct b_tonegen *t, char *fname)
 }
 #endif
 
-#ifndef TESTS
+#if !defined(TESTS) && !defined(CLAP)
 /**
  * This routine configures this module.
  */
@@ -2732,7 +2737,7 @@ static void initEnvelopes(struct b_tonegen *t)
  * @param bus      The bus (0--26) for which the drawbar is set.
  * @param setting  The position setting (0--8) of the drawbar.
  */
-static void setDrawBar(struct b_tonegen *t, int bus, unsigned int setting)
+void setDrawBar(struct b_tonegen *t, int bus, unsigned int setting)
 {
     assert((0 <= bus) && (bus < NOF_BUSES));
     assert((0 <= setting) && (setting < 9));
@@ -2746,6 +2751,13 @@ static void setDrawBar(struct b_tonegen *t, int bus, unsigned int setting)
     t->drawBarGain[bus] = t->drawBarLevel[bus][setting];
 }
 
+static void setMIDIDrawBar(struct b_tonegen *t, int bus, unsigned char v)
+{
+    int val = 127 - v;
+    setDrawBar(t, bus, rint(val * 8.0 / 127.0));
+}
+
+#ifndef CLAP
 /**
  * This routine installs the drawbar setting for the tone generator.
  * The argument is an array of 9 integers where index 0 corresponds
@@ -2797,12 +2809,6 @@ void setDrawBars(void *inst, unsigned int manual, unsigned int setting[])
  * the nine discrete positions of the original drawbar system.
  *
  */
-
-static void setMIDIDrawBar(struct b_tonegen *t, int bus, unsigned char v)
-{
-    int val = 127 - v;
-    setDrawBar(t, bus, rint(val * 8.0 / 127.0));
-}
 
 static void setDrawbar0(void *d, unsigned char v) { setMIDIDrawBar((struct b_tonegen *)d, 0, v); }
 static void setDrawbar1(void *d, unsigned char v) { setMIDIDrawBar((struct b_tonegen *)d, 1, v); }
@@ -2891,6 +2897,7 @@ static void setSwellPedal2FromMIDI(void *d, unsigned char u)
     t->swellPedalGain = (t->outputLevelTrim * ((double)u)) / 127.0;
     notifyControlChangeByName(t->midi_cfg_ptr, "swellpedal1", u);
 }
+#endif
 
 /**
  * This routine initialises this module. When we come here during startup,
@@ -3003,6 +3010,7 @@ void initToneGenerator(struct b_tonegen *t, void *m)
     setPercussionFast(t, TRUE);
     setPercussionEnabled(t, FALSE);
 
+#ifndef CLAP
     useMIDIControlFunction(m, "swellpedal1", setSwellPedal1FromMIDI, t);
     useMIDIControlFunction(m, "swellpedal2", setSwellPedal2FromMIDI, t);
 
@@ -3040,6 +3048,7 @@ void initToneGenerator(struct b_tonegen *t, void *m)
     useMIDIControlFunction(m, "percussion.decay", setPercDecayFromMIDI, t);
     useMIDIControlFunction(m, "percussion.harmonic", setPercHarmonicFromMIDI, t);
     useMIDIControlFunction(m, "percussion.volume", setPercVolumeFromMIDI, t);
+#endif
 
 #if DEBUG_TONEGEN_OSC
     dumpOscToText(t, "osc.txt");
@@ -3679,7 +3688,7 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
 
     if (t->oldRouting & RT_VIB)
     {
-#ifndef TESTS
+#if !defined(TESTS) && !defined(CLAP)
         vibratoProc(&t->inst_vibrato, vibBuffer, vibYBuffr, BUFFER_SIZE_SAMPLES);
 #else
         size_t ii;
@@ -3764,7 +3773,7 @@ struct b_tonegen *allocTonegen()
     if (!t)
         return NULL;
     initValues(t);
-#ifndef TESTS
+#if !defined(TESTS) && !defined(CLAP)
     resetVibrato(t);
 #endif
     return (t);

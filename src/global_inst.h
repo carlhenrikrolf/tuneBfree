@@ -19,7 +19,7 @@
 #ifndef GLOBAL_INST_H
 #define GLOBAL_INST_H
 
-#ifndef TESTS
+#if !defined(TESTS) && !defined(CLAP)
 #include "midi.h"
 #include "overdrive.h"
 #include "program.h"

@@ -73,7 +73,7 @@ endif
 
 BUILT_EXE_PATH=../build/tuneBfree$(EXE_EXT)
 
-all: setBfree$(EXE_EXT)
+all: setBfree$(EXE_EXT) clap
 	rm -f $(BUILT_EXE_PATH)
 	mkdir -p `dirname $(BUILT_EXE_PATH)`
 	cp setBfree$(EXE_EXT) $(BUILT_EXE_PATH)
@@ -106,7 +106,7 @@ libMTSClient.o: ../libs/MTS-ESP/Client/libMTSClient.cpp
 	$(CXX) -c ../libs/MTS-ESP/Client/libMTSClient.cpp -o libMTSClient.o
 
 clean:
-	rm -f *.o core *.log *~ setBfree$(EXE_EXT) configd programd tests
+	rm -f *.o core *.log *~ setBfree$(EXE_EXT) configd programd tests *.clap
 
 install: setBfree
 	install -d $(DESTDIR)$(bindir)
@@ -141,5 +141,37 @@ tests: tuning.h tuning.cpp tonegen.h tonegen.cpp midi.h midi.cpp
 	reverb.cpp \
 
 	./tests
+
+BUILT_CLAP_PATH=../build/tuneBfree.clap
+
+clap : tuneBfree.clap
+	rm -f $(BUILT_CLAP_PATH)
+	mkdir -p `dirname $(BUILT_CLAP_PATH)`
+	cp tuneBfree.clap $(BUILT_CLAP_PATH)
+
+CLAP_LDFLAGS=
+ifeq ($(OS),Windows_NT)
+  override CLAP_LDFLAGS += -static-libgcc -static-libstdc++ -DPTW32_STATIC_LIB
+  override CLAP_LDFLAGS += -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
+endif
+
+tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp
+	$(CXX) \
+	-std=c++11 \
+	-shared \
+	-fPIC \
+	-I../libs/clap/include \
+	-I../libs/MTS-ESP/Client \
+	-g \
+	-Wall \
+	-Wextra \
+	-Wno-unused-parameter \
+	-o tuneBfree.clap \
+	-DCLAP \
+	$(CLAP_LDFLAGS) \
+	clap.cpp \
+	tonegen.cpp \
+	tuning.cpp \
+	../libs/MTS-ESP/Client/libMTSClient.cpp
 
 .PHONY: clean all install uninstall program

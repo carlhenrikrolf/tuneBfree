@@ -48,6 +48,11 @@ $ make
 
 This creates the LV2 plugin in build/tuneBfree.lv2.
 
+To build the experimental tuneBfree CLAP on its own you can run
+```
+$ make clap
+```
+in the src directory.
 
 
 Original README follows.
