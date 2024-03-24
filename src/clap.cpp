@@ -458,7 +458,10 @@ static const clap_plugin_t pluginClass = {
             MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
             plugin->voices.Free();
             MutexDestroy(plugin->syncParameters);
-            freeToneGenerator(plugin->synth);
+            if (plugin->synth)
+            {
+                freeToneGenerator(plugin->synth);
+            }
             free(plugin);
         },
 
