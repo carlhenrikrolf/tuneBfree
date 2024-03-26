@@ -20,7 +20,7 @@ very much for that!
 
 Building
 --------
-On Linux, install libjack-dev, libglu1-mesa-dev, libftgl-dev, and xxd
+On Linux, install libjack-dev, libopengl-dev, libglu1-mesa-dev, libftgl-dev, and xxd
 (package names for Ubuntu).
 
 On Mac, use Homebrew to install jack, freeglut, ftgl, bzip2, and pkg-config.

@@ -3,7 +3,7 @@ run-name: build
 on: [push]
 jobs:
   build_linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -13,8 +13,13 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get upgrade -y
-            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev xxd g++
+            sudo apt-get install -y git make libjack-dev libopengl-dev libftgl-dev libglu1-mesa-dev xxd g++
             make
+            cd libs/clap-wrapper
+            cmake -B build -DCLAP_WRAPPER_OUTPUT_NAME=tuneBfree -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=TRUE
+            cmake --build build
+            cp -r build/Release/tuneBfree.vst3/ ../../build
+            cd ../..
             ls build
             ls build/tuneBfree.lv2
       - name: Test
