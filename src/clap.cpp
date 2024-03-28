@@ -20,47 +20,6 @@
 
 #define MIN(A, B) (((A) < (B)) ? (A) : (B))
 
-template <class T> struct Array
-{
-    T *array;
-    size_t length, allocated;
-
-    void Insert(T newItem, uintptr_t index)
-    {
-        if (length + 1 > allocated)
-        {
-            allocated *= 2;
-            if (length + 1 > allocated)
-                allocated = length + 1;
-            array = (T *)realloc(array, allocated * sizeof(T));
-        }
-
-        length++;
-        memmove(array + index + 1, array + index, (length - index - 1) * sizeof(T));
-        array[index] = newItem;
-    }
-
-    void Delete(uintptr_t index)
-    {
-        memmove(array + index, array + index + 1, (length - index - 1) * sizeof(T));
-        length--;
-    }
-
-    void Add(T item) { Insert(item, length); }
-    void Free()
-    {
-        free(array);
-        array = nullptr;
-        length = allocated = 0;
-    }
-    int Length() { return length; }
-    T &operator[](uintptr_t index)
-    {
-        assert(index < length);
-        return array[index];
-    }
-};
-
 #ifdef _WIN32
 #include <windows.h>
 typedef HANDLE Mutex;
@@ -87,24 +46,17 @@ typedef pthread_mutex_t Mutex;
 #define P_OVERDRIVE (13)
 #define P_CHARACTER (14)
 #define P_REVERB (15)
-#define P_COUNT (16)
-
-struct Voice
-{
-    bool held;
-    int32_t noteID;
-    int16_t channel, key;
-
-    float phase;
-    float parameterOffsets[P_COUNT];
-};
+#define P_PERCUSSION (16)
+#define P_PERCUSSION_VOLUME (17)
+#define P_PERCUSSION_DECAY (18)
+#define P_PERCUSSION_HARMONIC (19)
+#define P_COUNT (20)
 
 struct MyPlugin
 {
     clap_plugin_t plugin;
     const clap_host_t *host;
     float sampleRate;
-    Array<Voice> voices;
     float parameters[P_COUNT], mainParameters[P_COUNT];
     bool changed[P_COUNT], mainChanged[P_COUNT];
     Mutex syncParameters;
@@ -137,38 +89,6 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             {
                 oscKeyOff(plugin->synth, noteEvent->key, noteEvent->key);
             }
-            for (int i = 0; i < plugin->voices.Length(); i++)
-            {
-                Voice *voice = &plugin->voices[i];
-
-                if ((noteEvent->key == -1 || voice->key == noteEvent->key) &&
-                    (noteEvent->note_id == -1 || voice->noteID == noteEvent->note_id) &&
-                    (noteEvent->channel == -1 || voice->channel == noteEvent->channel))
-                {
-                    if (event->type == CLAP_EVENT_NOTE_CHOKE)
-                    {
-                        plugin->voices.Delete(i--);
-                    }
-                    else
-                    {
-                        voice->held = false;
-                    }
-                }
-            }
-
-            if (event->type == CLAP_EVENT_NOTE_ON)
-            {
-                Voice voice = {
-                    .held = true,
-                    .noteID = noteEvent->note_id,
-                    .channel = noteEvent->channel,
-                    .key = noteEvent->key,
-                    .phase = 0.0f,
-                    .parameterOffsets = {},
-                };
-
-                plugin->voices.Add(voice);
-            }
         }
         else if (event->type == CLAP_EVENT_PARAM_VALUE)
         {
@@ -177,6 +97,7 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             MutexAcquire(plugin->syncParameters);
             plugin->parameters[index] = valueEvent->value;
             plugin->changed[index] = true;
+            MutexRelease(plugin->syncParameters);
             if ((P_DRAWBAR_MIN <= index) && (index <= P_DRAWBAR_MAX))
             {
                 setDrawBar(plugin->synth, index, rint(valueEvent->value));
@@ -208,23 +129,21 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
             {
                 setReverbMix(plugin->reverb, valueEvent->value);
             }
-            MutexRelease(plugin->syncParameters);
-        }
-        else if (event->type == CLAP_EVENT_PARAM_MOD)
-        {
-            const clap_event_param_mod_t *modEvent = (const clap_event_param_mod_t *)event;
-
-            for (int i = 0; i < plugin->voices.Length(); i++)
+            else if (index == P_PERCUSSION)
             {
-                Voice *voice = &plugin->voices[i];
-
-                if ((modEvent->key == -1 || voice->key == modEvent->key) &&
-                    (modEvent->note_id == -1 || voice->noteID == modEvent->note_id) &&
-                    (modEvent->channel == -1 || voice->channel == modEvent->channel))
-                {
-                    voice->parameterOffsets[modEvent->param_id] = modEvent->amount;
-                    break;
-                }
+                setPercussionEnabled(plugin->synth, rint(valueEvent->value));
+            }
+            else if (index == P_PERCUSSION_VOLUME)
+            {
+                setPercussionVolume(plugin->synth, 1 - rint(valueEvent->value));
+            }
+            else if (index == P_PERCUSSION_DECAY)
+            {
+                setPercussionFast(plugin->synth, rint(valueEvent->value));
+            }
+            else if (index == P_PERCUSSION_HARMONIC)
+            {
+                setPercussionFirst(plugin->synth, rint(valueEvent->value));
             }
         }
     }
@@ -257,31 +176,11 @@ static uint32_t synthSound(struct MyPlugin *plugin, uint32_t written, uint32_t n
     }
     return written;
 }
+
 static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, float *outputL,
                               float *outputR)
 {
     synthSound(plugin, 0, end - start, outputL + start, outputR + start);
-#if 0
-    for (uint32_t index = start; index < end; index++)
-    {
-        float sum = 0.0f;
-
-        for (int i = 0; i < plugin->voices.Length(); i++)
-        {
-            Voice *voice = &plugin->voices[i];
-            if (!voice->held)
-                continue;
-            float volume =
-                FloatClamp01(plugin->parameters[P_VOLUME] + voice->parameterOffsets[P_VOLUME]);
-            sum += sinf(voice->phase * 2.0f * 3.14159f) * 0.2f * volume;
-            voice->phase += 440.0f * exp2f((voice->key - 57.0f) / 12.0f) / plugin->sampleRate;
-            voice->phase -= floorf(voice->phase);
-        }
-
-        outputL[index] = sum;
-        outputR[index] = sum;
-    }
-#endif
 }
 
 static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out)
@@ -480,6 +379,50 @@ static const clap_plugin_params_t extensionParams = {
             strcpy(information->name, "Reverb wet/dry");
             return true;
         }
+        else if (index == P_PERCUSSION)
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1.0f;
+            information->default_value = 0.0f;
+            strcpy(information->name, "Percussion on/off");
+            return true;
+        }
+        else if (index == P_PERCUSSION_VOLUME)
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1.0f;
+            information->default_value = 0.0f;
+            strcpy(information->name, "Percussion soft/norm");
+            return true;
+        }
+        else if (index == P_PERCUSSION_DECAY)
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1.0f;
+            information->default_value = 0.0f;
+            strcpy(information->name, "Percussion fast/slow");
+            return true;
+        }
+        else if (index == P_PERCUSSION_HARMONIC)
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1.0f;
+            information->default_value = 0.0f;
+            strcpy(information->name, "Percussion 2nd/3rd");
+            return true;
+        }
         else
         {
             return false;
@@ -567,7 +510,6 @@ static const clap_plugin_t pluginClass = {
     .destroy =
         [](const clap_plugin *_plugin) {
             MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-            plugin->voices.Free();
             MutexDestroy(plugin->syncParameters);
             if (plugin->synth)
             {
@@ -613,10 +555,7 @@ static const clap_plugin_t pluginClass = {
     .stop_processing = [](const clap_plugin *_plugin) {},
 
     .reset =
-        [](const clap_plugin *_plugin) {
-            MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-            plugin->voices.Free();
-        },
+        [](const clap_plugin *_plugin) { MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data; },
 
     .process = [](const clap_plugin *_plugin,
                   const clap_process_t *process) -> clap_process_status {
@@ -658,28 +597,6 @@ static const clap_plugin_t pluginClass = {
             PluginRenderAudio(plugin, i, nextEventFrame, process->audio_outputs[0].data32[0],
                               process->audio_outputs[0].data32[1]);
             i = nextEventFrame;
-        }
-
-        for (int i = 0; i < plugin->voices.Length(); i++)
-        {
-            Voice *voice = &plugin->voices[i];
-
-            if (!voice->held)
-            {
-                clap_event_note_t event = {};
-                event.header.size = sizeof(event);
-                event.header.time = 0;
-                event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                event.header.type = CLAP_EVENT_NOTE_END;
-                event.header.flags = 0;
-                event.key = voice->key;
-                event.note_id = voice->noteID;
-                event.channel = voice->channel;
-                event.port_index = 0;
-                process->out_events->try_push(process->out_events, &event.header);
-
-                plugin->voices.Delete(i--);
-            }
         }
 
         return CLAP_PROCESS_CONTINUE;
