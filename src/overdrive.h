@@ -35,6 +35,47 @@ extern void freePreamp (void* pa);
 extern float* preamp (void* pa, float* inBuf, float* outBuf, size_t bufLengthSamples);
 extern float* overdrive (void* pa, const float* inBuf, float* outBuf, size_t buflen);
 
+struct b_preamp
+{
+    // For Airwindows Density
+    double iirSampleAL;
+    double iirSampleBL;
+    bool fpFlip;
+    uint32_t fpdL;
+    // parameters. Always 0-1, and we scale/alter them elsewhere.
+    float A; // Density
+    float B; // Highpass
+    float C; // Out Level
+    float D; // Dry/Wet
+
+    /* Clean/overdrive switch */
+    int isClean;
+    float outputGain;
+
+    double SampleRateD;
+
+    /* Input gain */
+    float inputGain;
+    float sagZ;
+    float sagFb;
+    /* Variables for the inverted and biased transfer function */
+    float biasBase;
+    /* bias and norm are set in function cfg_biased() */
+    float bias;
+    float norm;
+    /* ovt_biased : One sample memory */
+    float adwZ;
+    /* ovt_biased : Positive feedback */
+    float adwFb;
+
+    float adwZ1;
+    float adwFb2;
+    float adwGfb;
+    float adwGfZ;
+    float sagZgb;
+};
+/*  *** END STRUCT *** */
+
 /* the following depend on compile time configutaion
  * and should be created by overmaker
  */
@@ -54,5 +95,6 @@ void fctl_biased_fat (void* d, float u);
 
 void fsetInputGain (void* d, float u);
 void fsetOutputGain (void* d, float u);
+void fsetCharacter(struct b_preamp* d, float A);
 
 #endif /* _OVERDRIVE_H_ */

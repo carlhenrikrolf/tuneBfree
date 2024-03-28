@@ -197,7 +197,9 @@ void useRevOption(struct b_whirl *w, int n, int signals)
 
     if (signals & 1)
     {
+#ifndef CLAP
         notifyControlChangeByName(w->midi_cfg_ptr, "rotary.speed-select", ceilf(n * 15.875f));
+#endif
     }
     if (signals & 2)
     {
@@ -214,8 +216,10 @@ void useRevOption(struct b_whirl *w, int n, int signals)
             w->revSelect = WHIRL_STOP;
             break;
         }
+#ifndef CLAP
         notifyControlChangeByName(w->midi_cfg_ptr, "rotary.speed-preset",
                                   ceilf(w->revSelect * 63.5f));
+#endif
     }
 }
 
@@ -228,6 +232,7 @@ void setRevSelect(struct b_whirl *w, int n)
     useRevOption(w, i, 1);
 }
 
+#ifndef CLAP
 /* used by rotary.speed-select */
 static void revControlAll(void *d, unsigned char u)
 {
@@ -254,6 +259,7 @@ void setWhirlSustainPedal(void *d, unsigned char u)
             3);
     }
 }
+#endif
 
 static void setRevOption(struct b_whirl *w, int i, double hnTgt, double drTgt)
 {
@@ -655,6 +661,7 @@ static void initialize(struct b_whirl *w)
     initTables(w);
 }
 
+#ifndef CLAP
 /*
  * Displays the settings of a filter.
  */
@@ -666,6 +673,7 @@ static void displayFilter(const char *id, int T, float F, float Q, float G)
   fflush (stdout);
 #endif
 }
+#endif
 
 /* clang-format off */
 #define UPDATE_A_FILTER                                                         \
@@ -688,6 +696,7 @@ static void displayFilter(const char *id, int T, float F, float Q, float G)
 }
 /* clang-format on */
 
+#ifndef CLAP
 /*
  * Sets the type of the A horn IIR filter.
  */
@@ -939,6 +948,7 @@ void fsetHornMicWidth(void *d, const float hw)
     w->hornMic_hrl = sqrtf(0.f + hwN);
     w->hornMic_hrr = sqrtf(1.f - hwN);
 }
+#endif
 
 /*
  * This function initialises this module. It is run after whirlConfig.
@@ -948,6 +958,7 @@ void initWhirl(struct b_whirl *w, void *m, double rate)
     w->SampleRateD = rate;
     w->midi_cfg_ptr = m; /* used for notify -- translate "rotary.speed-*" */
 
+#ifndef CLAP
     useMIDIControlFunction(m, "rotary.speed-toggle", setWhirlSustainPedal, (void *)w);
     useMIDIControlFunction(m, "rotary.speed-preset", revControl, (void *)w);
     useMIDIControlFunction(m, "rotary.speed-select", revControlAll, (void *)w);
@@ -968,11 +979,13 @@ void initWhirl(struct b_whirl *w, void *m, double rate)
     useMIDIControlFunction(m, "whirl.horn.deceleration", setHornDeceleration, (void *)w);
     useMIDIControlFunction(m, "whirl.drum.acceleration", setDrumAcceleration, (void *)w);
     useMIDIControlFunction(m, "whirl.drum.deceleration", setDrumDeceleration, (void *)w);
+#endif
 
     initialize(w);
     computeRotationSpeeds(w);
 }
 
+#ifndef CLAP
 /*
  * Configuration interface.
  */
@@ -1149,6 +1162,7 @@ int whirlConfig(struct b_whirl *w, ConfigContext *cfg)
     }
     return rtn;
 }
+#endif
 
 #ifdef __ARMEL__
 static inline float x_mod1(const float f)
@@ -1671,6 +1685,7 @@ void whirlProc3 (struct b_whirl *w,
 # include "cfgParser.h"
 #endif // CONFIGDOCONLY
 
+#ifndef CLAP
 static const ConfigDoc doc[] = {
   {"whirl.bypass",             CFG_INT,     "0",        "If set to 1, completely bypass the leslie emulation", "", 0, 1, 1},
   {"whirl.speed-preset",       CFG_INT,     "0",        "Initial horn and drum speed. 0:stopped, 1:slow, 2:fast", INCOMPLETE_DOC},
@@ -1718,3 +1733,4 @@ static const ConfigDoc doc[] = {
 const ConfigDoc *whirlDoc () {
 	return doc;
 }
+#endif

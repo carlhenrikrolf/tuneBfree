@@ -29,9 +29,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef CLAP
 #include "cfgParser.h"
-#include "main.h"
 #include "midi.h"
+#endif
+#include "main.h"
 #include "tonegen.h"
 
 /*
@@ -113,6 +115,33 @@ static void setVibrato(struct b_vibrato *v, int select)
     v->mixedBuffers = select & CHO_;
 }
 
+void setVibratoFromInt(void *t, int param)
+{
+    struct b_vibrato *v = &(((struct b_tonegen *)t)->inst_vibrato);
+    switch (param)
+    {
+    case 0:
+        setVibrato(v, VIB1);
+        break;
+    case 1:
+        setVibrato(v, CHO1);
+        break;
+    case 2:
+        setVibrato(v, VIB2);
+        break;
+    case 3:
+        setVibrato(v, CHO2);
+        break;
+    case 4:
+        setVibrato(v, VIB3);
+        break;
+    case 5:
+        setVibrato(v, CHO3);
+        break;
+    }
+}
+
+#ifndef CLAP
 /*
  * Implements the vibrato knob response to a MIDI controller.
  */
@@ -187,6 +216,7 @@ static void setVibratoLowerFromMIDI(void *t, unsigned char uc)
     notifyControlChangeByName(inst_synth->midi_cfg_ptr, "vibrato.routing",
                               getVibratoRouting(inst_synth) << 5);
 }
+#endif
 
 /*
  * Initialises tables.
@@ -286,6 +316,7 @@ void init_vibrato(struct b_vibrato *v)
     setVibrato(v, 0);
 }
 
+#ifndef CLAP
 void initVibrato(void *t, void *m)
 {
     struct b_vibrato *v = &(((struct b_tonegen *)t)->inst_vibrato);
@@ -322,6 +353,7 @@ int scannerConfig(void *t, ConfigContext *cfg)
     }
     return ack;
 } /* scannerConfig */
+#endif
 
 /*
  * Floating-point version of vibrato scanner.

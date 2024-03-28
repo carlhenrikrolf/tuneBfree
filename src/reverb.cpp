@@ -214,7 +214,7 @@ b_reverb::b_reverb()
     D = 0.0; // Vibrato
     E = 0.4; // RmSize
     F = 0.8; // Flavor
-    G = 0.0; // Dry/Wet
+    G = 0.1; // Dry/Wet
     fpdL = 1.0;
     while (fpdL < 16386)
         fpdL = rand() * UINT32_MAX;
@@ -232,6 +232,7 @@ void freeReverb(struct b_reverb *r) { delete (r); }
  */
 void setReverbMix(struct b_reverb *r, float g) { r->G = g; }
 
+#ifndef CLAP
 void setReverbMixFromMIDI(void *rev, unsigned char v)
 {
     struct b_reverb *r = (struct b_reverb *)rev;
@@ -254,11 +255,12 @@ int reverbConfig(struct b_reverb *r, ConfigContext *cfg)
 #endif
     return ack;
 }
+#endif
 
 void initReverb(struct b_reverb *r, void *m, double rate)
 {
     r->SampleRateD = rate;
-#ifndef TESTS
+#if !defined(TESTS) && !defined(CLAP)
     useMIDIControlFunction(m, "reverb.mix", setReverbMixFromMIDI, r);
 #endif
 }
@@ -794,6 +796,7 @@ float *b_reverb::reverb(float *inbuf, float *out1, int sampleFrames)
 #include "cfgParser.h"
 #endif // CONFIGDOCONLY
 
+#ifndef CLAP
 static const ConfigDoc doc[] = {
     {"reverb.wet", CFG_DOUBLE, "0.1", "Reverb Wet signal level; range [0..1]", INCOMPLETE_DOC},
     {"reverb.dry", CFG_DOUBLE, "0.9", "Reverb Dry signal level; range [0..1]", INCOMPLETE_DOC},
@@ -804,6 +807,7 @@ static const ConfigDoc doc[] = {
     DOC_SENTINEL};
 
 const ConfigDoc *reverbDoc() { return doc; }
+#endif
 
 #ifdef TESTS
 #define BUFFER_SIZE_SAMPLES 128
@@ -817,7 +821,7 @@ TEST_CASE("Test b_reverb constructor")
     CHECK(b.D == 0.0);
     CHECK(b.E == doctest::Approx(0.4));
     CHECK(b.F == doctest::Approx(0.8));
-    CHECK(b.G == 0.0);
+    CHECK(b.G == doctest::Approx(0.1));
 }
 
 TEST_CASE("Test b_reverb::reverb")

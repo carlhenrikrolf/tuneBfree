@@ -23,8 +23,13 @@
 #ifndef WHIRL_H
 #define WHIRL_H
 
+#ifndef CLAP
 #include "../src/cfgParser.h" // ConfigContext
 #include "../src/midi.h"      // useMIDIControlFunction
+#else
+#include <cstddef>
+#define DENORMAL_HACK (1e-14)
+#endif
 
 #define WHIRL_DISPLC_SIZE ((unsigned int)(1 << 14))
 #define WHIRL_DISPLC_MASK ((WHIRL_DISPLC_SIZE)-1)
@@ -217,8 +222,10 @@ struct b_whirl {
 
 extern struct b_whirl* allocWhirl ();
 extern void freeWhirl (struct b_whirl* w);
+#ifndef CLAP
 extern int whirlConfig (struct b_whirl* w, ConfigContext* cfg);
 extern const ConfigDoc* whirlDoc ();
+#endif
 
 extern void initWhirl (struct b_whirl* w, void* m, double rate);
 

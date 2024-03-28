@@ -3688,7 +3688,7 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
 
     if (t->oldRouting & RT_VIB)
     {
-#if !defined(TESTS) && !defined(CLAP)
+#ifndef TESTS
         vibratoProc(&t->inst_vibrato, vibBuffer, vibYBuffr, BUFFER_SIZE_SAMPLES);
 #else
         size_t ii;
@@ -3773,7 +3773,7 @@ struct b_tonegen *allocTonegen()
     if (!t)
         return NULL;
     initValues(t);
-#if !defined(TESTS) && !defined(CLAP)
+#ifndef TESTS
     resetVibrato(t);
 #endif
     return (t);

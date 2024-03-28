@@ -21,7 +21,11 @@
 #ifndef SCANNER_H
 #define SCANNER_H
 
+#ifndef CLAP
 #include "cfgParser.h"
+#else
+#include <cstddef>
+#endif
 
 #define VIB1 0x01
 #define VIB2 0x02
@@ -72,8 +76,11 @@ extern void init_vibrato (struct b_vibrato* v);
 /* tonegen integration */
 extern void resetVibrato (void* tonegen);
 extern void initVibrato (void* tonegen, void* m);
+extern void setVibratoFromInt(void* tonegen, int param);
 
+#ifndef CLAP
 extern int scannerConfig (void* t, ConfigContext* cfg);
 extern const ConfigDoc* scannerDoc ();
+#endif
 
 #endif /* SCANNER_H */

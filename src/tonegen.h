@@ -28,7 +28,9 @@
 #define M_PI 3.14159265358979323846 /* pi */
 #endif
 
+#ifndef CLAP
 #include "cfgParser.h"
+#endif
 #include "vibrato.h"
 
 #define TG_91FB00 0 /* 91 wheels no lower foldback */
@@ -570,8 +572,10 @@ extern void setEnvReleaseModel (struct b_tonegen* t, int model);
 extern void setEnvAttackClickLevel (struct b_tonegen* t, double u);
 extern void setEnvReleaseClickLevel (struct b_tonegen* t, double u);
 extern void setKeyClick (struct b_tonegen* t, int v);
+#ifndef CLAP
 extern int oscConfig (struct b_tonegen* t, ConfigContext* cfg);
 extern const ConfigDoc* oscDoc ();
+#endif
 extern void initToneGenerator (struct b_tonegen* t, void* m);
 extern void freeToneGenerator (struct b_tonegen* t);
 

@@ -49,47 +49,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct b_preamp
-{
-    // For Airwindows Density
-    double iirSampleAL;
-    double iirSampleBL;
-    bool fpFlip;
-    uint32_t fpdL;
-    // parameters. Always 0-1, and we scale/alter them elsewhere.
-    float A; // Density
-    float B; // Highpass
-    float C; // Out Level
-    float D; // Dry/Wet
-
-    /* Clean/overdrive switch */
-    int isClean;
-    float outputGain;
-
-    double SampleRateD;
-
-    /* Input gain */
-    float inputGain;
-    float sagZ;
-    float sagFb;
-    /* Variables for the inverted and biased transfer function */
-    float biasBase;
-    /* bias and norm are set in function cfg_biased() */
-    float bias;
-    float norm;
-    /* ovt_biased : One sample memory */
-    float adwZ;
-    /* ovt_biased : Positive feedback */
-    float adwFb;
-
-    float adwZ1;
-    float adwFb2;
-    float adwGfb;
-    float adwGfZ;
-    float sagZgb;
-};
-/*  *** END STRUCT *** */
-
 /**
  * Airwindows Density algorithm
  *
@@ -424,6 +383,7 @@ void freePreamp(void *pa)
     free(pp);
 }
 
+#ifndef CLAP
 void setClean(void *pa, int useClean)
 {
     struct b_preamp *pp = (struct b_preamp *)pa;
@@ -582,16 +542,15 @@ void setOutputGain(void *pa, unsigned char uc)
 }
 
 void fsetOutputGain(void *d, float f) { setOutputGain(d, (unsigned char)(f * 127.0)); }
+#endif
 
 float linseg(float a, float b, float p, float q, float x)
 {
     return p + (x - a) * (q - p) / (b - a);
 }
 
-void setCharacter(void *pa, unsigned char uc)
+void fsetCharacter(struct b_preamp *pp, float A)
 {
-    struct b_preamp *pp = (struct b_preamp *)pa;
-    float A = 0.001 + ((1.0 - 0.001) * (((float)uc) / 127.0));
     pp->A = A;
 
     /*
@@ -614,11 +573,18 @@ void setCharacter(void *pa, unsigned char uc)
     }
 }
 
+void setCharacter(void *pa, unsigned char uc)
+{
+    struct b_preamp *pp = (struct b_preamp *)pa;
+    fsetCharacter(pp, 0.001 + ((1.0 - 0.001) * (((float)uc) / 127.0)));
+}
+
 /* Legacy function */
 void initPreamp(void *pa, void *m, double SampleRateD)
 {
     struct b_preamp *pp = (struct b_preamp *)pa;
     pp->SampleRateD = SampleRateD;
+#ifndef CLAP
     useMIDIControlFunction(m, "xov.ctl_biased", ctl_biased, pa);
     useMIDIControlFunction(m, "xov.ctl_biased_fb", ctl_biased_fb, pa);
     useMIDIControlFunction(m, "xov.ctl_biased_fb2", ctl_biased_fb2, pa);
@@ -630,11 +596,13 @@ void initPreamp(void *pa, void *m, double SampleRateD)
     useMIDIControlFunction(m, "overdrive.enable", setCleanCC, pa);
     useMIDIControlFunction(m, "overdrive.inputgain", setInputGain, pa);
     useMIDIControlFunction(m, "overdrive.outputgain", setOutputGain, pa);
+#endif
 }
 #else // no CONFIGDOCONLY
 #include "cfgParser.h"
 #endif
 
+#ifndef CLAP
 static const ConfigDoc doc[] = {
     {"overdrive.inputgain", CFG_FLOAT, "0.3567",
      "This is how much the input signal is scaled as it enters the overdrive "
@@ -686,3 +654,4 @@ static const ConfigDoc doc[] = {
     DOC_SENTINEL};
 
 const ConfigDoc *ampDoc() { return doc; }
+#endif

@@ -155,7 +155,7 @@ ifeq ($(OS),Windows_NT)
   override CLAP_LDFLAGS += -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
 endif
 
-tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp
+tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp vibrato.cpp whirl.cpp eqcomp.cpp overdrive.cpp reverb.cpp
 	$(CXX) \
 	-std=c++11 \
 	-shared \
@@ -172,6 +172,11 @@ tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp
 	clap.cpp \
 	tonegen.cpp \
 	tuning.cpp \
+	vibrato.cpp \
+	whirl.cpp \
+	eqcomp.cpp \
+	overdrive.cpp \
+	reverb.cpp \
 	../libs/MTS-ESP/Client/libMTSClient.cpp
 
 .PHONY: clean all install uninstall program
