@@ -19,3 +19,6 @@
 [submodule "libs/clap-wrapper"]
 	path = libs/clap-wrapper
 	url = https://github.com/free-audio/clap-wrapper.git
+[submodule "libs/readerwriterqueue"]
+	path = libs/readerwriterqueue
+	url = https://github.com/cameron314/readerwriterqueue.git

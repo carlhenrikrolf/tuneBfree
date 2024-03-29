@@ -155,6 +155,11 @@ ifeq ($(OS),Windows_NT)
   override CLAP_LDFLAGS += -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive -Wl,-Bdynamic
 endif
 
+CLAP_CFLAGS=
+ifneq ($(DEBUG_PRINT),)
+  override CLAP_CFLAGS += -DDEBUG_PRINT
+endif
+
 tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp vibrato.cpp whirl.cpp eqcomp.cpp overdrive.cpp reverb.cpp
 	$(CXX) \
 	-std=c++11 \
@@ -162,12 +167,14 @@ tuneBfree.clap: clap.cpp tonegen.cpp tuning.cpp vibrato.cpp whirl.cpp eqcomp.cpp
 	-fPIC \
 	-I../libs/clap/include \
 	-I../libs/MTS-ESP/Client \
+	-I../libs/readerwriterqueue \
 	-g \
 	-Wall \
 	-Wextra \
 	-Wno-unused-parameter \
 	-o tuneBfree.clap \
 	-DCLAP \
+	$(CLAP_CFLAGS) \
 	$(CLAP_LDFLAGS) \
 	clap.cpp \
 	tonegen.cpp \

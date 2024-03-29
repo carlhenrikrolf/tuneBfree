@@ -11,7 +11,9 @@
 #include <assert.h>
 #include <math.h>
 #include <string>
+
 #include "clap/clap.h"
+#include "readerwriterqueue.h"
 
 #include "tonegen.h"
 #include "overdrive.h"
@@ -19,22 +21,6 @@
 #include "whirl.h"
 
 #define MIN(A, B) (((A) < (B)) ? (A) : (B))
-
-#ifdef _WIN32
-#include <windows.h>
-typedef HANDLE Mutex;
-#define MutexAcquire(mutex) WaitForSingleObject(mutex, INFINITE)
-#define MutexRelease(mutex) ReleaseMutex(mutex)
-#define MutexInitialise(mutex) (mutex = CreateMutex(nullptr, FALSE, nullptr))
-#define MutexDestroy(mutex) CloseHandle(mutex)
-#else
-#include <pthread.h>
-typedef pthread_mutex_t Mutex;
-#define MutexAcquire(mutex) pthread_mutex_lock(&(mutex))
-#define MutexRelease(mutex) pthread_mutex_unlock(&(mutex))
-#define MutexInitialise(mutex) pthread_mutex_init(&(mutex), nullptr)
-#define MutexDestroy(mutex) pthread_mutex_destroy(&(mutex))
-#endif
 
 // Parameters.
 #define P_DRAWBAR_MIN (0)
@@ -52,14 +38,21 @@ typedef pthread_mutex_t Mutex;
 #define P_PERCUSSION_HARMONIC (19)
 #define P_COUNT (20)
 
+struct ParamMsg
+{
+    uint32_t paramIndex;
+    double value;
+};
+
+static moodycamel::ReaderWriterQueue<ParamMsg, 4096> toAudioQ(128);
+static moodycamel::ReaderWriterQueue<ParamMsg, 4096> fromAudioQ(128);
+
 struct MyPlugin
 {
     clap_plugin_t plugin;
     const clap_host_t *host;
     float sampleRate;
     float parameters[P_COUNT], mainParameters[P_COUNT];
-    bool changed[P_COUNT], mainChanged[P_COUNT];
-    Mutex syncParameters;
     struct b_tonegen *synth;
     struct b_preamp *preamp;
     struct b_reverb *reverb;
@@ -71,6 +64,56 @@ struct MyPlugin
     float bufD[2][BUFFER_SIZE_SAMPLES]; // drum, tmp.
     float bufL[2][BUFFER_SIZE_SAMPLES]; // leslie, out
 };
+
+void setParam(MyPlugin *plugin, uint32_t index, float value)
+{
+    if ((P_DRAWBAR_MIN <= index) && (index <= P_DRAWBAR_MAX))
+    {
+        setDrawBar(plugin->synth, index, rint(value));
+    }
+    else if (index == P_VIBRATO)
+    {
+        setVibratoUpper(plugin->synth, rint(value));
+    }
+    else if (index == P_VIBRATO_TYPE)
+    {
+        setVibratoFromInt(plugin->synth, floor(value));
+    }
+    else if ((index == P_DRUM) || (index == P_HORN))
+    {
+        useRevOption(
+            plugin->whirl,
+            (int)(floor(plugin->parameters[P_DRUM]) + 3 * floor(plugin->parameters[P_HORN])), 2);
+    }
+    else if (index == P_OVERDRIVE)
+    {
+        plugin->preamp->isClean = rint(1.0f - value);
+    }
+    else if (index == P_CHARACTER)
+    {
+        fsetCharacter(plugin->preamp, value);
+    }
+    else if (index == P_REVERB)
+    {
+        setReverbMix(plugin->reverb, value);
+    }
+    else if (index == P_PERCUSSION)
+    {
+        setPercussionEnabled(plugin->synth, rint(value));
+    }
+    else if (index == P_PERCUSSION_VOLUME)
+    {
+        setPercussionVolume(plugin->synth, 1 - rint(value));
+    }
+    else if (index == P_PERCUSSION_DECAY)
+    {
+        setPercussionFast(plugin->synth, rint(value));
+    }
+    else if (index == P_PERCUSSION_HARMONIC)
+    {
+        setPercussionFirst(plugin->synth, rint(value));
+    }
+}
 
 static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *event)
 {
@@ -94,57 +137,15 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
         {
             const clap_event_param_value_t *valueEvent = (const clap_event_param_value_t *)event;
             uint32_t index = (uint32_t)valueEvent->param_id;
-            MutexAcquire(plugin->syncParameters);
+
             plugin->parameters[index] = valueEvent->value;
-            plugin->changed[index] = true;
-            MutexRelease(plugin->syncParameters);
-            if ((P_DRAWBAR_MIN <= index) && (index <= P_DRAWBAR_MAX))
-            {
-                setDrawBar(plugin->synth, index, rint(valueEvent->value));
-            }
-            else if (index == P_VIBRATO)
-            {
-                setVibratoUpper(plugin->synth, rint(valueEvent->value));
-            }
-            else if (index == P_VIBRATO_TYPE)
-            {
-                setVibratoFromInt(plugin->synth, floor(valueEvent->value));
-            }
-            else if ((index == P_DRUM) || (index == P_HORN))
-            {
-                useRevOption(plugin->whirl,
-                             (int)(floor(plugin->parameters[P_DRUM]) +
-                                   3 * floor(plugin->parameters[P_HORN])),
-                             2);
-            }
-            else if (index == P_OVERDRIVE)
-            {
-                plugin->preamp->isClean = rint(1.0f - valueEvent->value);
-            }
-            else if (index == P_CHARACTER)
-            {
-                fsetCharacter(plugin->preamp, valueEvent->value);
-            }
-            else if (index == P_REVERB)
-            {
-                setReverbMix(plugin->reverb, valueEvent->value);
-            }
-            else if (index == P_PERCUSSION)
-            {
-                setPercussionEnabled(plugin->synth, rint(valueEvent->value));
-            }
-            else if (index == P_PERCUSSION_VOLUME)
-            {
-                setPercussionVolume(plugin->synth, 1 - rint(valueEvent->value));
-            }
-            else if (index == P_PERCUSSION_DECAY)
-            {
-                setPercussionFast(plugin->synth, rint(valueEvent->value));
-            }
-            else if (index == P_PERCUSSION_HARMONIC)
-            {
-                setPercussionFirst(plugin->synth, rint(valueEvent->value));
-            }
+            struct ParamMsg p = {index, valueEvent->value};
+            fromAudioQ.try_enqueue(p);
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "PluginProcessEvent fromAudioQ.try_enqueue: %d %f\n", p.paramIndex,
+                    p.value);
+#endif
+            setParam(plugin, index, valueEvent->value);
         }
     }
 }
@@ -185,51 +186,47 @@ static void PluginRenderAudio(MyPlugin *plugin, uint32_t start, uint32_t end, fl
 
 static void PluginSyncMainToAudio(MyPlugin *plugin, const clap_output_events_t *out)
 {
-    MutexAcquire(plugin->syncParameters);
-
-    for (uint32_t i = 0; i < P_COUNT; i++)
+    struct ParamMsg p;
+    while (toAudioQ.try_dequeue(p))
     {
-        if (plugin->mainChanged[i])
-        {
-            plugin->parameters[i] = plugin->mainParameters[i];
-            plugin->mainChanged[i] = false;
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "PluginSyncMainToAudio toAudioQ.try_dequeue: %d %f\n", p.paramIndex,
+                p.value);
+#endif
+        uint32_t i = p.paramIndex;
+        plugin->parameters[i] = p.value;
+        setParam(plugin, p.paramIndex, p.value);
 
-            clap_event_param_value_t event = {};
-            event.header.size = sizeof(event);
-            event.header.time = 0;
-            event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-            event.header.type = CLAP_EVENT_PARAM_VALUE;
-            event.header.flags = 0;
-            event.param_id = i;
-            event.cookie = NULL;
-            event.note_id = -1;
-            event.port_index = -1;
-            event.channel = -1;
-            event.key = -1;
-            event.value = plugin->parameters[i];
-            out->try_push(out, &event.header);
-        }
+        clap_event_param_value_t event = {};
+        event.header.size = sizeof(event);
+        event.header.time = 0;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = 0;
+        event.param_id = i;
+        event.cookie = NULL;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = plugin->parameters[i];
+        out->try_push(out, &event.header);
     }
-
-    MutexRelease(plugin->syncParameters);
 }
 
 static bool PluginSyncAudioToMain(MyPlugin *plugin)
 {
     bool anyChanged = false;
-    MutexAcquire(plugin->syncParameters);
-
-    for (uint32_t i = 0; i < P_COUNT; i++)
+    struct ParamMsg p;
+    while (fromAudioQ.try_dequeue(p))
     {
-        if (plugin->changed[i])
-        {
-            plugin->mainParameters[i] = plugin->parameters[i];
-            plugin->changed[i] = false;
-            anyChanged = true;
-        }
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "PluginSyncAudioToMain fromAudioQ.try_dequeue: %d %f\n", p.paramIndex,
+                p.value);
+#endif
+        plugin->mainParameters[p.paramIndex] = p.value;
+        anyChanged = true;
     }
-
-    MutexRelease(plugin->syncParameters);
     return anyChanged;
 }
 
@@ -434,9 +431,7 @@ static const clap_plugin_params_t extensionParams = {
         uint32_t i = (uint32_t)id;
         if (i >= P_COUNT)
             return false;
-        MutexAcquire(plugin->syncParameters);
-        *value = plugin->mainChanged[i] ? plugin->mainParameters[i] : plugin->parameters[i];
-        MutexRelease(plugin->syncParameters);
+        *value = plugin->parameters[i];
         return true;
     },
 
@@ -473,18 +468,25 @@ static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         PluginSyncAudioToMain(plugin);
-        return sizeof(float) * P_COUNT ==
-               stream->write(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
+        bool success = sizeof(float) * P_COUNT ==
+                       stream->write(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
+        return success;
     },
 
     .load = [](const clap_plugin_t *_plugin, const clap_istream_t *stream) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        MutexAcquire(plugin->syncParameters);
         bool success = sizeof(float) * P_COUNT ==
                        stream->read(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
+        struct ParamMsg p;
         for (uint32_t i = 0; i < P_COUNT; i++)
-            plugin->mainChanged[i] = true;
-        MutexRelease(plugin->syncParameters);
+        {
+            p = {i, plugin->mainParameters[i]};
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "extensionState.load toAudioQ.try_enqueue: %d %f\n", p.paramIndex,
+                    p.value);
+#endif
+            toAudioQ.try_enqueue(p);
+        }
         return success;
     },
 };
@@ -495,8 +497,6 @@ static const clap_plugin_t pluginClass = {
 
     .init = [](const clap_plugin *_plugin) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-
-        MutexInitialise(plugin->syncParameters);
 
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
@@ -510,7 +510,6 @@ static const clap_plugin_t pluginClass = {
     .destroy =
         [](const clap_plugin *_plugin) {
             MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-            MutexDestroy(plugin->syncParameters);
             if (plugin->synth)
             {
                 freeToneGenerator(plugin->synth);
