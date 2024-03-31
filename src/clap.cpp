@@ -230,6 +230,13 @@ static bool PluginSyncAudioToMain(MyPlugin *plugin)
     return anyChanged;
 }
 
+const char *_features[] = {
+    CLAP_PLUGIN_FEATURE_INSTRUMENT,
+    CLAP_PLUGIN_FEATURE_SYNTHESIZER,
+    CLAP_PLUGIN_FEATURE_STEREO,
+    NULL,
+};
+
 static const clap_plugin_descriptor_t pluginDescriptor = {
     .clap_version = CLAP_VERSION_INIT,
     .id = "naren.tuneBfree",
@@ -241,13 +248,7 @@ static const clap_plugin_descriptor_t pluginDescriptor = {
     .version = "1.0.0",
     .description = "Tonewheel organ with microtuning",
 
-    .features =
-        (const char *[]){
-            CLAP_PLUGIN_FEATURE_INSTRUMENT,
-            CLAP_PLUGIN_FEATURE_SYNTHESIZER,
-            CLAP_PLUGIN_FEATURE_STEREO,
-            NULL,
-        },
+    .features = _features,
 };
 
 static const clap_plugin_note_ports_t extensionNotePorts = {
