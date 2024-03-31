@@ -15,6 +15,11 @@ jobs:
             sudo apt-get upgrade -y
             sudo apt-get install -y git make libjack-dev libopengl-dev libftgl-dev libglu1-mesa-dev xxd g++
             make
+            cd src
+            cmake -B build
+            cmake --build build
+            cp build/tuneBfree.clap ../build
+            cd ..
             cd libs/clap-wrapper
             cmake -B build -DCLAP_WRAPPER_OUTPUT_NAME=tuneBfree -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=TRUE
             cmake --build build
@@ -48,6 +53,11 @@ jobs:
         run: |
             brew install jack freeglut ftgl bzip2 pkg-config
             make
+            cd src
+            cmake -B build
+            cmake --build build
+            cp build/tuneBfree.clap ../build
+            cd ..
             ls build
             ls build/tuneBfree.lv2
       - name: Test
