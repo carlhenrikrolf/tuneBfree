@@ -105,6 +105,22 @@ jobs:
         with:
             name: build_windows
             path: build
+  build_windows_clap:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+            submodules: 'true'
+      - name: Build
+        run: |
+          cd src
+          cmake -B build
+          cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+            name: build_windows_clap
+            path: src/build
   formatting_checks:
     runs-on: ubuntu-20.04
     steps:
