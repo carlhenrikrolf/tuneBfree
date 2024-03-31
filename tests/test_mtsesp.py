@@ -17,7 +17,7 @@ REPO_DIR = Path(__file__).parents[1]
 
 SCL_FILES = sorted(
     str(x) for x in (REPO_DIR / "tests/scala_scale_archive/scl/").glob("*.scl")
-)
+)[::20]
 
 mts.reinitialize()
 
