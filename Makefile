@@ -11,7 +11,7 @@ RW=$(abspath $(ROBTK))/
 export RW
 endif
 
-# Make LV2, CLAP, and CLI
+# Make LV2 and CLI
 SUBDIRS = b_synth src
 
 default: all
