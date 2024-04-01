@@ -14,6 +14,7 @@
 
 #include "clap/clap.h"
 #include "readerwriterqueue.h"
+#include "libMTSClient.h"
 
 #include "tonegen.h"
 #include "overdrive.h"
@@ -63,6 +64,8 @@ struct MyPlugin
     float bufC[BUFFER_SIZE_SAMPLES];
     float bufD[2][BUFFER_SIZE_SAMPLES]; // drum, tmp.
     float bufL[2][BUFFER_SIZE_SAMPLES]; // leslie, out
+    MTSClient *client;
+    double previousFrequency[128];
 };
 
 void setParam(MyPlugin *plugin, uint32_t index, float value)
@@ -527,6 +530,10 @@ static const clap_plugin_t pluginClass = {
             {
                 freeWhirl(plugin->whirl);
             }
+            if (plugin->client)
+            {
+                MTS_DeregisterClient(plugin->client);
+            }
             free(plugin);
         },
 
@@ -545,6 +552,8 @@ static const clap_plugin_t pluginClass = {
         initPreamp(preamp, nullptr, sampleRate);
         plugin->reverb = allocReverb();
         initReverb(plugin->reverb, nullptr, sampleRate);
+        plugin->client = MTS_RegisterClient();
+        double previousFrequency[128];
         return true;
     },
 
@@ -560,6 +569,33 @@ static const clap_plugin_t pluginClass = {
     .process = [](const clap_plugin *_plugin,
                   const clap_process_t *process) -> clap_process_status {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+
+        int i;
+        bool tuningChanged = false;
+        double newFrequency[128];
+
+        for (i = 0; i < 128; i++)
+        {
+            newFrequency[i] = MTS_NoteToFrequency(plugin->client, i, 0);
+            if (newFrequency[i] != plugin->previousFrequency[i])
+            {
+                tuningChanged = true;
+            }
+        }
+
+        if (tuningChanged)
+        {
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "Detected MTS-ESP tuning change\n");
+#endif
+            freeToneGenerator(plugin->synth);
+            plugin->synth = allocTonegen();
+            initToneGenerator(plugin->synth, nullptr);
+            for (i = 0; i < 128; i++)
+            {
+                plugin->previousFrequency[i] = newFrequency[i];
+            }
+        }
 
         assert(process->audio_outputs_count == 1);
         assert(process->audio_inputs_count == 0);
