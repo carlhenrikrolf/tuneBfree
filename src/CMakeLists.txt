@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
+option(DEBUG_PRINT "Print debugging logs" FALSE)
 
 add_library(
   ${PROJECT_NAME}
@@ -28,7 +29,7 @@ add_library(
 
 set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".clap" PREFIX "")
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE -DCLAP)
+target_compile_definitions(${PROJECT_NAME} PRIVATE -DCLAP $<$<BOOL:${DEBUG_PRINT}>:-DDEBUG_PRINT>)
 
 target_include_directories(
   ${PROJECT_NAME}
