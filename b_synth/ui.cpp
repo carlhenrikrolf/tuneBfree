@@ -5350,9 +5350,9 @@ static int sb3_gui_setup(B3ui *ui, const LV2_Feature *const *features)
         resize->ui_resize(resize->handle, ui->width, ui->height);
     }
 
-/** add control elements **/
+    /** add control elements **/
 
-/* clang-format off */
+    /* clang-format off */
 #define CTRLELEM(ID, TYPE, VMIN, VMAX, VCUR, PX, PY, W, H, TEXID) \
 {                                                                 \
   ui->ctrls[ID].type = TYPE;                                      \

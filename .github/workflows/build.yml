@@ -13,12 +13,16 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get upgrade -y
-            sudo apt-get install -y git make libjack-dev libopengl-dev libftgl-dev libglu1-mesa-dev xxd g++
+            sudo apt-get install -y git make libjack-dev libopengl-dev libftgl-dev libglu1-mesa-dev libwebp-dev xxd g++
             make
             cd src
             cmake -B build
             cmake --build build
             cp build/tuneBfree.clap ../build
+            rm -r build
+            cmake -B build -D CLAP_GUI=TRUE
+            cmake --build build
+            cp build/tuneBfree.clap ../build/tuneBfreeGUI.clap
             cd ..
             cd libs/clap-wrapper
             cmake -B build -DCLAP_WRAPPER_OUTPUT_NAME=tuneBfree -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=TRUE
@@ -51,7 +55,7 @@ jobs:
             submodules: 'true'
       - name: Build
         run: |
-            brew install jack freeglut ftgl bzip2 pkg-config
+            brew install jack freeglut ftgl bzip2 pkg-config webp
             make
             cd src
             cmake -B build
@@ -124,13 +128,21 @@ jobs:
             submodules: 'true'
       - name: Build
         run: |
+          ./libs/vcpkg/bootstrap-vcpkg.bat
+          ./libs/vcpkg/vcpkg.exe install pkgconf:x64-windows-static cairo:x64-windows-static libwebp:x64-windows-static
+          mkdir build
           cd src
           cmake -B build
           cmake --build build --config Release
+          cp build/Release/tuneBfree.clap ../build
+          rm -r build
+          cmake -B build -D CLAP_GUI=TRUE
+          cmake --build build --config Release
+          cp build/Release/tuneBfree.clap ../build/tuneBfreeGUI.clap
       - uses: actions/upload-artifact@v4
         with:
             name: build_windows_clap
-            path: src/build
+            path: build
   formatting_checks:
     runs-on: ubuntu-20.04
     steps:
@@ -165,7 +177,7 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get upgrade -y
-            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev xxd g++
+            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev libwebp-dev xxd g++
             export SANITIZE=yes
             make
       - name: Test with sanitizers
@@ -190,7 +202,7 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get upgrade -y
-            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev xxd g++
+            sudo apt-get install -y git make libjack-dev libftgl-dev libglu1-mesa-dev libwebp-dev xxd g++
             export DEBUG_TONEGEN_OSC=yes
             make
       - name: Regression test

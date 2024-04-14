@@ -20,10 +20,10 @@ very much for that!
 
 Building
 --------
-On Linux, install libjack-dev, libopengl-dev, libglu1-mesa-dev, libftgl-dev, and xxd
+On Linux, install libjack-dev, libopengl-dev, libglu1-mesa-dev, libftgl-dev, libwebp-dev and xxd
 (package names for Ubuntu).
 
-On Mac, use Homebrew to install jack, freeglut, ftgl, bzip2, and pkg-config.
+On Mac, use Homebrew to install jack, freeglut, ftgl, bzip2, webp, and pkg-config.
 
 On Windows, install [MSYS2](https://www.msys2.org/), open the MSYS2 UCRT64
 shell, and run
@@ -54,6 +54,18 @@ $ cd src
 $ cmake -B build
 $ cmake --build build
 ```
+To build the CLAP with the Cycfi Elements GUI, you can run
+```
+$ cd src
+$ cmake -B build -D CLAP_GUI=true
+$ cmake --build build
+```
+To install the build dependencies for the Elements GUI on Windows you can run
+```
+$ ./libs/vcpkg/bootstrap-vcpkg.bat
+$ ./libs/vcpkg/vcpkg.exe install pkgconf:x64-windows-static cairo:x64-windows-static libwebp:x64-windows-static
+```
+(this may take fifteen minutes or so).
 
 Original README follows.
 

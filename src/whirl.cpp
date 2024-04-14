@@ -1422,7 +1422,7 @@ void whirlProc2(struct b_whirl *w, const float *inbuffer, float *outL, float *ou
     }
 #endif
 
-/* clang-format off */
+    /* clang-format off */
 #define ADDHIST(DX, DI, XS)              \
 {                                        \
         DI     = (DI + AGMASK) & AGMASK; \

@@ -15,6 +15,10 @@
 #include "clap/clap.h"
 #include "readerwriterqueue.h"
 #include "libMTSClient.h"
+#ifdef CLAP_GUI
+#include <elements.hpp>
+namespace ce = cycfi::elements;
+#endif
 
 #include "tonegen.h"
 #include "overdrive.h"
@@ -38,6 +42,10 @@
 #define P_PERCUSSION_DECAY (18)
 #define P_PERCUSSION_HARMONIC (19)
 #define P_COUNT (20)
+
+// GUI size.
+#define GUI_WIDTH (650)
+#define GUI_HEIGHT (400)
 
 struct ParamMsg
 {
@@ -66,6 +74,10 @@ struct MyPlugin
     float bufL[2][BUFFER_SIZE_SAMPLES]; // leslie, out
     MTSClient *client;
     double previousFrequency[128];
+#ifdef CLAP_GUI
+    struct GUI *gui;
+    const clap_host_posix_fd_support_t *hostPOSIXFDSupport;
+#endif
 };
 
 void setParam(MyPlugin *plugin, uint32_t index, float value)
@@ -472,9 +484,8 @@ static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         PluginSyncAudioToMain(plugin);
-        bool success = sizeof(float) * P_COUNT ==
-                       stream->write(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
-        return success;
+        return sizeof(float) * P_COUNT ==
+               stream->write(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
     },
 
     .load = [](const clap_plugin_t *_plugin, const clap_istream_t *stream) -> bool {
@@ -495,6 +506,390 @@ static const clap_plugin_state_t extensionState = {
     },
 };
 
+#ifdef CLAP_GUI
+#if defined(_WIN32)
+#include "gui_w32.cpp"
+#elif defined(__linux__)
+#include "gui_x11.cpp"
+#endif
+
+constexpr auto bred = ce::colors::red.opacity(0.4);
+constexpr auto bblue = ce::colors::blue.opacity(0.4);
+
+auto vibrato_controls(float *mainParameters)
+{
+    auto onOff = ce::toggle_button("On/off", 1.0, bred);
+    onOff.value(mainParameters[P_VIBRATO]);
+    onOff.on_click = [mainParameters](bool down) {
+        mainParameters[P_VIBRATO] = (float)down;
+        toAudioQ.try_enqueue({P_VIBRATO, (double)down});
+    };
+
+    auto type = ce::dial(ce::basic_knob<25>());
+    float scale = 5.99f;
+    type.value(mainParameters[P_VIBRATO_TYPE] / scale);
+    type.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[P_VIBRATO_TYPE] = v;
+        toAudioQ.try_enqueue({P_VIBRATO_TYPE, v});
+    };
+
+    return ce::pane(
+        "Vibrato",
+        ce::htile(ce::align_center(ce::margin({5, 5, 5, 5}, ce::max_size({70, 30}, onOff))),
+                  ce::align_center(ce::vmargin(
+                      {5, 5}, ce::vtile(ce::vmargin({10, 20}, type), ce::label{"Type     "})))));
+}
+
+auto percussion_controls(float *mainParameters)
+{
+    auto onOff = ce::toggle_button("On/off", 1.0, bred);
+    onOff.value(mainParameters[P_PERCUSSION]);
+    onOff.on_click = [mainParameters](bool down) {
+        mainParameters[P_PERCUSSION] = float(down);
+        toAudioQ.try_enqueue({P_PERCUSSION, (double)down});
+    };
+
+    auto volume = ce::toggle_button("Volume", 1.0, bblue);
+    volume.value(mainParameters[P_PERCUSSION_VOLUME]);
+    volume.on_click = [mainParameters](bool down) {
+        mainParameters[P_PERCUSSION_VOLUME] = (float)down;
+        toAudioQ.try_enqueue({P_PERCUSSION_VOLUME, (double)down});
+    };
+
+    auto decay = ce::toggle_button("Decay", 1.0, bblue);
+    decay.value(mainParameters[P_PERCUSSION_DECAY]);
+    decay.on_click = [mainParameters](bool down) {
+        mainParameters[P_PERCUSSION_DECAY] = (float)down;
+        toAudioQ.try_enqueue({P_PERCUSSION_DECAY, (double)down});
+    };
+
+    auto harmonic = ce::toggle_button("Harmonic", 1.0, bblue);
+    harmonic.value(mainParameters[P_PERCUSSION_HARMONIC]);
+    harmonic.on_click = [mainParameters](bool down) {
+        mainParameters[P_PERCUSSION_HARMONIC] = (float)down;
+        toAudioQ.try_enqueue({P_PERCUSSION_HARMONIC, (double)down});
+    };
+
+    return ce::pane(
+        "Percussion",
+        ce::vmargin(
+            {2, 2},
+            ce::vtile(ce::htile(ce::align_center(ce::margin({7, 7, 3.5, 3.5}, onOff)),
+                                ce::align_center(ce::margin({3.5, 7, 7, 3.5}, volume))),
+                      ce::htile(ce::align_center(ce::margin({7, 3.5, 3.5, 7}, decay)),
+                                ce::align_center(ce::margin({3.5, 3.5, 7, 7}, harmonic))))));
+}
+
+auto drawbar_controls(float *mainParameters)
+{
+    auto slider0 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider1 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider2 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider3 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider4 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider5 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider6 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider7 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto slider8 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    float scale = 8.0f;
+    slider0.value(mainParameters[0] / scale);
+    slider0.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[0] = v;
+        toAudioQ.try_enqueue({0, v});
+    };
+    slider1.value(mainParameters[1] / scale);
+    slider1.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[1] = v;
+        toAudioQ.try_enqueue({1, v});
+    };
+    slider2.value(mainParameters[2] / scale);
+    slider2.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[2] = v;
+        toAudioQ.try_enqueue({2, v});
+    };
+    slider3.value(mainParameters[3] / scale);
+    slider3.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[3] = v;
+        toAudioQ.try_enqueue({3, v});
+    };
+    slider4.value(mainParameters[4] / scale);
+    slider4.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[4] = v;
+        toAudioQ.try_enqueue({4, v});
+    };
+    slider5.value(mainParameters[5] / scale);
+    slider5.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[5] = v;
+        toAudioQ.try_enqueue({5, v});
+    };
+    slider6.value(mainParameters[6] / scale);
+    slider6.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[6] = v;
+        toAudioQ.try_enqueue({6, v});
+    };
+    slider7.value(mainParameters[7] / scale);
+    slider7.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[7] = v;
+        toAudioQ.try_enqueue({7, v});
+    };
+    slider8.value(mainParameters[8] / scale);
+    slider8.on_change = [mainParameters, scale](double val) {
+        double v = scale * val;
+        mainParameters[8] = v;
+        toAudioQ.try_enqueue({8, v});
+    };
+    return ce::pane(
+        "Drawbars",
+        ce::htile(ce::vtile(slider0, ce::label{"1/2"}), ce::vtile(slider1, ce::label{"3/2"}),
+                  ce::vtile(slider2, ce::label{"1"}), ce::vtile(slider3, ce::label{"2"}),
+                  ce::vtile(slider4, ce::label{"3"}), ce::vtile(slider5, ce::label{"4"}),
+                  ce::vtile(slider6, ce::label{"5"}), ce::vtile(slider7, ce::label{"6"}),
+                  ce::vtile(slider8, ce::label{"8"})));
+}
+
+auto overdrive_controls(float *mainParameters)
+{
+    auto onOff = ce::toggle_button("On/off", 1.0, bred);
+    onOff.value(mainParameters[P_OVERDRIVE]);
+    onOff.on_click = [mainParameters](bool down) {
+        mainParameters[P_OVERDRIVE] = float(down);
+        toAudioQ.try_enqueue({P_OVERDRIVE, (double)down});
+    };
+
+    auto character = ce::dial(ce::basic_knob<25>());
+    character.value(mainParameters[P_CHARACTER]);
+    character.on_change = [mainParameters](double val) {
+        mainParameters[P_CHARACTER] = val;
+        toAudioQ.try_enqueue({P_CHARACTER, val});
+    };
+
+    return ce::pane(
+        "Overdrive",
+        ce::htile(
+            ce::align_center(ce::margin({5, 5, 5, 5}, ce::max_size({70, 30}, onOff))),
+            ce::align_center(ce::margin({5, 5, 5, 5}, ce::vtile(ce::vmargin({10, 20}, character),
+                                                                ce::label{"Character"})))));
+}
+
+auto reverb_controls(float *mainParameters)
+{
+    auto wetDry = ce::dial(ce::basic_knob<25>());
+    wetDry.value(mainParameters[P_REVERB]);
+    wetDry.on_change = [mainParameters](double val) {
+        mainParameters[P_REVERB] = val;
+        toAudioQ.try_enqueue({P_REVERB, val});
+    };
+    return ce::pane("Reverb",
+                    ce::align_center(ce::vmargin(
+                        {5, 5}, ce::vtile(ce::vmargin({10, 20}, wetDry), ce::label{"Wet/dry"}))));
+}
+
+auto leslie_controls(float *mainParameters)
+{
+    float scale = 2.99f;
+
+    auto drum = ce::dial(ce::basic_knob<25>());
+    drum.value(mainParameters[P_DRUM] / scale);
+    drum.on_change = [scale, mainParameters](double val) {
+        double v = scale * val;
+        mainParameters[P_DRUM] = v;
+        toAudioQ.try_enqueue({P_DRUM, v});
+    };
+
+    auto horn = ce::dial(ce::basic_knob<25>());
+    horn.value(mainParameters[P_HORN] / scale);
+    horn.on_change = [scale, mainParameters](double val) {
+        double v = scale * val;
+        mainParameters[P_HORN] = v;
+        toAudioQ.try_enqueue({P_HORN, v});
+    };
+
+    return ce::pane(
+        "Leslie",
+        ce::htile(ce::align_center(ce::margin(
+                      {5, 5, 5, 10}, ce::vtile(ce::vmargin({10, 10}, drum), ce::label{"Drum"}))),
+                  ce::align_center(ce::margin(
+                      {5, 5, 5, 5}, ce::vtile(ce::vmargin({10, 10}, horn), ce::label{"Horn"})))));
+}
+
+void GUISetup(MyPlugin *plugin)
+{
+    plugin->gui->win =
+        new ce::window("tuneBfree", 0, ce::rect{0, 0, GUI_WIDTH, GUI_HEIGHT}, plugin->gui->window);
+    plugin->gui->win->on_close = []() {};
+    plugin->gui->view = new ce::view(*plugin->gui->win);
+
+    plugin->gui->view->content(ce::vmin_size(
+        GUI_HEIGHT,
+        ce::margin(
+            {5, 5, 5, 5},
+            ce::htile(
+                ce::margin({5, 5, 2.5, 5}, drawbar_controls(plugin->mainParameters)),
+                ce::vtile(
+                    ce::margin({2.5, 5, 2.5, 2.5}, percussion_controls(plugin->mainParameters)),
+                    ce::margin({2.5, 2.5, 2.5, 5}, vibrato_controls(plugin->mainParameters))),
+                ce::vtile(
+                    ce::margin({2.5, 5, 2.5, 2.5}, overdrive_controls(plugin->mainParameters)),
+                    ce::margin({2.5, 2.5, 2.5, 2.5}, reverb_controls(plugin->mainParameters)),
+                    ce::margin({2.5, 2.5, 2.5, 5}, leslie_controls(plugin->mainParameters)))))));
+
+#if defined(_WIN32)
+    plugin->gui->window = plugin->gui->view->host();
+#elif defined(__linux__)
+    plugin->gui->display = ce::get_display();
+    plugin->gui->window = plugin->gui->view->host()->x_window;
+
+    if (plugin->hostPOSIXFDSupport && plugin->hostPOSIXFDSupport->register_fd)
+    {
+        plugin->hostPOSIXFDSupport->register_fd(
+            plugin->host, ConnectionNumber(plugin->gui->display), CLAP_POSIX_FD_READ);
+    }
+#endif
+}
+
+static const clap_plugin_gui_t extensionGUI = {
+    .is_api_supported = [](const clap_plugin_t *plugin, const char *api, bool isFloating) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.is_api_supported\n");
+#endif
+        return 0 == strcmp(api, GUI_API) && !isFloating;
+    },
+
+    .get_preferred_api = [](const clap_plugin_t *plugin, const char **api,
+                            bool *isFloating) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.get_preferred_api\n");
+#endif
+        *api = GUI_API;
+        *isFloating = false;
+        return true;
+    },
+
+    .create = [](const clap_plugin_t *_plugin, const char *api, bool isFloating) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.create\n");
+#endif
+        if (!extensionGUI.is_api_supported(_plugin, api, isFloating))
+            return false;
+        MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+        GUICreate(plugin);
+        GUISetup(plugin);
+        return true;
+    },
+
+    .destroy =
+        [](const clap_plugin_t *_plugin) {
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "extensionGUI.destroy\n");
+#endif
+            GUIDestroy((MyPlugin *)_plugin->plugin_data);
+        },
+
+    .set_scale = [](const clap_plugin_t *plugin, double scale) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.set_scale\n");
+#endif
+        return false;
+    },
+
+    .get_size = [](const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.get_size\n");
+#endif
+        *width = GUI_WIDTH;
+        *height = GUI_HEIGHT;
+        return true;
+    },
+
+    .can_resize = [](const clap_plugin_t *plugin) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.can_resize\n");
+#endif
+        return false;
+    },
+
+    .get_resize_hints = [](const clap_plugin_t *plugin, clap_gui_resize_hints_t *hints) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.get_resize_hints\n");
+#endif
+        return false;
+    },
+
+    .adjust_size = [](const clap_plugin_t *plugin, uint32_t *width, uint32_t *height) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.adjust_size\n");
+#endif
+        return extensionGUI.get_size(plugin, width, height);
+    },
+
+    .set_size = [](const clap_plugin_t *plugin, uint32_t width, uint32_t height) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.set_size\n");
+#endif
+        return true;
+    },
+
+    .set_parent = [](const clap_plugin_t *_plugin, const clap_window_t *window) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.set_parent\n");
+#endif
+        assert(0 == strcmp(window->api, GUI_API));
+        GUISetParent((MyPlugin *)_plugin->plugin_data, window);
+        return true;
+    },
+
+    .set_transient = [](const clap_plugin_t *plugin, const clap_window_t *window) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.set_transient\n");
+#endif
+        return false;
+    },
+
+    .suggest_title =
+        [](const clap_plugin_t *plugin, const char *title) {
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "extensionGUI.suggest_title\n");
+#endif
+        },
+
+    .show = [](const clap_plugin_t *_plugin) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.show\n");
+#endif
+        GUISetVisible((MyPlugin *)_plugin->plugin_data, true);
+        return true;
+    },
+
+    .hide = [](const clap_plugin_t *_plugin) -> bool {
+#ifdef DEBUG_PRINT
+        fprintf(stderr, "extensionGUI.hide\n");
+#endif
+        GUISetVisible((MyPlugin *)_plugin->plugin_data, false);
+        return true;
+    },
+};
+
+static const clap_plugin_posix_fd_support_t extensionPOSIXFDSupport = {
+    .on_fd =
+        [](const clap_plugin_t *_plugin, int fd, clap_posix_fd_flags_t flags) {
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "extensionPOSIXFDSupport.on_fd\n");
+#endif
+            MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
+            GUIOnPOSIXFD(plugin);
+        },
+};
+#endif // CLAP_GUI
+
 static const clap_plugin_t pluginClass = {
     .desc = &pluginDescriptor,
     .plugin_data = nullptr,
@@ -502,6 +897,11 @@ static const clap_plugin_t pluginClass = {
     .init = [](const clap_plugin *_plugin) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
 
+#ifdef CLAP_GUI
+        plugin->hostPOSIXFDSupport =
+            (const clap_host_posix_fd_support_t *)plugin->host->get_extension(
+                plugin->host, CLAP_EXT_POSIX_FD_SUPPORT);
+#endif
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             clap_param_info_t information = {};
@@ -645,6 +1045,12 @@ static const clap_plugin_t pluginClass = {
             return &extensionAudioPorts;
         if (0 == strcmp(id, CLAP_EXT_PARAMS))
             return &extensionParams;
+#ifdef CLAP_GUI
+        if (0 == strcmp(id, CLAP_EXT_GUI))
+            return &extensionGUI;
+        if (0 == strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))
+            return &extensionPOSIXFDSupport;
+#endif
         if (0 == strcmp(id, CLAP_EXT_STATE))
             return &extensionState;
         return nullptr;
