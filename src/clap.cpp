@@ -254,8 +254,13 @@ const char *_features[] = {
 
 static const clap_plugin_descriptor_t pluginDescriptor = {
     .clap_version = CLAP_VERSION_INIT,
+#ifndef CLAP_GUI
     .id = "naren.tuneBfree",
     .name = "tuneBfree",
+#else
+    .id = "naren.tuneBfreeGUI",
+    .name = "tuneBfreeGUI",
+#endif
     .vendor = "naren",
     .url = "https://github.com/narenratan/tuneBfree",
     .manual_url = "https://github.com/narenratan/tuneBfree",
