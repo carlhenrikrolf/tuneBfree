@@ -993,9 +993,11 @@ static const clap_plugin_t pluginClass = {
 #ifdef DEBUG_PRINT
             fprintf(stderr, "Detected MTS-ESP tuning change\n");
 #endif
+            unsigned int newRouting = plugin->synth->newRouting;
             freeToneGenerator(plugin->synth);
             plugin->synth = allocTonegen();
             initToneGenerator(plugin->synth, nullptr);
+            init_vibrato(&(plugin->synth->inst_vibrato));
             // Restore tonegen parameters after reinitializing tonegen
             for (i = 0; i < P_COUNT; i++)
             {
@@ -1005,6 +1007,7 @@ static const clap_plugin_t pluginClass = {
                     setParam(plugin, i, plugin->parameters[i]);
                 }
             }
+            plugin->synth->newRouting = newRouting;
             for (i = 0; i < 128; i++)
             {
                 plugin->previousFrequency[i] = newFrequency[i];
