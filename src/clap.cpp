@@ -996,6 +996,15 @@ static const clap_plugin_t pluginClass = {
             freeToneGenerator(plugin->synth);
             plugin->synth = allocTonegen();
             initToneGenerator(plugin->synth, nullptr);
+            // Restore tonegen parameters after reinitializing tonegen
+            for (i = 0; i < P_COUNT; i++)
+            {
+                if (((P_DRAWBAR_MIN <= i) && (i <= P_DRAWBAR_MAX)) || (i == P_VIBRATO) ||
+                    (i == P_VIBRATO_TYPE))
+                {
+                    setParam(plugin, i, plugin->parameters[i]);
+                }
+            }
             for (i = 0; i < 128; i++)
             {
                 plugin->previousFrequency[i] = newFrequency[i];
