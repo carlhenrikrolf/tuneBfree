@@ -45,7 +45,7 @@ namespace ce = cycfi::elements;
 
 // GUI size.
 #define GUI_WIDTH (650)
-#define GUI_HEIGHT (400)
+#define GUI_HEIGHT (600)
 
 struct ParamMsg
 {
@@ -498,7 +498,6 @@ static const clap_plugin_state_t extensionState = {
         bool success = sizeof(float) * P_COUNT ==
                        stream->read(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
         struct ParamMsg p;
-        // TODO: Refresh GUI here
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             p = {i, plugin->mainParameters[i]};
@@ -725,18 +724,15 @@ auto leslie_controls(float *mainParameters)
 
 void GUISetup(MyPlugin *plugin)
 {
-    plugin->gui->view->content(ce::align_center_middle(
-        ce::margin(
-            {5, 5, 5, 5},
-            ce::htile(
-                ce::margin({5, 5, 2.5, 5}, drawbar_controls(plugin->mainParameters)),
-                ce::vtile(
-                    ce::margin({2.5, 5, 2.5, 2.5}, percussion_controls(plugin->mainParameters)),
-                    ce::margin({2.5, 2.5, 2.5, 5}, vibrato_controls(plugin->mainParameters))),
-                ce::vtile(
-                    ce::margin({2.5, 5, 2.5, 2.5}, overdrive_controls(plugin->mainParameters)),
-                    ce::margin({2.5, 2.5, 2.5, 2.5}, reverb_controls(plugin->mainParameters)),
-                    ce::margin({2.5, 2.5, 2.5, 5}, leslie_controls(plugin->mainParameters)))))));
+    plugin->gui->view->content(ce::align_center_middle(ce::margin(
+        {5, 5, 5, 5},
+        ce::htile(
+            ce::margin({5, 5, 2.5, 5}, drawbar_controls(plugin->mainParameters)),
+            ce::vtile(ce::margin({2.5, 5, 2.5, 2.5}, percussion_controls(plugin->mainParameters)),
+                      ce::margin({2.5, 2.5, 2.5, 5}, vibrato_controls(plugin->mainParameters)),
+                      ce::margin({2.5, 2.5, 2.5, 2.5}, overdrive_controls(plugin->mainParameters)),
+                      ce::margin({2.5, 2.5, 2.5, 2.5}, reverb_controls(plugin->mainParameters)),
+                      ce::margin({2.5, 2.5, 2.5, 5}, leslie_controls(plugin->mainParameters)))))));
 
 #if defined(_WIN32)
     plugin->gui->window = plugin->gui->view->host();
