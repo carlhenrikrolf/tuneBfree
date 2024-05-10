@@ -498,6 +498,7 @@ static const clap_plugin_state_t extensionState = {
         bool success = sizeof(float) * P_COUNT ==
                        stream->read(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
         struct ParamMsg p;
+        // TODO: Refresh GUI here
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
             p = {i, plugin->mainParameters[i]};
@@ -512,11 +513,7 @@ static const clap_plugin_state_t extensionState = {
 };
 
 #ifdef CLAP_GUI
-#if defined(_WIN32)
-#include "gui_w32.cpp"
-#elif defined(__linux__)
-#include "gui_x11.cpp"
-#endif
+#include "gui_plumbing.cpp"
 
 constexpr auto bred = ce::colors::red.opacity(0.4);
 constexpr auto bblue = ce::colors::blue.opacity(0.4);
@@ -728,11 +725,6 @@ auto leslie_controls(float *mainParameters)
 
 void GUISetup(MyPlugin *plugin)
 {
-    plugin->gui->win =
-        new ce::window("tuneBfree", 0, ce::rect{0, 0, GUI_WIDTH, GUI_HEIGHT}, plugin->gui->window);
-    plugin->gui->win->on_close = []() {};
-    plugin->gui->view = new ce::view(*plugin->gui->win);
-
     plugin->gui->view->content(ce::vmin_size(
         GUI_HEIGHT,
         ce::margin(

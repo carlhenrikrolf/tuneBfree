@@ -82,8 +82,9 @@ set(ELEMENTS_APP_SOURCES
   reverb.cpp
   ../libs/MTS-ESP/Client/libMTSClient.cpp
 )
-# set(ELEMENTS_APP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
-# set(ELEMENTS_APP_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/resources/space.jpg)
+if(APPLE)
+    list(APPEND ELEMENTS_APP_SOURCES gui_mac.m)
+endif()
 
 # For your custom application icon on macOS or Windows see cmake/AppIcon.cmake module
 include(AppIcon)
@@ -99,6 +100,14 @@ target_include_directories(
 
 if(UNIX AND NOT APPLE)
   target_link_libraries(${ELEMENTS_APP_PROJECT} PUBLIC X11)
+endif()
+
+if(APPLE)
+    target_compile_options(
+        ${ELEMENTS_APP_PROJECT}
+        PRIVATE
+        "-fno-objc-arc"
+    )
 endif()
 
 set_target_properties(${ELEMENTS_APP_PROJECT} PROPERTIES SUFFIX ".clap" PREFIX "")
