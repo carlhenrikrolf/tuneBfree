@@ -725,8 +725,7 @@ auto leslie_controls(float *mainParameters)
 
 void GUISetup(MyPlugin *plugin)
 {
-    plugin->gui->view->content(ce::vmin_size(
-        GUI_HEIGHT,
+    plugin->gui->view->content(ce::align_center_middle(
         ce::margin(
             {5, 5, 5, 5},
             ce::htile(
