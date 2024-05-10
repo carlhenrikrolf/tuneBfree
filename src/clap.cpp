@@ -724,8 +724,8 @@ auto leslie_controls(float *mainParameters)
 
 void GUISetup(MyPlugin *plugin)
 {
-    plugin->gui->view->content(ce::align_center_middle(ce::margin(
-        {5, 5, 5, 5},
+    plugin->gui->view->content(ce::align_center_middle(ce::pane(
+        "tuneBfree",
         ce::htile(
             ce::margin({5, 5, 2.5, 5}, drawbar_controls(plugin->mainParameters)),
             ce::vtile(ce::margin({2.5, 5, 2.5, 2.5}, percussion_controls(plugin->mainParameters)),
