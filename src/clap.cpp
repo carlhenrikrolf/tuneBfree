@@ -514,8 +514,8 @@ static const clap_plugin_state_t extensionState = {
 #ifdef CLAP_GUI
 #include "gui_plumbing.cpp"
 
-constexpr auto bred = ce::colors::red.opacity(0.4);
-constexpr auto bblue = ce::colors::blue.opacity(0.4);
+constexpr auto bred = ce::colors::red.opacity(0.1);
+constexpr auto bblue = ce::colors::light_blue.opacity(0.1);
 
 auto vibrato_controls(float *mainParameters)
 {
