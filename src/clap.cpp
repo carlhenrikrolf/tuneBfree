@@ -44,8 +44,8 @@ namespace ce = cycfi::elements;
 #define P_COUNT (20)
 
 // GUI size.
-#define GUI_WIDTH (650)
-#define GUI_HEIGHT (600)
+#define GUI_WIDTH (800)
+#define GUI_HEIGHT (650)
 
 struct ParamMsg
 {
@@ -526,7 +526,7 @@ auto vibrato_controls(float *mainParameters)
         toAudioQ.try_enqueue({P_VIBRATO, (double)down});
     };
 
-    auto type = ce::dial(ce::basic_knob<25>());
+    auto type = ce::dial(ce::basic_knob<50>());
     float scale = 5.99f;
     type.value(mainParameters[P_VIBRATO_TYPE] / scale);
     type.on_change = [mainParameters, scale](double val) {
@@ -535,11 +535,9 @@ auto vibrato_controls(float *mainParameters)
         toAudioQ.try_enqueue({P_VIBRATO_TYPE, v});
     };
 
-    return ce::pane(
-        "Vibrato",
-        ce::htile(ce::align_center(ce::margin({5, 5, 5, 5}, ce::max_size({70, 30}, onOff))),
-                  ce::align_center(ce::vmargin(
-                      {5, 5}, ce::vtile(ce::vmargin({10, 20}, type), ce::label{"Type     "})))));
+    return ce::pane("Vibrato", ce::htile(ce::align_center_middle(ce::fixed_size({50, 50}, onOff)),
+                                         ce::align_center(ce::vtile(ce::margin({5, 5, 5, 5}, type),
+                                                                    ce::label{"Type"}))));
 }
 
 auto percussion_controls(float *mainParameters)
@@ -572,27 +570,29 @@ auto percussion_controls(float *mainParameters)
         toAudioQ.try_enqueue({P_PERCUSSION_HARMONIC, (double)down});
     };
 
+    float m = 2.0;
     return ce::pane(
         "Percussion",
-        ce::vmargin(
-            {2, 2},
-            ce::vtile(ce::htile(ce::align_center(ce::margin({7, 7, 3.5, 3.5}, onOff)),
-                                ce::align_center(ce::margin({3.5, 7, 7, 3.5}, volume))),
-                      ce::htile(ce::align_center(ce::margin({7, 3.5, 3.5, 7}, decay)),
-                                ce::align_center(ce::margin({3.5, 3.5, 7, 7}, harmonic))))));
+        ce::vtile(ce::htile(ce::margin({m, m, m, m}, ce::fixed_size({100, 50}, onOff)),
+                            ce::margin({m, m, m, m}, ce::fixed_size({100, 50}, volume))),
+                  ce::htile(ce::margin({m, m, m, m}, ce::fixed_size({100, 50}, decay)),
+                            ce::margin({m, m, m, m}, ce::fixed_size({100, 50}, harmonic)))));
 }
 
 auto drawbar_controls(float *mainParameters)
 {
-    auto slider0 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider1 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider2 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider3 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider4 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider5 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider6 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider7 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
-    auto slider8 = ce::slider(ce::basic_thumb<25>(), ce::basic_track<5, true>());
+    auto track = ce::basic_track<5, true>();
+    auto marks = ce::slider_marks_lin<40, 8>(track);
+
+    auto slider0 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider1 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider2 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider3 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider4 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider5 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider6 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider7 = ce::slider(ce::basic_thumb<25>(), marks);
+    auto slider8 = ce::slider(ce::basic_thumb<25>(), marks);
     float scale = 8.0f;
     slider0.value(mainParameters[0] / scale);
     slider0.on_change = [mainParameters, scale](double val) {
@@ -648,13 +648,18 @@ auto drawbar_controls(float *mainParameters)
         mainParameters[8] = v;
         toAudioQ.try_enqueue({8, v});
     };
-    return ce::pane(
-        "Drawbars",
-        ce::htile(ce::vtile(slider0, ce::label{"1/2"}), ce::vtile(slider1, ce::label{"3/2"}),
-                  ce::vtile(slider2, ce::label{"1"}), ce::vtile(slider3, ce::label{"2"}),
-                  ce::vtile(slider4, ce::label{"3"}), ce::vtile(slider5, ce::label{"4"}),
-                  ce::vtile(slider6, ce::label{"5"}), ce::vtile(slider7, ce::label{"6"}),
-                  ce::vtile(slider8, ce::label{"8"})));
+    float m = 5.0;
+    return ce::pane("Drawbars",
+                    ce::margin({10, 10, 10, 10},
+                               ce::htile(ce::hmargin(m, ce::vtile(slider0, ce::label{"1/2"})),
+                                         ce::hmargin(m, ce::vtile(slider1, ce::label{"3/2"})),
+                                         ce::hmargin(m, ce::vtile(slider2, ce::label{"1"})),
+                                         ce::hmargin(m, ce::vtile(slider3, ce::label{"2"})),
+                                         ce::hmargin(m, ce::vtile(slider4, ce::label{"3"})),
+                                         ce::hmargin(m, ce::vtile(slider5, ce::label{"4"})),
+                                         ce::hmargin(m, ce::vtile(slider6, ce::label{"5"})),
+                                         ce::hmargin(m, ce::vtile(slider7, ce::label{"6"})),
+                                         ce::hmargin(m, ce::vtile(slider8, ce::label{"8"})))));
 }
 
 auto overdrive_controls(float *mainParameters)
@@ -666,39 +671,38 @@ auto overdrive_controls(float *mainParameters)
         toAudioQ.try_enqueue({P_OVERDRIVE, (double)down});
     };
 
-    auto character = ce::dial(ce::basic_knob<25>());
+    // auto character = ce::dial(ce::radial_marks<20>(ce::basic_knob<25>()));
+    auto character = ce::dial(ce::basic_knob<50>());
     character.value(mainParameters[P_CHARACTER]);
     character.on_change = [mainParameters](double val) {
         mainParameters[P_CHARACTER] = val;
         toAudioQ.try_enqueue({P_CHARACTER, val});
     };
 
-    return ce::pane(
-        "Overdrive",
-        ce::htile(
-            ce::align_center(ce::margin({5, 5, 5, 5}, ce::max_size({70, 30}, onOff))),
-            ce::align_center(ce::margin({5, 5, 5, 5}, ce::vtile(ce::vmargin({10, 20}, character),
-                                                                ce::label{"Character"})))));
+    return ce::pane("Overdrive",
+                    ce::htile(ce::align_center_middle(ce::fixed_size({50, 50}, onOff)),
+                              ce::align_center(ce::vtile(ce::margin({5, 5, 5, 5}, character),
+                                                         ce::label{"Character"}))));
 }
 
 auto reverb_controls(float *mainParameters)
 {
-    auto wetDry = ce::dial(ce::basic_knob<25>());
+    auto wetDry = ce::dial(ce::basic_knob<50>());
     wetDry.value(mainParameters[P_REVERB]);
     wetDry.on_change = [mainParameters](double val) {
         mainParameters[P_REVERB] = val;
         toAudioQ.try_enqueue({P_REVERB, val});
     };
-    return ce::pane("Reverb",
-                    ce::align_center(ce::vmargin(
-                        {5, 5}, ce::vtile(ce::vmargin({10, 20}, wetDry), ce::label{"Wet/dry"}))));
+    return ce::pane("Reverb", ce::align_center(ce::margin(
+                                  {5, 5, 5, 5}, ce::vtile(ce::margin({5, 5, 5, 5}, wetDry),
+                                                          ce::label{"Wet/dry"}))));
 }
 
 auto leslie_controls(float *mainParameters)
 {
     float scale = 2.99f;
 
-    auto drum = ce::dial(ce::basic_knob<25>());
+    auto drum = ce::dial(ce::basic_knob<50>());
     drum.value(mainParameters[P_DRUM] / scale);
     drum.on_change = [scale, mainParameters](double val) {
         double v = scale * val;
@@ -706,7 +710,7 @@ auto leslie_controls(float *mainParameters)
         toAudioQ.try_enqueue({P_DRUM, v});
     };
 
-    auto horn = ce::dial(ce::basic_knob<25>());
+    auto horn = ce::dial(ce::basic_knob<50>());
     horn.value(mainParameters[P_HORN] / scale);
     horn.on_change = [scale, mainParameters](double val) {
         double v = scale * val;
@@ -716,23 +720,22 @@ auto leslie_controls(float *mainParameters)
 
     return ce::pane(
         "Leslie",
-        ce::htile(ce::align_center(ce::margin(
-                      {5, 5, 5, 10}, ce::vtile(ce::vmargin({10, 10}, drum), ce::label{"Drum"}))),
-                  ce::align_center(ce::margin(
-                      {5, 5, 5, 5}, ce::vtile(ce::vmargin({10, 10}, horn), ce::label{"Horn"})))));
+        ce::align_center(ce::htile(
+            ce::align_center(ce::vtile(ce::margin({5, 5, 5, 5}, drum), ce::label{"Drum"})),
+            ce::align_center(ce::vtile(ce::margin({5, 5, 5, 5}, horn), ce::label{"Horn"})))));
 }
 
 void GUISetup(MyPlugin *plugin)
 {
+    float m = 5.0;
     plugin->gui->view->content(ce::align_center_middle(ce::pane(
-        "tuneBfree",
-        ce::htile(
-            ce::margin({5, 5, 2.5, 5}, drawbar_controls(plugin->mainParameters)),
-            ce::vtile(ce::margin({2.5, 5, 2.5, 2.5}, percussion_controls(plugin->mainParameters)),
-                      ce::margin({2.5, 2.5, 2.5, 5}, vibrato_controls(plugin->mainParameters)),
-                      ce::margin({2.5, 2.5, 2.5, 2.5}, overdrive_controls(plugin->mainParameters)),
-                      ce::margin({2.5, 2.5, 2.5, 2.5}, reverb_controls(plugin->mainParameters)),
-                      ce::margin({2.5, 2.5, 2.5, 5}, leslie_controls(plugin->mainParameters)))))));
+        ce::label("tuneBfree").font_size(18),
+        ce::htile(ce::margin({m, m, m, m}, drawbar_controls(plugin->mainParameters)),
+                  ce::vtile(ce::margin({m, m, m, m}, percussion_controls(plugin->mainParameters)),
+                            ce::margin({m, m, m, m}, vibrato_controls(plugin->mainParameters)),
+                            ce::margin({m, m, m, m}, overdrive_controls(plugin->mainParameters)),
+                            ce::margin({m, m, m, m}, reverb_controls(plugin->mainParameters)),
+                            ce::margin({m, m, m, m}, leslie_controls(plugin->mainParameters)))))));
 
 #if defined(_WIN32)
     plugin->gui->window = plugin->gui->view->host();
