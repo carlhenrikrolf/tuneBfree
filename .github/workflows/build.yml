@@ -73,6 +73,10 @@ jobs:
             codesign --force -s "${{ secrets.DEVELOPER_ID_APPLICATION}}" -v build/tuneBfree.clap --deep --strict --timestamp
             cp build/tuneBfree.clap ../build/tuneBfreeGUI.clap
             cd ..
+            cp build/tuneBfree.clap .
+            cp build/tuneBfreeGUI.clap .
+            zip build.zip tuneBfree.clap tuneBfreeGUI.clap
+            xcrun notarytool submit build.zip --apple-id ${{ secrets.NOTARIZATION_USERNAME }} --team-id ${{ secrets.TEAM_ID }} --password ${{ secrets.NOTARIZATION_PASSWORD }} --wait
             ls build
             ls build/tuneBfree.lv2
       - name: Test
