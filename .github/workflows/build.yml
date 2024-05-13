@@ -14,23 +14,27 @@ jobs:
             sudo apt-get update
             sudo apt-get upgrade -y
             sudo apt-get install -y git make libjack-dev libopengl-dev libftgl-dev libglu1-mesa-dev libwebp-dev xxd g++
+            OUTPUT_DIR=tuneBfree_$(date +%Y%m%d)_$(git rev-parse --short HEAD)_linux
+            echo output_dir=$OUTPUT_DIR >> $GITHUB_ENV
+            mkdir $OUTPUT_DIR
             make
+            cp -r build/* $OUTPUT_DIR
             cd src
             cmake -B build
             cmake --build build
-            cp build/tuneBfree.clap ../build
+            cp build/tuneBfree.clap ../$OUTPUT_DIR
             rm -r build
             cmake -B build -D CLAP_GUI=TRUE
             cmake --build build
-            cp build/tuneBfree.clap ../build/tuneBfreeGUI.clap
+            cp build/tuneBfree.clap ../$OUTPUT_DIR/tuneBfreeGUI.clap
             cd ..
             cd libs/clap-wrapper
             cmake -B build -DCLAP_WRAPPER_OUTPUT_NAME=tuneBfree -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=TRUE
             cmake --build build
-            cp -r build/Release/tuneBfree.vst3/ ../../build
+            cp -r build/Release/tuneBfree.vst3/ ../../$OUTPUT_DIR
             cd ../..
-            ls build
-            ls build/tuneBfree.lv2
+            ls $OUTPUT_DIR
+            ls $OUTPUT_DIR/tuneBfree.lv2
       - name: Test
         run: |
             git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
@@ -44,8 +48,8 @@ jobs:
             pytest -k 'not regression' tests
       - uses: actions/upload-artifact@v4
         with:
-            name: build_linux
-            path: build
+            name: ${{ env.output_dir }}
+            path: ${{ env.output_dir }}
   build_mac:
     runs-on: macos-14
     steps:
@@ -61,24 +65,28 @@ jobs:
       - name: Build
         run: |
             brew install jack freeglut ftgl bzip2 pkg-config webp
+            OUTPUT_DIR=tuneBfree_$(date +%Y%m%d)_$(git rev-parse --short HEAD)_mac
+            echo output_dir=$OUTPUT_DIR >> $GITHUB_ENV
+            mkdir $OUTPUT_DIR
             make
+            cp -R build/* $OUTPUT_DIR
             cd src
             cmake -B build
             cmake --build build
             codesign --force -s "${{ secrets.DEVELOPER_ID_APPLICATION}}" -v build/tuneBfree.clap --deep --strict --timestamp
-            cp build/tuneBfree.clap ../build
+            cp build/tuneBfree.clap ../$OUTPUT_DIR
             rm -r build
             cmake -B build -D CLAP_GUI=TRUE
             cmake --build build
             codesign --force -s "${{ secrets.DEVELOPER_ID_APPLICATION}}" -v build/tuneBfree.clap --deep --strict --timestamp
-            cp build/tuneBfree.clap ../build/tuneBfreeGUI.clap
+            cp build/tuneBfree.clap ../$OUTPUT_DIR/tuneBfreeGUI.clap
             cd ..
-            cp build/tuneBfree.clap .
-            cp build/tuneBfreeGUI.clap .
-            zip build.zip tuneBfree.clap tuneBfreeGUI.clap
-            xcrun notarytool submit build.zip --apple-id ${{ secrets.NOTARIZATION_USERNAME }} --team-id ${{ secrets.TEAM_ID }} --password ${{ secrets.NOTARIZATION_PASSWORD }} --wait
-            ls build
-            ls build/tuneBfree.lv2
+            cp $OUTPUT_DIR/tuneBfree.clap .
+            cp $OUTPUT_DIR/tuneBfreeGUI.clap .
+            zip $OUTPUT_DIR.zip tuneBfree.clap tuneBfreeGUI.clap
+            xcrun notarytool submit $OUTPUT_DIR.zip --apple-id ${{ secrets.NOTARIZATION_USERNAME }} --team-id ${{ secrets.TEAM_ID }} --password ${{ secrets.NOTARIZATION_PASSWORD }} --wait
+            ls $OUTPUT_DIR
+            ls $OUTPUT_DIR/tuneBfree.lv2
       - name: Test
         run: |
             git clone https://github.com/ODDSound/MTS-ESP.git ~/MTS-ESP
@@ -92,8 +100,8 @@ jobs:
             pytest -k 'not regression' tests
       - uses: actions/upload-artifact@v4
         with:
-            name: build_mac
-            path: build
+            name: ${{ env.output_dir }}
+            path: ${{ env.output_dir }}
   build_windows:
     runs-on: windows-latest
     defaults:
@@ -120,8 +128,11 @@ jobs:
       - name: Build
         run: |
           make
-          ls build
-          ls build/tuneBfree.lv2
+          OUTPUT_DIR=tuneBfree_$(date +%Y%m%d)_$(git rev-parse --short HEAD)_windows
+          echo output_dir=$OUTPUT_DIR >> $GITHUB_ENV
+          cp -r build $OUTPUT_DIR
+          ls $OUTPUT_DIR
+          ls $OUTPUT_DIR/tuneBfree.lv2
       - name: Test
         run: |
             git clone https://github.com/narenratan/libjack64_dll.git ~/libjack64_dll
@@ -132,8 +143,8 @@ jobs:
             pytest tests/test_basic.py
       - uses: actions/upload-artifact@v4
         with:
-            name: build_windows
-            path: build
+            name: ${{ env.output_dir }}
+            path: ${{ env.output_dir }}
   build_windows_clap:
     runs-on: windows-latest
     steps:
@@ -145,19 +156,21 @@ jobs:
         run: |
           ./libs/vcpkg/bootstrap-vcpkg.bat
           ./libs/vcpkg/vcpkg.exe install pkgconf:x64-windows-static cairo:x64-windows-static libwebp:x64-windows-static
-          mkdir build
+          $OUTPUT_DIR = "tuneBfree_$(date +%Y%m%d)_$(git rev-parse --short HEAD)_windows_clap"
+          echo output_dir=$OUTPUT_DIR >> $env:GITHUB_ENV
+          mkdir $OUTPUT_DIR
           cd src
           cmake -B build
           cmake --build build --config Release
-          cp build/Release/tuneBfree.clap ../build
+          cp build/Release/tuneBfree.clap ../$OUTPUT_DIR
           rm -r build
           cmake -B build -D CLAP_GUI=TRUE
           cmake --build build --config Release
-          cp build/Release/tuneBfree.clap ../build/tuneBfreeGUI.clap
+          cp build/Release/tuneBfree.clap ../$OUTPUT_DIR/tuneBfreeGUI.clap
       - uses: actions/upload-artifact@v4
         with:
-            name: build_windows_clap
-            path: build
+            name: ${{ env.output_dir }}
+            path: ${{ env.output_dir }}
   formatting_checks:
     runs-on: ubuntu-20.04
     steps:
