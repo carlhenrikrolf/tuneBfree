@@ -127,6 +127,7 @@ uninstall:
 
 tests: tuning.h tuning.cpp tonegen.h tonegen.cpp midi.h midi.cpp
 	clang++ \
+	-std=c++11 \
 	-g \
 	-Wall \
 	-fsanitize=address,undefined \

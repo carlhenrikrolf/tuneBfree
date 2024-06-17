@@ -514,7 +514,7 @@ static void initAll()
 
     fprintf(stderr, "Oscillators : ");
     fflush(stderr);
-    initToneGenerator(inst.synth, inst.midicfg);
+    initToneGenerator(inst.synth, inst.midicfg, nullptr);
 
     fprintf(stderr, "Scanner : ");
     fflush(stderr);

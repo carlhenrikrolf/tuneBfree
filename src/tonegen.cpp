@@ -749,7 +749,6 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 	}
 #endif
 
-    double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
     double oscFrequency[NOF_WHEELS + 1];
     for (int i = 1; i <= NOF_WHEELS; i++)
     {
@@ -778,7 +777,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                 for (terminalNumber = 1; terminalNumber <= NOF_WHEELS; terminalNumber++)
                 { /* For each possible terminal */
                     ratio = oscFrequency[terminalNumber] / t->frequency[k];
-                    centDiff = 1200 * std::fabs(std::log2(targetRatio[b] / ratio));
+                    centDiff = 1200 * std::fabs(std::log2(t->targetRatio[b] / ratio));
                     if (centDiff < smallestCentDiff)
                     {
                         smallestCentDiff = centDiff;
@@ -2906,7 +2905,7 @@ static void setSwellPedal2FromMIDI(void *d, unsigned char u)
  * configuration files have already been read, so parameters should already
  * be set.
  */
-void initToneGenerator(struct b_tonegen *t, void *m)
+void initToneGenerator(struct b_tonegen *t, void *m, double *targetRatio)
 {
     int i;
 
@@ -2957,6 +2956,16 @@ void initToneGenerator(struct b_tonegen *t, void *m)
     }
 
     getFrequencies(t->frequency, NOF_FREQS);
+
+    double defaultTargetRatio[NOF_DRAWBARS] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
+    if (targetRatio == nullptr)
+    {
+        targetRatio = defaultTargetRatio;
+    }
+    for (i = 0; i < NOF_DRAWBARS; i++)
+    {
+        t->targetRatio[i] = targetRatio[i];
+    }
 
     applyDefaultConfiguration(t);
 
@@ -4019,7 +4028,7 @@ TEST_CASE("Testing getOscillatorFrequency")
 {
     struct b_tonegen *t = allocTonegen();
     void *m = nullptr;
-    initToneGenerator(t, m);
+    initToneGenerator(t, m, nullptr);
     double a = 32.70319566257483;
     double b = 5919.91076338615039;
     CHECK(getOscillatorFrequency(t, 1) == a);
@@ -4030,10 +4039,18 @@ TEST_CASE("Testing getOscillatorFrequency")
 }
 */
 
+#define _SETUP_TARGET_RATIO                                                                        \
+    double defaultTargetRatio[NOF_DRAWBARS] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};                     \
+    for (int i = 0; i < NOF_DRAWBARS; i++)                                                         \
+    {                                                                                              \
+        t->targetRatio[i] = defaultTargetRatio[i];                                                 \
+    }
+
 TEST_CASE("Testing applyManualDefaults")
 {
     struct b_tonegen *t = allocTonegen();
     getFrequencies(t->frequency, NOF_FREQS);
+    _SETUP_TARGET_RATIO
 
     // Lower manual
     applyManualDefaults(t, 128, 9);
@@ -4079,6 +4096,7 @@ TEST_CASE("Testing applyDefaultCrosstalk")
 {
     struct b_tonegen *t = allocTonegen();
     getFrequencies(t->frequency, NOF_FREQS);
+    _SETUP_TARGET_RATIO
     applyManualDefaults(t, 0, 0);
     applyDefaultCrosstalk(t, 0, 0);
     CHECK(t->keyCrosstalk[0 + 36]->u.ssf.sa == 20 + 24);
@@ -4112,6 +4130,7 @@ TEST_CASE("Testing applyDefaultConfiguration")
 {
     struct b_tonegen *t = allocTonegen();
     getFrequencies(t->frequency, NOF_FREQS);
+    _SETUP_TARGET_RATIO
     applyDefaultConfiguration(t);
     CHECK(t->terminalMix[1]->u.ssf.sa == 1);
     CHECK(t->terminalMix[1]->u.ssf.fc == 0.9900000095367432);
@@ -4132,6 +4151,7 @@ TEST_CASE("Testing cpmInsert")
     int endRow = 0;
 
     getFrequencies(t->frequency, NOF_FREQS);
+    _SETUP_TARGET_RATIO
     applyDefaultConfiguration(t);
     cpmInsert(t, t->keyTaper[0], cpmBus, cpmGain, wheelNumber, rowLength, &endRow);
 
@@ -4204,7 +4224,7 @@ TEST_CASE("Testing initToneGenerator")
 {
     struct b_tonegen *t = allocTonegen();
     void *m = nullptr;
-    initToneGenerator(t, m);
+    initToneGenerator(t, m, nullptr);
     freeToneGenerator(t);
 }
 */

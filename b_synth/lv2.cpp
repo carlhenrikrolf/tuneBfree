@@ -167,7 +167,7 @@ void initSynth(struct b_instance *inst, double rate)
     unsigned int defaultPreset[9] = {8, 8, 6, 0, 0, 0, 0, 0, 0};
 
     /* initAll() */
-    initToneGenerator(inst->synth, inst->midicfg);
+    initToneGenerator(inst->synth, inst->midicfg, nullptr);
     initVibrato(inst->synth, inst->midicfg);
     initPreamp(inst->preamp, inst->midicfg, rate);
     initReverb(inst->reverb, inst->midicfg, rate);

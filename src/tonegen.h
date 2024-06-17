@@ -48,6 +48,8 @@
 
 #define NOF_BUSES 27 /* Nof of drawbars/buses */
 
+#define NOF_DRAWBARS 9 /* Number of drawbars in the UI */
+
 #define BUFFER_SIZE_SAMPLES 128
 
 /**
@@ -243,8 +245,8 @@ struct b_tonegen {
 
 	/* Attack and release buffer envelopes for 9 buses. */
 
-	float attackEnv[9][BUFFER_SIZE_SAMPLES];  /**< Attack envelope buffer for 9 buses */
-	float releaseEnv[9][BUFFER_SIZE_SAMPLES]; /**< Release envelope buffer for 9 buses */
+	float attackEnv[NOF_DRAWBARS][BUFFER_SIZE_SAMPLES];  /**< Attack envelope buffer for 9 buses */
+	float releaseEnv[NOF_DRAWBARS][BUFFER_SIZE_SAMPLES]; /**< Release envelope buffer for 9 buses */
 
 	int   envAttackModel;
 	int   envReleaseModel;
@@ -316,7 +318,7 @@ struct b_tonegen {
  * for all drawbars and settings. When a drawbar change is applied, the
  * appropriate value is copied from the table and installed in drawBarGain[].
  */
-	float drawBarLevel[NOF_BUSES][9];
+	float drawBarLevel[NOF_BUSES][NOF_DRAWBARS];
 
 	/**
  * The drawBarChange flag is set by the routine that effectuates a drawbar
@@ -551,6 +553,11 @@ struct b_tonegen {
  * Frequencies pulled with MTS-ESP
  */
     double frequency[NOF_FREQS];
+
+/*
+ * Target ratios for each drawbar
+ */
+    double targetRatio[NOF_DRAWBARS];
 };
 
 extern void setToneGeneratorModel (struct b_tonegen* t, int variant);
@@ -576,7 +583,7 @@ extern void setKeyClick (struct b_tonegen* t, int v);
 extern int oscConfig (struct b_tonegen* t, ConfigContext* cfg);
 extern const ConfigDoc* oscDoc ();
 #endif
-extern void initToneGenerator (struct b_tonegen* t, void* m);
+extern void initToneGenerator (struct b_tonegen* t, void* m, double *targetRatio);
 extern void freeToneGenerator (struct b_tonegen* t);
 
 extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);

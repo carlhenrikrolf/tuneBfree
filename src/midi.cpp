@@ -1843,7 +1843,7 @@ TEST_CASE("Testing middle C")
     inst.midicfg = allocMidiCfg(nullptr);
     initMidiTables(inst.midicfg);
     inst.synth = allocTonegen();
-    initToneGenerator(inst.synth, inst.midicfg);
+    initToneGenerator(inst.synth, inst.midicfg, nullptr);
 
     int midiNote = 60;
     int key = 60;

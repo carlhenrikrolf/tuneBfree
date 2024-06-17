@@ -41,11 +41,35 @@ namespace ce = cycfi::elements;
 #define P_PERCUSSION_VOLUME (17)
 #define P_PERCUSSION_DECAY (18)
 #define P_PERCUSSION_HARMONIC (19)
-#define P_COUNT (20)
+#define P_RATIO_TOP_MIN (20)
+#define P_RATIO_TOP_MAX (28)
+#define P_RATIO_BOTTOM_MIN (29)
+#define P_RATIO_BOTTOM_MAX (37)
+#define P_COUNT (38)
 
 // GUI size.
 #define GUI_WIDTH (800)
 #define GUI_HEIGHT (650)
+
+#define ON_TEXT(i)                                                                                 \
+    [mainParameters](std::string_view text) -> bool {                                              \
+        double top = 1.0, bottom = 1.0;                                                            \
+        try                                                                                        \
+        {                                                                                          \
+            parse_ratio(std::string(text), &top, &bottom);                                         \
+        }                                                                                          \
+        catch (std::exception &)                                                                   \
+        {                                                                                          \
+            return true;                                                                           \
+        }                                                                                          \
+        uint32_t top_index = P_RATIO_TOP_MIN + i;                                                  \
+        uint32_t bottom_index = P_RATIO_BOTTOM_MIN + i;                                            \
+        mainParameters[top_index] = top;                                                           \
+        toAudioQ.try_enqueue({top_index, top});                                                    \
+        mainParameters[bottom_index] = bottom;                                                     \
+        toAudioQ.try_enqueue({bottom_index, bottom});                                              \
+        return true;                                                                               \
+    }
 
 struct ParamMsg
 {
@@ -61,7 +85,7 @@ struct MyPlugin
     clap_plugin_t plugin;
     const clap_host_t *host;
     float sampleRate;
-    float parameters[P_COUNT], mainParameters[P_COUNT];
+    double parameters[P_COUNT], mainParameters[P_COUNT];
     struct b_tonegen *synth;
     struct b_preamp *preamp;
     struct b_reverb *reverb;
@@ -74,27 +98,71 @@ struct MyPlugin
     float bufL[2][BUFFER_SIZE_SAMPLES]; // leslie, out
     MTSClient *client;
     double previousFrequency[128];
+    double previousRatio[NOF_DRAWBARS];
 #ifdef CLAP_GUI
     struct GUI *gui;
     const clap_host_posix_fd_support_t *hostPOSIXFDSupport;
 #endif
 };
 
-void setParam(MyPlugin *plugin, uint32_t index, float value)
+void setToneGenParam(b_tonegen *synth, uint32_t index, float value)
 {
     if ((P_DRAWBAR_MIN <= index) && (index <= P_DRAWBAR_MAX))
     {
-        setDrawBar(plugin->synth, index, rint(value));
+        setDrawBar(synth, index, rint(value));
     }
     else if (index == P_VIBRATO)
     {
-        setVibratoUpper(plugin->synth, rint(value));
+        setVibratoUpper(synth, rint(value));
     }
     else if (index == P_VIBRATO_TYPE)
     {
-        setVibratoFromInt(plugin->synth, floor(value));
+        setVibratoFromInt(synth, floor(value));
     }
-    else if ((index == P_DRUM) || (index == P_HORN))
+}
+
+double getRatio(double *parameters, int i)
+{
+    return *(parameters + P_RATIO_TOP_MIN + i) / *(parameters + P_RATIO_BOTTOM_MIN + i);
+}
+
+void reinitToneGen(MyPlugin *plugin)
+{
+#ifdef DEBUG_PRINT
+    fprintf(stderr, "reinitToneGen\n");
+#endif
+    unsigned int newRouting = plugin->synth->newRouting;
+    freeToneGenerator(plugin->synth);
+    plugin->synth = allocTonegen();
+    double targetRatio[NOF_DRAWBARS] = {0.0};
+    for (int i = 0; i < NOF_DRAWBARS; i++)
+    {
+        targetRatio[i] = getRatio(plugin->parameters, i);
+    }
+#ifdef DEBUG_PRINT
+    for (int i = 0; i <= 8; i++)
+    {
+        fprintf(stderr, "\ttargetRatio %d %f\n", i, targetRatio[i]);
+    };
+#endif
+    initToneGenerator(plugin->synth, nullptr, targetRatio);
+    init_vibrato(&(plugin->synth->inst_vibrato));
+    // Restore tonegen parameters after reinitializing tonegen
+    for (int i = 0; i < P_COUNT; i++)
+    {
+        if (((P_DRAWBAR_MIN <= i) && (i <= P_DRAWBAR_MAX)) || (i == P_VIBRATO) ||
+            (i == P_VIBRATO_TYPE))
+        {
+            setToneGenParam(plugin->synth, i, plugin->parameters[i]);
+        }
+    }
+    plugin->synth->newRouting = newRouting;
+}
+
+void setParam(MyPlugin *plugin, uint32_t index, float value)
+{
+    setToneGenParam(plugin->synth, index, value);
+    if ((index == P_DRUM) || (index == P_HORN))
     {
         useRevOption(
             plugin->whirl,
@@ -127,6 +195,14 @@ void setParam(MyPlugin *plugin, uint32_t index, float value)
     else if (index == P_PERCUSSION_HARMONIC)
     {
         setPercussionFirst(plugin->synth, rint(value));
+    }
+    else if ((P_RATIO_TOP_MIN <= index) && (index <= P_RATIO_TOP_MAX))
+    {
+        plugin->synth->targetRatio[index - P_RATIO_TOP_MIN] = value;
+    }
+    else if ((P_RATIO_BOTTOM_MIN <= index) && (index <= P_RATIO_BOTTOM_MAX))
+    {
+        plugin->synth->targetRatio[index - P_RATIO_BOTTOM_MIN] = value;
     }
 }
 
@@ -315,7 +391,7 @@ static const clap_plugin_params_t extensionParams = {
             information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
             information->min_value = 0.0f;
             information->max_value = 8.0f;
-            float default_drawbar_value[9] = {7.0, 8.0, 8.0, 0.0};
+            float default_drawbar_value[NOF_DRAWBARS] = {7.0, 8.0, 8.0, 0.0};
             information->default_value = default_drawbar_value[index];
             strcpy(information->name, ("Drawbar " + std::to_string(index)).c_str());
             return true;
@@ -441,6 +517,30 @@ static const clap_plugin_params_t extensionParams = {
             strcpy(information->name, "Percussion 2nd/3rd");
             return true;
         }
+        else if ((P_RATIO_TOP_MIN <= index) && (index <= P_RATIO_TOP_MAX))
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1000.0f;
+            float default_ratio_top[NOF_DRAWBARS] = {1, 3, 1, 2, 3, 4, 5, 6, 8};
+            information->default_value = default_ratio_top[index - P_RATIO_TOP_MIN];
+            strcpy(information->name, ("Ratio top " + std::to_string(index)).c_str());
+            return true;
+        }
+        else if ((P_RATIO_BOTTOM_MIN <= index) && (index <= P_RATIO_BOTTOM_MAX))
+        {
+            memset(information, 0, sizeof(clap_param_info_t));
+            information->id = index;
+            information->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_MODULATABLE;
+            information->min_value = 0.0f;
+            information->max_value = 1000.0f;
+            float default_ratio_top[NOF_DRAWBARS] = {2, 2, 1, 1, 1, 1, 1, 1, 1};
+            information->default_value = default_ratio_top[index - P_RATIO_BOTTOM_MIN];
+            strcpy(information->name, ("Ratio bottom " + std::to_string(index)).c_str());
+            return true;
+        }
         else
         {
             return false;
@@ -489,14 +589,14 @@ static const clap_plugin_state_t extensionState = {
     .save = [](const clap_plugin_t *_plugin, const clap_ostream_t *stream) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
         PluginSyncAudioToMain(plugin);
-        return sizeof(float) * P_COUNT ==
-               stream->write(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
+        return sizeof(double) * P_COUNT ==
+               stream->write(stream, plugin->mainParameters, sizeof(double) * P_COUNT);
     },
 
     .load = [](const clap_plugin_t *_plugin, const clap_istream_t *stream) -> bool {
         MyPlugin *plugin = (MyPlugin *)_plugin->plugin_data;
-        bool success = sizeof(float) * P_COUNT ==
-                       stream->read(stream, plugin->mainParameters, sizeof(float) * P_COUNT);
+        bool success = sizeof(double) * P_COUNT ==
+                       stream->read(stream, plugin->mainParameters, sizeof(double) * P_COUNT);
         struct ParamMsg p;
         for (uint32_t i = 0; i < P_COUNT; i++)
         {
@@ -517,7 +617,7 @@ static const clap_plugin_state_t extensionState = {
 constexpr auto bred = ce::colors::red.opacity(0.1);
 constexpr auto bblue = ce::colors::light_blue.opacity(0.1);
 
-auto vibrato_controls(float *mainParameters)
+auto vibrato_controls(double *mainParameters)
 {
     auto onOff = ce::toggle_button("On/off", 1.0, bred);
     onOff.value(mainParameters[P_VIBRATO]);
@@ -540,7 +640,7 @@ auto vibrato_controls(float *mainParameters)
                                                                     ce::label{"Type"}))));
 }
 
-auto percussion_controls(float *mainParameters)
+auto percussion_controls(double *mainParameters)
 {
     auto onOff = ce::toggle_button("On/off", 1.0, bred);
     onOff.value(mainParameters[P_PERCUSSION]);
@@ -579,7 +679,47 @@ auto percussion_controls(float *mainParameters)
                             ce::margin({m, m, m, m}, ce::fixed_size({100, 50}, harmonic)))));
 }
 
-auto drawbar_controls(float *mainParameters)
+double check(double x)
+{
+    if (std::isnan(x))
+    {
+        throw std::runtime_error("nan");
+    }
+    if (std::isinf(x))
+    {
+        throw std::runtime_error("inf");
+    }
+    return x;
+}
+
+void parse_ratio(std::string s, double *topOut, double *bottomOut)
+{
+    int slash;
+    slash = s.find('/');
+    if (slash != std::string::npos)
+    {
+        *topOut = std::stoi(s.substr(0, slash));
+        *bottomOut = std::stoi(s.substr(slash + 1));
+    }
+    else
+    {
+        *topOut = std::stof(s);
+        *bottomOut = 1.0;
+    }
+}
+
+std::string ratioString(double *mainParameters, int i)
+{
+    int top = (int)mainParameters[P_RATIO_TOP_MIN + i];
+    int bottom = (int)mainParameters[P_RATIO_BOTTOM_MIN + i];
+    if (bottom == 1)
+    {
+        return std::to_string(top);
+    }
+    return std::to_string(top) + "/" + std::to_string(bottom);
+}
+
+auto drawbar_controls(double *mainParameters)
 {
     auto track = ce::basic_track<5, true>();
     auto marks = ce::slider_marks_lin<40, 8>(track);
@@ -649,20 +789,40 @@ auto drawbar_controls(float *mainParameters)
         toAudioQ.try_enqueue({8, v});
     };
     float m = 5.0;
-    return ce::pane("Drawbars",
-                    ce::margin({10, 10, 10, 10},
-                               ce::htile(ce::hmargin(m, ce::vtile(slider0, ce::label{"1/2"})),
-                                         ce::hmargin(m, ce::vtile(slider1, ce::label{"3/2"})),
-                                         ce::hmargin(m, ce::vtile(slider2, ce::label{"1"})),
-                                         ce::hmargin(m, ce::vtile(slider3, ce::label{"2"})),
-                                         ce::hmargin(m, ce::vtile(slider4, ce::label{"3"})),
-                                         ce::hmargin(m, ce::vtile(slider5, ce::label{"4"})),
-                                         ce::hmargin(m, ce::vtile(slider6, ce::label{"5"})),
-                                         ce::hmargin(m, ce::vtile(slider7, ce::label{"6"})),
-                                         ce::hmargin(m, ce::vtile(slider8, ce::label{"8"})))));
+
+    auto ratio0 = ce::input_box(ratioString(mainParameters, 0));
+    ratio0.second->on_text = ON_TEXT(0);
+    auto ratio1 = ce::input_box(ratioString(mainParameters, 1));
+    ratio1.second->on_text = ON_TEXT(1);
+    auto ratio2 = ce::input_box(ratioString(mainParameters, 2));
+    ratio2.second->on_text = ON_TEXT(2);
+    auto ratio3 = ce::input_box(ratioString(mainParameters, 3));
+    ratio3.second->on_text = ON_TEXT(3);
+    auto ratio4 = ce::input_box(ratioString(mainParameters, 4));
+    ratio4.second->on_text = ON_TEXT(4);
+    auto ratio5 = ce::input_box(ratioString(mainParameters, 5));
+    ratio5.second->on_text = ON_TEXT(5);
+    auto ratio6 = ce::input_box(ratioString(mainParameters, 6));
+    ratio6.second->on_text = ON_TEXT(6);
+    auto ratio7 = ce::input_box(ratioString(mainParameters, 7));
+    ratio7.second->on_text = ON_TEXT(7);
+    auto ratio8 = ce::input_box(ratioString(mainParameters, 8));
+    ratio8.second->on_text = ON_TEXT(8);
+
+    return ce::pane(
+        "Drawbars",
+        ce::margin({10, 10, 10, 10}, ce::htile(ce::hmargin(m, ce::vtile(slider0, ratio0.first)),
+                                               ce::hmargin(m, ce::vtile(slider1, ratio1.first)),
+                                               ce::hmargin(m, ce::vtile(slider2, ratio2.first)),
+                                               ce::hmargin(m, ce::vtile(slider3, ratio3.first)),
+                                               ce::hmargin(m, ce::vtile(slider4, ratio4.first)),
+                                               ce::hmargin(m, ce::vtile(slider5, ratio5.first)),
+                                               ce::hmargin(m, ce::vtile(slider6, ratio6.first)),
+                                               ce::hmargin(m, ce::vtile(slider7, ratio7.first)),
+                                               ce::hmargin(m, ce::vtile(slider8, ratio8.first)))));
 }
 
-auto overdrive_controls(float *mainParameters)
+auto overdrive_controls(double *mainParameters)
 {
     auto onOff = ce::toggle_button("On/off", 1.0, bred);
     onOff.value(mainParameters[P_OVERDRIVE]);
@@ -685,7 +845,7 @@ auto overdrive_controls(float *mainParameters)
                                                          ce::label{"Character"}))));
 }
 
-auto reverb_controls(float *mainParameters)
+auto reverb_controls(double *mainParameters)
 {
     auto wetDry = ce::dial(ce::basic_knob<50>());
     wetDry.value(mainParameters[P_REVERB]);
@@ -698,7 +858,7 @@ auto reverb_controls(float *mainParameters)
                                                           ce::label{"Wet/dry"}))));
 }
 
-auto leslie_controls(float *mainParameters)
+auto leslie_controls(double *mainParameters)
 {
     float scale = 2.99f;
 
@@ -938,7 +1098,8 @@ static const clap_plugin_t pluginClass = {
         plugin->sampleRate = sampleRate;
 
         plugin->synth = allocTonegen();
-        initToneGenerator(plugin->synth, nullptr);
+        double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
+        initToneGenerator(plugin->synth, nullptr, targetRatio);
         init_vibrato(&(plugin->synth->inst_vibrato));
         plugin->whirl = allocWhirl();
         initWhirl(plugin->whirl, nullptr, sampleRate);
@@ -949,6 +1110,7 @@ static const clap_plugin_t pluginClass = {
         initReverb(plugin->reverb, nullptr, sampleRate);
         plugin->client = MTS_RegisterClient();
         double previousFrequency[128];
+        double previousRatio[NOF_DRAWBARS];
         return true;
     },
 
@@ -983,24 +1145,33 @@ static const clap_plugin_t pluginClass = {
 #ifdef DEBUG_PRINT
             fprintf(stderr, "Detected MTS-ESP tuning change\n");
 #endif
-            unsigned int newRouting = plugin->synth->newRouting;
-            freeToneGenerator(plugin->synth);
-            plugin->synth = allocTonegen();
-            initToneGenerator(plugin->synth, nullptr);
-            init_vibrato(&(plugin->synth->inst_vibrato));
-            // Restore tonegen parameters after reinitializing tonegen
-            for (i = 0; i < P_COUNT; i++)
-            {
-                if (((P_DRAWBAR_MIN <= i) && (i <= P_DRAWBAR_MAX)) || (i == P_VIBRATO) ||
-                    (i == P_VIBRATO_TYPE))
-                {
-                    setParam(plugin, i, plugin->parameters[i]);
-                }
-            }
-            plugin->synth->newRouting = newRouting;
+            reinitToneGen(plugin);
             for (i = 0; i < 128; i++)
             {
                 plugin->previousFrequency[i] = newFrequency[i];
+            }
+        }
+
+        bool ratioChanged = false;
+        double newRatio[NOF_DRAWBARS];
+        for (i = 0; i < NOF_DRAWBARS; i++)
+        {
+            newRatio[i] = getRatio(plugin->parameters, i);
+            if (newRatio[i] != plugin->previousRatio[i])
+            {
+                ratioChanged = true;
+            }
+        }
+
+        if (ratioChanged)
+        {
+#ifdef DEBUG_PRINT
+            fprintf(stderr, "Detected drawbar ratio change\n");
+#endif
+            reinitToneGen(plugin);
+            for (i = 0; i < NOF_DRAWBARS; i++)
+            {
+                plugin->previousRatio[i] = newRatio[i];
             }
         }
 
