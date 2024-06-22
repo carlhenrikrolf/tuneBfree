@@ -558,6 +558,8 @@ struct b_tonegen {
  * Target ratios for each drawbar
  */
     double targetRatio[NOF_DRAWBARS];
+
+    double SampleRateD;
 };
 
 extern void setToneGeneratorModel (struct b_tonegen* t, int variant);
@@ -583,7 +585,7 @@ extern void setKeyClick (struct b_tonegen* t, int v);
 extern int oscConfig (struct b_tonegen* t, ConfigContext* cfg);
 extern const ConfigDoc* oscDoc ();
 #endif
-extern void initToneGenerator (struct b_tonegen* t, void* m, double *targetRatio);
+extern void initToneGenerator (struct b_tonegen* t, void* m, double rate, double *targetRatio);
 extern void freeToneGenerator (struct b_tonegen* t);
 
 extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);

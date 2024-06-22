@@ -145,8 +145,8 @@ void reinitToneGen(MyPlugin *plugin)
         fprintf(stderr, "\ttargetRatio %d %f\n", i, targetRatio[i]);
     };
 #endif
-    initToneGenerator(plugin->synth, nullptr, targetRatio);
-    init_vibrato(&(plugin->synth->inst_vibrato));
+    initToneGenerator(plugin->synth, nullptr, plugin->sampleRate, targetRatio);
+    init_vibrato(&(plugin->synth->inst_vibrato), plugin->sampleRate);
     // Restore tonegen parameters after reinitializing tonegen
     for (int i = 0; i < P_COUNT; i++)
     {
@@ -1099,8 +1099,8 @@ static const clap_plugin_t pluginClass = {
 
         plugin->synth = allocTonegen();
         double targetRatio[9] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
-        initToneGenerator(plugin->synth, nullptr, targetRatio);
-        init_vibrato(&(plugin->synth->inst_vibrato));
+        initToneGenerator(plugin->synth, nullptr, sampleRate, targetRatio);
+        init_vibrato(&(plugin->synth->inst_vibrato), sampleRate);
         plugin->whirl = allocWhirl();
         initWhirl(plugin->whirl, nullptr, sampleRate);
         void *preamp = allocPreamp();

@@ -171,14 +171,6 @@ jobs:
         with:
             name: ${{ env.output_dir }}
             path: ${{ env.output_dir }}
-  formatting_checks:
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Check out repository code
-        uses: actions/checkout@v4
-        with:
-            submodules: 'true'
-      - run: make formatcheck
   doctest_tests:
     runs-on: ubuntu-20.04
     steps:

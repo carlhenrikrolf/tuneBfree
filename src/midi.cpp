@@ -1453,6 +1453,8 @@ const ConfigDoc *midiDoc() { return doc; }
 
 #ifdef TESTS
 
+#define TEST_RATE 48000.0
+
 #define UNMAPPED_KEY 255
 
 TEST_CASE("Testing allocMidiCfg")
@@ -1843,7 +1845,7 @@ TEST_CASE("Testing middle C")
     inst.midicfg = allocMidiCfg(nullptr);
     initMidiTables(inst.midicfg);
     inst.synth = allocTonegen();
-    initToneGenerator(inst.synth, inst.midicfg, nullptr);
+    initToneGenerator(inst.synth, inst.midicfg, TEST_RATE, nullptr);
 
     int midiNote = 60;
     int key = 60;

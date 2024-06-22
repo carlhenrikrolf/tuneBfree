@@ -44,12 +44,10 @@
 #include "doctest.h"
 #include "tonegen.h"
 #include "midi.h"
-double SampleRateD = 48000.0;
 #endif
 
 #ifdef CLAP
 #include "tonegen.h"
-double SampleRateD = 48000.0;
 #endif
 
 /* These are assertion support macros. */
@@ -1203,9 +1201,9 @@ static void compilePlayMatrix(struct b_tonegen *t)
                 *P = rep;
 
             } /* for each column */
-        }     /* for each row */
-    }         /* for each key */
-#if 0         /* DEBUG */
+        } /* for each row */
+    } /* for each key */
+#if 0 /* DEBUG */
   for (k = 0; k < MAX_KEYS; k++) {
     if (t->keyContrib[k] != NULL) {
       t->keyContrib[k]->next = NULL;
@@ -1334,7 +1332,7 @@ static int applyOscEQ_peak46(struct b_tonegen *t, int nofOscillators)
  *
  * @return  The number of samples to allocate for the wave.
  */
-static size_t fitWave(double Hz, double precision, int minSamples, int maxSamples)
+static size_t fitWave(double Hz, double precision, int minSamples, int maxSamples, double rate)
 {
     double minErr = 99999.9;
     double minSpn = 0.0;
@@ -1344,17 +1342,17 @@ static size_t fitWave(double Hz, double precision, int minSamples, int maxSample
 
     assert(minSamples < maxSamples);
 
-    minWaves = ceil((Hz * (double)minSamples) / SampleRateD);
-    maxWaves = floor((Hz * (double)maxSamples) / SampleRateD);
+    minWaves = ceil((Hz * (double)minSamples) / rate);
+    maxWaves = floor((Hz * (double)maxSamples) / rate);
 
     assert(minWaves <= maxWaves);
     assert(minWaves > 0);
 
     for (i = minWaves; i <= maxWaves; i++)
     {
-        double nws = (SampleRateD * i) / Hz; /* Compute ideal nof samples */
-        double spn = rint(nws);              /* Round to a discrete nof samples  */
-        double err = fabs(nws - spn);        /* Compute mismatch */
+        double nws = (rate * i) / Hz; /* Compute ideal nof samples */
+        double spn = rint(nws);       /* Round to a discrete nof samples  */
+        double err = fabs(nws - spn); /* Compute mismatch */
         if (err < minErr)
         { /* Remember best so far */
             minErr = err;
@@ -1402,7 +1400,7 @@ static size_t fitWave(double Hz, double precision, int minSamples, int maxSample
  * Be aware of this, or make sure that the arguments sum to 1.
  */
 static void writeSamples(float *buf, size_t sampleLength, double ap[], size_t apLen,
-                         double attenuation, double f1Hz)
+                         double attenuation, double f1Hz, double rate)
 {
     const double fullCircle = 2.0 * M_PI;
     double apl[MAX_PARTIALS];
@@ -1421,7 +1419,7 @@ static void writeSamples(float *buf, size_t sampleLength, double ap[], size_t ap
         /* Compute harmonic frequency */
         plHz[i] = f1Hz * ((double)(i + 1));
         /* Prevent aliasing; mute just below the Nyquist rate */
-        if ((SampleRateD * 0.5) <= plHz[i])
+        if ((rate * 0.5) <= plHz[i])
         {
             apl[i] = 0.0;
         }
@@ -1438,8 +1436,7 @@ static void writeSamples(float *buf, size_t sampleLength, double ap[], size_t ap
 
         for (j = 0; j < MAX_PARTIALS; j++)
         {
-            s += apl[j] *
-                 sin(remainder((plHz[j] * fullCircle * (double)i) / SampleRateD, fullCircle));
+            s += apl[j] * sin(remainder((plHz[j] * fullCircle * (double)i) / rate, fullCircle));
         }
 
         /* 24-sep-2003/FK
@@ -1570,7 +1567,7 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
          *               the minimum length.
          */
         wszs = fitWave(osp->frequency, precision, 3 * BUFFER_SIZE_SAMPLES, /* Was x1 */
-                       ceil(SampleRateD / 48000.0) * 4096);
+                       ceil(t->SampleRateD / 48000.0) * 4096, t->SampleRateD);
 
         /* Compute the number of bytes needed for exactly one wave buffer. */
 
@@ -1627,7 +1624,7 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
         /* Initialize each buffer, multiplying attenuation with taper. */
 
         writeSamples(osp->wave, osp->lengthSamples, harmonicsList, (size_t)MAX_PARTIALS,
-                     osp->attenuation, osp->frequency);
+                     osp->attenuation, osp->frequency, t->SampleRateD);
 
     } /* for each oscillator struct */
 }
@@ -1788,9 +1785,9 @@ double getPercDecayConst_spl(double ig, double tg, double spls) { return exp(log
  * @param tg  Target gain (e.g. 0.001 = -60 dB), must be non-zero positive.
  * @param seconds Time expressed as seconds
  */
-double getPercDecayConst_sec(double ig, double tg, double seconds)
+double getPercDecayConst_sec(double ig, double tg, double seconds, double rate)
 {
-    return getPercDecayConst_spl(ig, tg, SampleRateD * seconds);
+    return getPercDecayConst_spl(ig, tg, rate * seconds);
 }
 
 /**
@@ -1803,17 +1800,17 @@ static void computePercResets(struct b_tonegen *t)
     /* Compute the percussion reset values. */
 
     /* Alternate 25-May-2003 */
-    t->percEnvGainDecayFastNorm =
-        getPercDecayConst_sec(t->percEnvGainResetNorm, dBToGain(-60.0), t->percFastDecaySeconds);
+    t->percEnvGainDecayFastNorm = getPercDecayConst_sec(t->percEnvGainResetNorm, dBToGain(-60.0),
+                                                        t->percFastDecaySeconds, t->SampleRateD);
 
-    t->percEnvGainDecayFastSoft =
-        getPercDecayConst_sec(t->percEnvGainResetSoft, dBToGain(-60.0), t->percFastDecaySeconds);
+    t->percEnvGainDecayFastSoft = getPercDecayConst_sec(t->percEnvGainResetSoft, dBToGain(-60.0),
+                                                        t->percFastDecaySeconds, t->SampleRateD);
 
-    t->percEnvGainDecaySlowNorm =
-        getPercDecayConst_sec(t->percEnvGainResetNorm, dBToGain(-60.0), t->percSlowDecaySeconds);
+    t->percEnvGainDecaySlowNorm = getPercDecayConst_sec(t->percEnvGainResetNorm, dBToGain(-60.0),
+                                                        t->percSlowDecaySeconds, t->SampleRateD);
 
-    t->percEnvGainDecaySlowSoft =
-        getPercDecayConst_sec(t->percEnvGainResetSoft, dBToGain(-60.0), t->percSlowDecaySeconds);
+    t->percEnvGainDecaySlowSoft = getPercDecayConst_sec(t->percEnvGainResetSoft, dBToGain(-60.0),
+                                                        t->percSlowDecaySeconds, t->SampleRateD);
 
     /* Deploy the computed reset values. */
 
@@ -2905,9 +2902,11 @@ static void setSwellPedal2FromMIDI(void *d, unsigned char u)
  * configuration files have already been read, so parameters should already
  * be set.
  */
-void initToneGenerator(struct b_tonegen *t, void *m, double *targetRatio)
+void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *targetRatio)
 {
     int i;
+
+    t->SampleRateD = rate;
 
     t->midi_cfg_ptr = m;
 
@@ -2939,11 +2938,11 @@ void initToneGenerator(struct b_tonegen *t, void *m, double *targetRatio)
 
     if (t->envAtkClkMinLength < 0)
     {
-        t->envAtkClkMinLength = floor(SampleRateD * 8.0 / 22050.0);
+        t->envAtkClkMinLength = floor(t->SampleRateD * 8.0 / 22050.0);
     }
     if (t->envAtkClkMaxLength < 0)
     {
-        t->envAtkClkMaxLength = ceil(SampleRateD * 40.0 / 22050.0);
+        t->envAtkClkMaxLength = ceil(t->SampleRateD * 40.0 / 22050.0);
     }
 
     if (t->envAtkClkMinLength > BUFFER_SIZE_SAMPLES)
@@ -3894,6 +3893,9 @@ static const ConfigDoc doc[] = {
 const ConfigDoc *oscDoc() { return doc; }
 
 #ifdef TESTS
+
+#define TEST_RATE 48000.0
+
 TEST_CASE("Testing initValues")
 {
     struct b_tonegen *t = (struct b_tonegen *)calloc(1, sizeof(struct b_tonegen));
@@ -4028,7 +4030,7 @@ TEST_CASE("Testing getOscillatorFrequency")
 {
     struct b_tonegen *t = allocTonegen();
     void *m = nullptr;
-    initToneGenerator(t, m, nullptr);
+    initToneGenerator(t, m, TEST_RATE, nullptr);
     double a = 32.70319566257483;
     double b = 5919.91076338615039;
     CHECK(getOscillatorFrequency(t, 1) == a);
@@ -4177,46 +4179,46 @@ TEST_CASE("Testing fitWave")
     int n = 1000000000;
 
     // Vary precision with no limits on number of samples
-    CHECK(fitWave(middle_c, 0.0001, 1, n) == 610766);
-    CHECK(fitWave(middle_c, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c, 0.01, 1, n) == 14494);
-    CHECK(fitWave(middle_c, 0.1, 1, n) == 367);
-    CHECK(fitWave(middle_c, 1.0, 1, n) == 183);
+    CHECK(fitWave(middle_c, 0.0001, 1, n, TEST_RATE) == 610766);
+    CHECK(fitWave(middle_c, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c, 0.01, 1, n, TEST_RATE) == 14494);
+    CHECK(fitWave(middle_c, 0.1, 1, n, TEST_RATE) == 367);
+    CHECK(fitWave(middle_c, 1.0, 1, n, TEST_RATE) == 183);
 
     // Vary precision with limits on number of samples
-    CHECK(fitWave(middle_c, 0.0001, 384, 4096) == 2752);
-    CHECK(fitWave(middle_c, 0.001, 384, 4096) == 2752);
-    CHECK(fitWave(middle_c, 0.01, 384, 4096) == 2752);
-    CHECK(fitWave(middle_c, 0.1, 384, 4096) == 2385);
-    CHECK(fitWave(middle_c, 1.0, 384, 4096) == 550);
+    CHECK(fitWave(middle_c, 0.0001, 384, 4096, TEST_RATE) == 2752);
+    CHECK(fitWave(middle_c, 0.001, 384, 4096, TEST_RATE) == 2752);
+    CHECK(fitWave(middle_c, 0.01, 384, 4096, TEST_RATE) == 2752);
+    CHECK(fitWave(middle_c, 0.1, 384, 4096, TEST_RATE) == 2385);
+    CHECK(fitWave(middle_c, 1.0, 384, 4096, TEST_RATE) == 550);
 
     // Vary frequency with no limits on number of samples
-    CHECK(fitWave(middle_c / 32.0, 0.001, 1, n) == 2495169);
-    CHECK(fitWave(middle_c / 16.0, 0.001, 1, n) == 2286749);
-    CHECK(fitWave(middle_c / 8.0, 0.001, 1, n) == 104210);
-    CHECK(fitWave(middle_c / 4.0, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c * 2.0, 0.001, 1, n) == 52105);
-    CHECK(fitWave(middle_c * 4.0, 0.001, 1, n) == 22429);
-    CHECK(fitWave(middle_c * 8.0, 0.001, 1, n) == 14838);
-    CHECK(fitWave(middle_c * 16.0, 0.001, 1, n) == 7419);
-    CHECK(fitWave(middle_c * 32.0, 0.001, 1, n) == 86);
+    CHECK(fitWave(middle_c / 32.0, 0.001, 1, n, TEST_RATE) == 2495169);
+    CHECK(fitWave(middle_c / 16.0, 0.001, 1, n, TEST_RATE) == 2286749);
+    CHECK(fitWave(middle_c / 8.0, 0.001, 1, n, TEST_RATE) == 104210);
+    CHECK(fitWave(middle_c / 4.0, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c * 2.0, 0.001, 1, n, TEST_RATE) == 52105);
+    CHECK(fitWave(middle_c * 4.0, 0.001, 1, n, TEST_RATE) == 22429);
+    CHECK(fitWave(middle_c * 8.0, 0.001, 1, n, TEST_RATE) == 14838);
+    CHECK(fitWave(middle_c * 16.0, 0.001, 1, n, TEST_RATE) == 7419);
+    CHECK(fitWave(middle_c * 32.0, 0.001, 1, n, TEST_RATE) == 86);
 
     // Vary frequency with limits on number of samples
     // Very low frequency fails assert
-    CHECK(fitWave(middle_c / 16.0, 0.001, 384, 4096) == 2935);
-    CHECK(fitWave(middle_c / 8.0, 0.001, 384, 4096) == 1468);
-    CHECK(fitWave(middle_c / 4.0, 0.001, 384, 4096) == 734);
-    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096) == 734);
-    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096) == 734);
-    CHECK(fitWave(middle_c, 0.001, 384, 4096) == 2752);
-    CHECK(fitWave(middle_c * 2.0, 0.001, 384, 4096) == 1376);
-    CHECK(fitWave(middle_c * 4.0, 0.001, 384, 4096) == 688);
-    CHECK(fitWave(middle_c * 8.0, 0.001, 384, 4096) == 688);
-    CHECK(fitWave(middle_c * 16.0, 0.001, 384, 4096) == 516);
-    CHECK(fitWave(middle_c * 32.0, 0.001, 384, 4096) == 430);
+    CHECK(fitWave(middle_c / 16.0, 0.001, 384, 4096, TEST_RATE) == 2935);
+    CHECK(fitWave(middle_c / 8.0, 0.001, 384, 4096, TEST_RATE) == 1468);
+    CHECK(fitWave(middle_c / 4.0, 0.001, 384, 4096, TEST_RATE) == 734);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096, TEST_RATE) == 734);
+    CHECK(fitWave(middle_c / 2.0, 0.001, 384, 4096, TEST_RATE) == 734);
+    CHECK(fitWave(middle_c, 0.001, 384, 4096, TEST_RATE) == 2752);
+    CHECK(fitWave(middle_c * 2.0, 0.001, 384, 4096, TEST_RATE) == 1376);
+    CHECK(fitWave(middle_c * 4.0, 0.001, 384, 4096, TEST_RATE) == 688);
+    CHECK(fitWave(middle_c * 8.0, 0.001, 384, 4096, TEST_RATE) == 688);
+    CHECK(fitWave(middle_c * 16.0, 0.001, 384, 4096, TEST_RATE) == 516);
+    CHECK(fitWave(middle_c * 32.0, 0.001, 384, 4096, TEST_RATE) == 430);
 }
 
 /* Need to pass non-null midi config pointer
@@ -4224,7 +4226,7 @@ TEST_CASE("Testing initToneGenerator")
 {
     struct b_tonegen *t = allocTonegen();
     void *m = nullptr;
-    initToneGenerator(t, m, nullptr);
+    initToneGenerator(t, m, TEST_RATE, nullptr);
     freeToneGenerator(t);
 }
 */

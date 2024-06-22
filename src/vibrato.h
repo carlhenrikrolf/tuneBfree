@@ -71,7 +71,7 @@ extern void vibratoProc (struct b_vibrato* v, float const* inbuffer, float* outb
 
 /* for standalone use */
 extern void reset_vibrato (struct b_vibrato* v);
-extern void init_vibrato (struct b_vibrato* v);
+extern void init_vibrato (struct b_vibrato* v, double rate);
 
 /* tonegen integration */
 extern void resetVibrato (void* tonegen);

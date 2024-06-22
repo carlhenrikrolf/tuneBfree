@@ -78,10 +78,10 @@
  * or 1500 rpm (50 Hz models). The usual frequency is somewhere between
  * 7 or 8 Hz.
  */
-static void setScannerFrequency(struct b_vibrato *v, double Hertz)
+static void setScannerFrequency(struct b_vibrato *v, double Hertz, double rate)
 {
     v->vibFqHertz = Hertz;
-    v->statorIncrement = (unsigned int)(((v->vibFqHertz * INCTBL_SIZE) / SampleRateD) * 65536.0);
+    v->statorIncrement = (unsigned int)(((v->vibFqHertz * INCTBL_SIZE) / rate) * 65536.0);
 }
 
 /*
@@ -309,9 +309,9 @@ void resetVibrato(void *t)
     reset_vibrato(v);
 }
 
-void init_vibrato(struct b_vibrato *v)
+void init_vibrato(struct b_vibrato *v, double rate)
 {
-    setScannerFrequency(v, v->vibFqHertz);
+    setScannerFrequency(v, v->vibFqHertz, rate);
     initIncrementTables(v);
     setVibrato(v, 0);
 }
@@ -319,8 +319,9 @@ void init_vibrato(struct b_vibrato *v)
 #ifndef CLAP
 void initVibrato(void *t, void *m)
 {
-    struct b_vibrato *v = &(((struct b_tonegen *)t)->inst_vibrato);
-    init_vibrato(v);
+    struct b_tonegen *tt = (struct b_tonegen *)t;
+    struct b_vibrato *v = &(tt->inst_vibrato);
+    init_vibrato(v, tt->SampleRateD);
     useMIDIControlFunction(m, "vibrato.knob", setVibratoFromMIDI, t);
     useMIDIControlFunction(m, "vibrato.routing", setVibratoRoutingFromMIDI, t);
     useMIDIControlFunction(m, "vibrato.upper", setVibratoUpperFromMIDI, t);
@@ -332,12 +333,13 @@ void initVibrato(void *t, void *m)
  */
 int scannerConfig(void *t, ConfigContext *cfg)
 {
-    struct b_vibrato *v = &(((struct b_tonegen *)t)->inst_vibrato);
+    struct b_tonegen *tt = (struct b_tonegen *)t;
+    struct b_vibrato *v = &(tt->inst_vibrato);
     int ack = 0;
     double d;
     if ((ack = getConfigParameter_dr("scanner.hz", cfg, &d, 4.0, 22.0)) == 1)
     {
-        setScannerFrequency(v, d);
+        setScannerFrequency(v, d, tt->SampleRateD);
     }
     else if ((ack = getConfigParameter_dr("scanner.modulation.v1", cfg, &v->vib1OffAmp, 0.0,
                                           12.0)) == 1)
