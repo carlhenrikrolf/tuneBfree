@@ -526,7 +526,8 @@ static const clap_plugin_params_t extensionParams = {
             information->max_value = 1000.0f;
             float default_ratio_top[NOF_DRAWBARS] = {1, 3, 1, 2, 3, 4, 5, 6, 8};
             information->default_value = default_ratio_top[index - P_RATIO_TOP_MIN];
-            strcpy(information->name, ("Ratio top " + std::to_string(index)).c_str());
+            strcpy(information->name,
+                   ("Ratio top " + std::to_string(index - P_RATIO_TOP_MIN)).c_str());
             return true;
         }
         else if ((P_RATIO_BOTTOM_MIN <= index) && (index <= P_RATIO_BOTTOM_MAX))
@@ -538,7 +539,8 @@ static const clap_plugin_params_t extensionParams = {
             information->max_value = 1000.0f;
             float default_ratio_top[NOF_DRAWBARS] = {2, 2, 1, 1, 1, 1, 1, 1, 1};
             information->default_value = default_ratio_top[index - P_RATIO_BOTTOM_MIN];
-            strcpy(information->name, ("Ratio bottom " + std::to_string(index)).c_str());
+            strcpy(information->name,
+                   ("Ratio bottom " + std::to_string(index - P_RATIO_BOTTOM_MIN)).c_str());
             return true;
         }
         else
