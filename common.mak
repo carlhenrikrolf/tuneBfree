@@ -15,7 +15,7 @@ PREFIX ?= /usr/local
 ifneq ($(IS_OSX),)
   OPTIMIZATIONS ?= -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
 else
-  OPTIMIZATIONS ?= -msse -msse2 -mfpmath=sse -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
+  OPTIMIZATIONS ?= -ffast-math -fomit-frame-pointer -O3 -fno-finite-math-only
 endif
 ENABLE_CONVOLUTION ?= no
 INSTALL_EXTRA_LV2 ?= no
