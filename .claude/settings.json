@@ -1,0 +1,24 @@
+{
+    "sandbox": {
+        "enabled": true,
+        "filesystem": {
+            "denyRead": [
+                "/Users",
+                "."
+            ],
+            "denyWrite": [
+                "./.claude/settings.json"
+            ]
+        }
+    },
+    "permissions": {
+        "deny": [
+            "Read(/**/.ssh/*)",
+            "Write(/**/.ssh/*",
+            "Edit(/**/.ssh/*",
+            "Read(/**/.env*)",
+            "Write(/**/.env*",
+            "Edit(/**/.env*"
+        ]
+    }
+}

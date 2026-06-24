@@ -224,6 +224,18 @@ static void PluginProcessEvent(MyPlugin *plugin, const clap_event_header_t *even
                 oscKeyOff(plugin->synth, noteEvent->key, noteEvent->key);
             }
         }
+        else if (event->type == CLAP_EVENT_MIDI)
+        {
+            // Handle raw MIDI events — needed for hosts (e.g. on RPi) that send
+            // CLAP_NOTE_DIALECT_MIDI rather than CLAP_NOTE_DIALECT_CLAP.
+            const clap_event_midi_t *midiEvent = (const clap_event_midi_t *)event;
+            const uint8_t status = midiEvent->data[0] & 0xF0;
+            const uint8_t note   = midiEvent->data[1];
+            if (status == 0x90 && midiEvent->data[2] > 0)
+                oscKeyOn(plugin->synth, note, note);
+            else if (status == 0x80 || (status == 0x90 && midiEvent->data[2] == 0))
+                oscKeyOff(plugin->synth, note, note);
+        }
         else if (event->type == CLAP_EVENT_PARAM_VALUE)
         {
             const clap_event_param_value_t *valueEvent = (const clap_event_param_value_t *)event;
@@ -355,7 +367,7 @@ static const clap_plugin_note_ports_t extensionNotePorts = {
         if (!isInput || index)
             return false;
         info->id = 0;
-        info->supported_dialects = CLAP_NOTE_DIALECT_CLAP;
+        info->supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
         info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
         snprintf(info->name, sizeof(info->name), "%s", "Note Port");
         return true;

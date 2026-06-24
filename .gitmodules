@@ -29,3 +29,6 @@
 	path = libs/elements
 	url = https://github.com/narenratan/elements.git
 	branch = plugin
+[submodule "libs/JUCE"]
+	path = libs/JUCE
+	url = https://github.com/juce-framework/JUCE.git
