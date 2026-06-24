@@ -24,7 +24,7 @@ Clone the repo and initialise the required submodules:
 git clone https://github.com/carlhenrikrolf/tuneBfree.git
 cd tuneBfree
 git checkout juce
-git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue
+git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue libs/tuning-library
 ```
 
 ### Configure and build

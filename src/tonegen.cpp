@@ -2902,7 +2902,8 @@ static void setSwellPedal2FromMIDI(void *d, unsigned char u)
  * configuration files have already been read, so parameters should already
  * be set.
  */
-void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *targetRatio)
+void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *targetRatio,
+                       const double *freqOverride)
 {
     int i;
 
@@ -2954,7 +2955,10 @@ void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *target
         t->envAtkClkMaxLength = BUFFER_SIZE_SAMPLES;
     }
 
-    getFrequencies(t->frequency, NOF_FREQS);
+    if (freqOverride)
+        memcpy(t->frequency, freqOverride, NOF_FREQS * sizeof(double));
+    else
+        getFrequencies(t->frequency, NOF_FREQS);
 
     double defaultTargetRatio[NOF_DRAWBARS] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
     if (targetRatio == nullptr)

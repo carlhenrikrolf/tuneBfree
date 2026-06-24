@@ -134,8 +134,28 @@ Practical implication: tuneBfree's `targetRatio` parameters allow the user to al
 
 ## Other Microtuning Sources
 
-### Surge XT tuning-library
-The Surge XT project publishes a standalone `tuning-library` (Apache 2.0, header-only C++, JUCE-compatible) for loading `.scl` (Scala scale) and `.kbm` (keyboard mapping) files. This would allow users to import arbitrary scale files directly without needing a running MTS-ESP master.
+### Surge XT tuning-library (integrated)
+The Surge XT project's `tuning-library` (Apache 2.0, header-only C++20) is integrated as a git submodule at `libs/tuning-library/`. It handles `.scl` (Scala scale) and `.kbm` (keyboard mapping) file loading, giving users local tuning without needing an MTS-ESP master.
+
+Key API (include `Tunings.h`):
+
+```cpp
+#include "Tunings.h"
+
+auto scale = Tunings::readSCLFile("/path/to/file.scl");  // throws on parse error
+auto kbm   = Tunings::readKBMFile("/path/to/file.kbm");
+auto tuning = Tunings::Tuning(scale, kbm);  // or just Tunings::Tuning(scale)
+
+double freq  = tuning.frequencyForMidiNote(60);           // Hz
+double cents = tuning.retuningFromEqualInCentsForMidiNote(60); // deviation from 12-TET
+bool mapped  = tuning.isMidiNoteMapped(60);               // false if note is outside KBM range
+```
+
+The library only covers MIDI notes 0–127. tuneBfree extends the 128-note table to `NOF_FREQS=300` for the tonewheel generator using `extendFrequencies()` from `src/tuning.h`.
+
+In `PluginProcessor`, local tuning is applied via:
+- UI thread writes `localFrequencies[NOF_FREQS]` from the Tunings objects, then sets `localTuningNeedsReinit` (atomic, release ordering).
+- Audio thread detects the flag in `processBlock` and calls `reinitToneGen()`, which passes `localFrequencies` as `freqOverride` to `initToneGenerator()`.
 
 GitHub: `surge-synthesizer/tuning-library`
 

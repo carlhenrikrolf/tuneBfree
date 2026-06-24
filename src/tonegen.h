@@ -585,7 +585,8 @@ extern void setKeyClick (struct b_tonegen* t, int v);
 extern int oscConfig (struct b_tonegen* t, ConfigContext* cfg);
 extern const ConfigDoc* oscDoc ();
 #endif
-extern void initToneGenerator (struct b_tonegen* t, void* m, double rate, double *targetRatio);
+extern void initToneGenerator (struct b_tonegen* t, void* m, double rate, double *targetRatio,
+                               const double *freqOverride = nullptr);
 extern void freeToneGenerator (struct b_tonegen* t);
 
 extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);

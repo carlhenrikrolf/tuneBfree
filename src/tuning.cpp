@@ -39,7 +39,7 @@ static void getMTSESPFrequencies(double *frequency)
  *
  * If this function cannot find the period it sets the scale size and period to -1.
  */
-static void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
+void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
 {
     int scaleSize, i;
     float period;
@@ -106,7 +106,7 @@ static void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRe
  * scale size and period cannot be inferred, the higher frequencies are all set
  * to the last available MTS-ESP frequency.
  */
-static void extendFrequencies(double *frequency, int length)
+void extendFrequencies(double *frequency, int length)
 {
     int scaleSize;
     float period;

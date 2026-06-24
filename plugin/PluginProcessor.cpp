@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 #include <cstring>
 #include <cmath>
@@ -153,6 +154,8 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
         cachedParams[i] = val;
         applyParam(i, val);
     }
+
+    updateScalePeriod();
 }
 
 void TuneBfreeAudioProcessor::tearDownDSP()
@@ -162,6 +165,14 @@ void TuneBfreeAudioProcessor::tearDownDSP()
     if (reverbModule) { freeReverb(reverbModule); reverbModule = nullptr; }
     if (preampModule) { freePreamp(preampModule); preampModule = nullptr; }
     if (synth)        { freeToneGenerator(synth); synth        = nullptr; }
+}
+
+void TuneBfreeAudioProcessor::updateScalePeriod()
+{
+    int size; float period;
+    inferScaleSize(synth->frequency, &size, &period);
+    inferredPeriod.store(period);
+    inferredScaleSize.store(size);
 }
 
 void TuneBfreeAudioProcessor::reinitToneGen()
@@ -180,7 +191,8 @@ void TuneBfreeAudioProcessor::reinitToneGen()
         previousRatio[i] = targetRatio[i];
     }
 
-    initToneGenerator(synth, nullptr, currentSampleRate, targetRatio);
+    const double* freqSrc = hasLocalTuning.load() ? localFrequencies : nullptr;
+    initToneGenerator(synth, nullptr, currentSampleRate, targetRatio, freqSrc);
     init_vibrato(&synth->inst_vibrato, currentSampleRate);
 
     // Re-apply tonegen parameters
@@ -191,6 +203,13 @@ void TuneBfreeAudioProcessor::reinitToneGen()
     applyParam(P_PERCUSSION,   cachedParams[P_PERCUSSION]);
 
     synth->newRouting = savedRouting;
+
+    // The tonegen is rebuilt with no active notes. Reset tracking state so that
+    // silence detection and note-off bookkeeping are consistent with the new tonegen.
+    activeNoteCount = 0;
+    memset(filteredNotes, 0, sizeof(filteredNotes));
+
+    updateScalePeriod();
 }
 
 // ============================================================================
@@ -329,7 +348,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
-    if (tuningChanged || ratioChanged)
+    if (tuningChanged || ratioChanged || localTuningNeedsReinit.exchange(false, std::memory_order_acquire))
         reinitToneGen();
 
     // --- Silence detection: skip DSP when no notes have sounded for > tail length ---
@@ -358,17 +377,35 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         startSample = eventPos;
 
         const auto msg = metadata.getMessage();
-        const int noteNumber = msg.getNoteNumber();
-        if (msg.isNoteOn()) {
-            // TODO (Phase 2): pass MIDI channel to select per-channel MTS-ESP tuning
-            // when the tonegen gains per-note frequency support.
-            oscKeyOn(synth, (short) noteNumber, (short) noteNumber);
-            activeNoteCount++;
-            samplesSinceLastNote = 0;
-        } else if (msg.isNoteOff()) {
-            // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here
-            oscKeyOff(synth, (short) noteNumber, (short) noteNumber);
-            activeNoteCount = std::max(0, activeNoteCount - 1);
+
+        if (msg.isSysEx()) {
+            // Forward raw sysex to MTS-ESP client. Handles all MTS tuning bulk-dump and
+            // single-note retune formats, allowing tuning without an MTS-ESP master plug-in.
+            MTS_ParseMIDIDataU(mtsClient, msg.getRawData(), msg.getRawDataSize());
+            reinitToneGen();
+        }
+        else {
+            const int  noteNumber = msg.getNoteNumber();
+            const char midiCh     = (char)(msg.getChannel() - 1); // JUCE 1-16 → MTS-ESP 0-15
+
+            if (msg.isNoteOn()) {
+                if (MTS_ShouldFilterNote(mtsClient, (char) noteNumber, midiCh)) {
+                    filteredNotes[noteNumber] = true;
+                } else {
+                    filteredNotes[noteNumber] = false;
+                    oscKeyOn(synth, (short) noteNumber, (short) noteNumber);
+                    activeNoteCount++;
+                    samplesSinceLastNote = 0;
+                }
+            } else if (msg.isNoteOff()) {
+                // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here.
+                // Skip oscKeyOff for notes that were filtered at note-on time.
+                if (!filteredNotes[noteNumber]) {
+                    oscKeyOff(synth, (short) noteNumber, (short) noteNumber);
+                    activeNoteCount = std::max(0, activeNoteCount - 1);
+                }
+                filteredNotes[noteNumber] = false;
+            }
         }
     }
 
@@ -395,14 +432,112 @@ void TuneBfreeAudioProcessor::setStateInformation(const void* data, int sizeInBy
 }
 
 // ============================================================================
+// Local tuning (.scl / .kbm)
+// ============================================================================
+
+void TuneBfreeAudioProcessor::loadSCLFile(const juce::File& file)
+{
+    try {
+        localScale    = Tunings::readSCLFile(std::filesystem::path(file.getFullPathName().toStdString()));
+        localSclName  = file.getFileName();
+        localTuningError = {};
+        rebuildLocalTuning();
+    } catch (const Tunings::TuningError& e) {
+        localTuningError = juce::String(e.what());
+    }
+}
+
+void TuneBfreeAudioProcessor::loadKBMFile(const juce::File& file)
+{
+    try {
+        localKBM      = Tunings::readKBMFile(std::filesystem::path(file.getFullPathName().toStdString()));
+        hasLocalKBM   = true;
+        localKbmName  = file.getFileName();
+        localTuningError = {};
+        rebuildLocalTuning();
+    } catch (const Tunings::TuningError& e) {
+        localTuningError = juce::String(e.what());
+    }
+}
+
+void TuneBfreeAudioProcessor::clearLocalTuning()
+{
+    localSclName  = {};
+    localKbmName  = {};
+    hasLocalKBM   = false;
+    hasLocalTuning.store(false, std::memory_order_release);
+    localTuningNeedsReinit.store(true, std::memory_order_release);
+}
+
+void TuneBfreeAudioProcessor::rebuildLocalTuning()
+{
+    if (localSclName.isEmpty()) return;
+
+    try {
+        localTuning = hasLocalKBM ? Tunings::Tuning(localScale, localKBM)
+                                  : Tunings::Tuning(localScale);
+
+        for (int i = 0; i < 128; ++i)
+            localFrequencies[i] = localTuning.frequencyForMidiNote(i);
+
+        extendFrequencies(localFrequencies, NOF_FREQS);
+
+        hasLocalTuning.store(true, std::memory_order_release);
+        localTuningNeedsReinit.store(true, std::memory_order_release);
+    } catch (const Tunings::TuningError& e) {
+        localTuningError = juce::String(e.what());
+    }
+}
+
+double TuneBfreeAudioProcessor::getDisplayFrequency(int midiNote) const
+{
+    midiNote = juce::jlimit(0, 127, midiNote);
+    if (hasLocalTuning.load())
+        return localTuning.frequencyForMidiNote(midiNote);
+    if (mtsClient)
+        return MTS_NoteToFrequency(mtsClient, (char) midiNote, 0);
+    return 440.0 * std::pow(2.0, (midiNote - 69) / 12.0);
+}
+
+double TuneBfreeAudioProcessor::getDisplayCents(int midiNote) const
+{
+    midiNote = juce::jlimit(0, 127, midiNote);
+    if (hasLocalTuning.load())
+        return localTuning.retuningFromEqualInCentsForMidiNote(midiNote);
+    double freq    = getDisplayFrequency(midiNote);
+    double refFreq = 440.0 * std::pow(2.0, (midiNote - 69) / 12.0);
+    return (freq > 0 && refFreq > 0) ? 1200.0 * std::log2(freq / refFreq) : 0.0;
+}
+
+bool TuneBfreeAudioProcessor::isMidiNoteMapped(int midiNote) const
+{
+    midiNote = juce::jlimit(0, 127, midiNote);
+    if (hasLocalTuning.load())
+        return localTuning.isMidiNoteMapped(midiNote);
+    if (mtsClient)
+        return !MTS_ShouldFilterNote(mtsClient, (char) midiNote, 0);
+    return true;
+}
+
+bool TuneBfreeAudioProcessor::isMTSConnected() const noexcept
+{
+    return mtsClient != nullptr && MTS_HasMaster(mtsClient);
+}
+
+juce::String TuneBfreeAudioProcessor::getMTSScaleName() const
+{
+    if (mtsClient == nullptr || !MTS_HasMaster(mtsClient))
+        return {};
+    return juce::String(MTS_GetScaleName(mtsClient));
+}
+
+// ============================================================================
 // Editor
 // ============================================================================
 
 juce::AudioProcessorEditor* TuneBfreeAudioProcessor::createEditor()
 {
-    // Phase 1 placeholder: JUCE auto-generates sliders for all 38 parameters.
-    // Stage / Studio UI replaces this in Phase 3.
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new TuneBfreeAudioProcessorEditor(*this);
 }
 
 // ============================================================================

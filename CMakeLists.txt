@@ -88,6 +88,7 @@ target_include_directories(tuneBfree PRIVATE
     src
     libs/MTS-ESP/Client
     libs/readerwriterqueue
+    libs/tuning-library/include
 )
 
 # ---------------------------------------------------------------------------

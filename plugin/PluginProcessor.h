@@ -7,6 +7,9 @@
 #include "reverb.h"
 #include "whirl.h"
 #include "libMTSClient.h"
+#include "tuning.h"
+#include "Tunings.h"
+#include <filesystem>
 
 // Parameter indices — match the CLAP implementation in src/clap.cpp
 #define P_DRAWBAR_MIN     0
@@ -60,6 +63,32 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    // Scale period inferred from the current tuning table.
+    // Period > 0 means inference succeeded; -1 means it could not be determined.
+    // ScaleSize is the number of notes in one period (e.g. 12 for 12-TET).
+    float getInferredPeriod()    const noexcept { return inferredPeriod.load(); }
+    int   getInferredScaleSize() const noexcept { return inferredScaleSize.load(); }
+
+    // Local tuning (.scl / .kbm) — called from the message thread (UI).
+    // The audio thread picks up the change on the next processBlock.
+    void loadSCLFile(const juce::File& file);
+    void loadKBMFile(const juce::File& file);
+    void clearLocalTuning();
+
+    bool           getHasLocalTuning()  const noexcept { return hasLocalTuning.load(); }
+    juce::String   getLocalSclName()    const { return localSclName; }
+    juce::String   getLocalKbmName()    const { return localKbmName; }
+    juce::String   getLocalTuningError() const { return localTuningError; }
+
+    // Per-note display frequency / cents — safe to call from any thread.
+    // Falls back to 12-TET if no tuning source is active.
+    double getDisplayFrequency(int midiNote) const;
+    double getDisplayCents(int midiNote) const;
+    bool   isMidiNoteMapped(int midiNote) const;
+
+    bool         isMTSConnected()  const noexcept;
+    juce::String getMTSScaleName() const;
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -94,10 +123,35 @@ private:
     int  activeNoteCount      = 0;
     int  samplesSinceLastNote = 0;
 
+    // Inferred scale properties from the current MTS-ESP frequency table.
+    // Written on the audio thread after every tonegen init; read by the UI.
+    std::atomic<float> inferredPeriod{2.0f};
+    std::atomic<int>   inferredScaleSize{12};
+
+    // Per-note filter state: true when a note-on was suppressed by MTS_ShouldFilterNote.
+    // Prevents the matching note-off from calling oscKeyOff on a note never started.
+    bool filteredNotes[128] = {};
+
+    // Local tuning (.scl / .kbm) loaded from file.
+    // Written on the message thread; frequency array read on audio thread after flag is set.
+    Tunings::Scale          localScale;
+    Tunings::KeyboardMapping localKBM;
+    Tunings::Tuning          localTuning;
+    double                   localFrequencies[NOF_FREQS] = {};
+    std::atomic<bool>        hasLocalTuning{false};
+    std::atomic<bool>        localTuningNeedsReinit{false};
+    bool                     hasLocalKBM = false;
+    juce::String             localSclName;
+    juce::String             localKbmName;
+    juce::String             localTuningError;  // set if last load failed
+
+    void rebuildLocalTuning();
+
     // --- Private methods ---
     void initDSP(double sampleRate);
     void tearDownDSP();
     void reinitToneGen();
+    void updateScalePeriod();
     void applyParam(int index, float value);
     void renderAudio(float* outL, float* outR, int numSamples);
 
