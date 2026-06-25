@@ -56,17 +56,63 @@ Bring the microtuning implementation up to the full current MTS-ESP specificatio
 
 ## Phase 3 — GUI Modernisation
 
-Build the new JUCE GUI in two modes. **Generate mockup drawings and get feedback before writing code.**
+Start with creating a gui skill.
+Then proceed to generate a mockup file—I have started a roadmao/gui.json file in Open Stage Control format.
+The GUI elements should be JUCE but I find the wysiwyg in Open Stage Control easier to do a mockup in.
+In general I like the vintage esthetic on instruments.
+Crumar e.g. does clonewheels and digital electric pianos that look nice both in light and in a dimnly lit venue.
+On the spectrum between skeuomorphic and functional, I think we should lean towards functional towards now and use the widgets already available in JUCE.
+However, for the colour pallette we can be inspired by Crumar and especially a darkmode with the dimly lit venue vibe.
 
-### Stage mode
-The performance view. Shows the classic setBfree organ UI reflecting real-time MIDI CC and note state. Optimised for live use — no clutter.
+### Default Page
+Normal clonewheel controls:
+- Drawbars for harmonics volumes
+- Effects, e.g. vibrato/chorus, drive, reverb
+- Rotary speaker switch
+- Volume/expression pedal
 
-### Studio mode
-The sound design view. JUCE-native controls for:
-- Drawbar harmonic ratios and overrides
-- Effect parameters (Leslie, overdrive, reverb)
-- Tuning overrides and precision settings
-- Config and program management
+An example is Crumar/GMLab D9X.
+The normal setBfree GUI is another example.
+
+Different from typical clonewheels, let's just have lower and upper manual.
+- you should have a switch between the drawbars for upper and lower rather than duplicating them.
+- upper and lower are not distributed over different channels rather there should be a cutoff point.
+- the crossover of the cutoff point should possible to adjust as well, compare Nord instruments or Korg Prologue.
+
+All controls should have theie associated CC number and channel displayed unless absent.
+
+### Configuration Page
+Contains many of the additional settings qavailable in tuneBfree via the .cfg file.
+Load .cfg file or more modern implementation.
+
+A novelty compared to setbfree is that altering the pitch of the drawbars should be possible here.
+- Adjust the pitch of each drawbar independently.
+- Flick between drawbars being adjusted automatically or your own custom value.
+- Save the custom value even if automatic, so that you can quickly return to this previous setting.
+
+All controls should have theie associated CC number and channel displayed unless absent.
+
+### Presets Page
+List presets from the .pgm file.
+Load .pgm file or more modern implementation.
+
+### Tuning Sidepanel
+Exapndable/collapsable.
+JUCE has a dedicated sidepanel object.
+It is ok if slides on top of the curretly selected page.
+
+**Status**
+Default.
+Base it on [Surge XT](https://surge-synthesizer.github.io/manual-xt/#microtuning).
+In addition:
+- Add the scale period and indicate if it is inferred or specified in mts-esp or aperiodic.
+- Add whether multi-channel or single channel (omni).
+- Add the frequency in Hertz of the last played note as well as the interval between the last two notes in cents.
+
+**Presets**
+Can be toggled from Status.
+Should list a number of tuning presets.
+Note that tuning presets are different from instrument presets.
 
 ### Config support
 - Load and save both `.cfg` files (general settings) and `.pgm` files (programs/patches).
