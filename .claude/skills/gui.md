@@ -21,52 +21,82 @@ triggers:
 
 ## Architecture Overview
 
-The GUI has four navigation areas:
+**As implemented (2026-06)** in `plugin/PluginEditor.{h,cpp}`. Three classes:
 
-| Area | JUCE mechanism | Description |
-|------|---------------|-------------|
-| Default page | shown by default | Drawbars, effects, rotary, volume |
-| Configuration page | `setVisible` swap or `TabbedComponent` | .cfg settings, drawbar pitch |
-| Presets page | same | .pgm preset list |
-| Tuning side panel | `juce::SidePanel` | Expandable from right edge; slides on top of current page |
+| Class | Role |
+|-------|------|
+| `TuneBfreeAudioProcessorEditor` | Top-level window: amber header (title + TUNING button) over a `DefaultPage`. Owns the `LookAndFeel` and a 2 Hz `Timer` that refreshes the tuning panel. |
+| `DefaultPage` | The play screen. LEFT region = vibrato/depth/percussion strip + drawbars; RIGHT region = timbrality column + effects/leslie/expression column. Holds the tuning overlay. |
+| `TuningSidePanelContent` | The grey panel shown over the RIGHT region when TUNING is pressed. |
 
-The mockup lives at `roadmap/gui.json` in **Open Stage Control** format (see section below).
+Config & Presets pages are **not built yet** (Phase 3 continues). When added,
+prefer a `setVisible` swap of child pages over `TabbedComponent` to keep the
+header bespoke.
+
+### Tuning panel = child-overlay, NOT juce::SidePanel
+
+`juce::SidePanel` was tried and **abandoned**: it always covers the parent's
+full height (you cannot keep the header visible above it) and draws its own
+title bar. Instead the panel is a plain child `Component`:
+
+```cpp
+// In DefaultPage:
+TuningSidePanelContent tuningContent;            // member
+addChildComponent (tuningContent);               // added LAST = highest z-order, hidden
+// resized(): give it the right region's bounds so it's ready when shown
+tuningContent.setBounds (getLocalBounds().removeFromRight (rightW + margin * 2));
+// toggle:
+tuningContent.setVisible (! tuningContent.isVisible());
+```
+
+It covers exactly the right region, so the drawbars + vibrato/percussion strip
+stay visible (per GUI_SPEC: "leaves the drawbars and envelope and lfo sections clear").
+
+The mockups live at `roadmap/default_page.png`, `roadmap/tuning_sidepanel.png`
+(rendered from `roadmap/gui.json`, Open Stage Control format — see below).
+`roadmap/GUI_SPEC.md` is the user's taste spec; `roadmap/GUI_EDIT_GUIDE.md` is
+the hand-editing tutorial.
 
 ---
 
 ## Colour Palette
 
-Inspired by Crumar/GMLab (dark mode, dimly-lit-venue vibe). Primary accent is amber.
+Inspired by Crumar/GMLab (dark mode, dimly-lit-venue vibe). Restricted to
+amber / black / white / red / grey. Amber is the main accent **and** the header
+background; near-black is the main background. **These are the values actually
+implemented** in `plugin/PluginEditor.cpp` (top of file) — edit them there to
+re-theme the whole plugin.
 
 ```cpp
-// In a shared header or LookAndFeel class:
-static constexpr juce::uint32 kBg          = 0xff141414; // near-black
-static constexpr juce::uint32 kBgPanel     = 0xff1e1e1e; // panel surface
-static constexpr juce::uint32 kBgHeader    = 0xff111111; // header strip
-static constexpr juce::uint32 kAccent      = 0xffff7f00; // amber (gui.json colorWidget)
-static constexpr juce::uint32 kTextMain    = 0xffd8d8d8; // off-white
-static constexpr juce::uint32 kTextMuted   = 0xff888888;
-static constexpr juce::uint32 kGreen       = 0xff50e060; // MTS-ESP connected
-static constexpr juce::uint32 kRed         = 0xffcc3333; // error
+static const juce::Colour kBg     { 0xff121212 }; // main background
+static const juce::Colour kPanel  { 0xff242424 }; // tuning panel + info boxes
+static const juce::Colour kBtn    { 0xff080808 }; // inactive button fill
+static const juce::Colour kAmber  { 0xffff8c00 }; // accent + header + active state
+static const juce::Colour kRed    { 0xffcc2a2a }; // active TUNING + two drawbars
+static const juce::Colour kWhite  { 0xffe8e8e8 }; // main text + three drawbars
+static const juce::Colour kGrey   { 0xff707070 }; // muted text (captions)
+static const juce::Colour kGreen  { 0xff4cce5c }; // "connected" status only
+static const juce::Colour kBorder { 0xff3a3a3a }; // box outlines
 ```
 
-### Hammond drawbar colours
+### Drawbar colours (custom, NOT standard Hammond)
 
-Standard colours used on real Hammond/clonewheel drawbars:
+The user chose a custom scheme (see GUI_SPEC.md). Implemented in
+`TuneBfreeLookAndFeel::drawbarColour(int)`:
 
-| Drawbar | Footage | Colour | JUCE colour |
-|---------|---------|--------|-------------|
-| 0 | 16' | Brown | `0xffa05030` |
-| 1 | 5⅓' | Brown | `0xffa05030` |
-| 2 | 8' | White | `0xffe8e8e8` |
-| 3 | 4' | White | `0xffe8e8e8` |
-| 4 | 2⅔' | Black | `0xff303030` |
-| 5 | 2' | White | `0xffe8e8e8` |
-| 6 | 1⅗' | Black | `0xff303030` |
-| 7 | 1⅓' | Black | `0xff303030` |
-| 8 | 1' | Black | `0xff303030` |
+| Drawbar | Footage | Colour |
+|---------|---------|--------|
+| 0 | 16'  | red   |
+| 1 | 5⅓'  | red   |
+| 2 | 8'   | white |
+| 3 | 4'   | white |
+| 4 | 2⅔'  | amber |
+| 5 | 2'   | white |
+| 6 | 1⅗'  | amber |
+| 7 | 1⅓'  | amber |
+| 8 | 1'   | white |
 
-The OSC mockup files (`roadmap/gui_play.json` etc.) use the correct Hammond colours — copy those directly into JUCE (they match the JUCE constants above).
+(Do not "correct" these to brown/black Hammond colours — the custom scheme is intentional.)
 
 ---
 
@@ -123,25 +153,29 @@ addAndMakeVisible(tabs);
 
 `TabbedButtonBar` placement: `TabsAtTop` or `TabsAtBottom`. The button bar height defaults to 30px. The content area fills the rest.
 
-### juce::SidePanel — Tuning panel
+### Radio groups (mutually-exclusive switches)
+
+Every switch on the page (vibrato/chorus/off, leslie, mono/poly, the four
+percussion toggles) uses one helper instead of hand-written cross-clearing:
 
 ```cpp
-// In editor header:
-juce::SidePanel tuningPanel{"Tuning", 320, false}; // false = slides from right
-
-// In constructor:
-addAndMakeVisible(tuningPanel);
-tuningPanel.setContent(&tuningContent, false); // don't delete content
-
-// Toggle from a button:
-tuningBtn.onClick = [this] { tuningPanel.showOrHide(!tuningPanel.isPanelShowing()); };
+static void makeRadioGroup (std::initializer_list<juce::TextButton*> list)
+{
+    std::vector<juce::TextButton*> group (list);   // copy the pointers
+    for (auto* b : group)
+    {
+        b->setClickingTogglesState (true);
+        b->onClick = [group, b] {
+            for (auto* other : group)
+                other->setToggleState (other == b, juce::dontSendNotification);
+        };
+    }
+}
+// usage: makeRadioGroup ({ &vibratoBtn, &chorusBtn, &modOffBtn });
 ```
 
-Key properties:
-- The panel slides on top of other content — it does not push the layout.
-- Width is fixed at construction; can be anything (ROADMAP uses ~30% of window width = ~210px on a 700px window).
-- JUCE draws a dismiss shadow automatically.
-- Set content via `setContent(Component*, bool deleteWhenDone)`.
+UPPER/LOWER is the exception — it also swaps manual state, so it keeps a bespoke
+`onClick`. Don't run `makeRadioGroup` on it (that would overwrite the handler).
 
 ### APVTS Attachments
 
@@ -389,6 +423,55 @@ Tested in OSC 1.30.3. Screenshots in `roadmap/screenshots/`.
 Canvas appears ~1500px wide in browser. The 900px mockup coordinates scale to fill width. When implementing in JUCE at 700–900px, the proportions should translate well.
 
 ---
+
+## JUCE 8 gotchas & lessons (learned building this GUI)
+
+These cost real iteration time. Read before touching `PluginEditor.cpp`.
+
+1. **UTF-8 string literals get mangled.** Passing a `const char*` with multi-byte
+   UTF-8 (the ' fractions ⅓⅔⅗, em-dash —, ellipsis …, middle-dot ·) straight to
+   `juce::String`/`setText`/`setButtonText` renders garbage like `â€¦`. Wrap every
+   non-ASCII literal: `juce::String (juce::CharPointer_UTF8 (s))`. We keep a
+   `utf8()` helper and store the bytes as hex escapes (e.g. `"\xe2\x85\x93"`).
+
+2. **`juce::Font(float)` is deprecated in JUCE 8.** Use
+   `juce::Font (juce::FontOptions().withName("Futura").withHeight(h).withStyle("Bold"))`.
+   We wrap this in `uiFont(size, bold)`. One font family, two weights → satisfies
+   "≤3 fonts". Century-Gothic-like geometric sans (Futura on macOS; bundle a .ttf
+   for the RPi build later).
+
+3. **All knobs the same size requires SQUARE bounds.** `drawRotarySlider` derives
+   the radius from `jmin(w,h)`. If each `setBounds` passes a different-width
+   rectangle, every knob renders a different size (this was a visible bug). Fix:
+   give every knob identical square bounds —
+   `knob.setBounds (cell.withSizeKeepingCentre (kKnob, kKnob))`.
+
+4. **`drawButtonBackground` must read the button's own colours**, not hardcode
+   `kAmber`. Use `button.findColour (TextButton::buttonOnColourId)` /
+   `buttonColourId`. Otherwise per-button theming (e.g. the TUNING button going
+   RED when active via `setColour(...buttonOnColourId, kRed)`) silently does nothing.
+
+5. **Small buttons clip their text** ("FAST" → "F..."). Override
+   `getTextButtonFont` to scale the font to the button height
+   (`uiFont (jmin (12.f, buttonHeight * 0.5f))`).
+
+6. **Drawbar drag direction = reversed `NormalisableRange`, not a mirrored paint.**
+   Painting the fill upside-down makes value 8 sit at the bottom visually, but the
+   mouse still drags the "wrong" way. Give drawbars a reversed range (proportion 0
+   → value 8 at the bottom) so drag direction AND fill match. See the lambda triple
+   in the drawbar setup.
+
+7. **Top-anchored + bottom-anchored stacks overlap when the window is too short.**
+   The tuning panel lays items from the top AND anchors Hz/cents to the bottom; if
+   their combined height exceeds the panel, they overlap and whichever was
+   `addAndMakeVisible`d **later** draws on top (the earlier one looks "missing").
+   Size the window so both stacks fit (we use 740×430), or guard the middle gap.
+
+8. **Layout philosophy that worked** (matches the user's "no empty space at the
+   edges, put slack between widgets" taste): name every size as a `const int` at
+   the top of `resized()`; anchor fixed groups to top and bottom
+   (`removeFromTop`/`removeFromBottom`); let the *middle* absorb leftover space.
+   Use `withSizeKeepingCentre` to centre a fixed-size widget in a flexible cell.
 
 ## References
 

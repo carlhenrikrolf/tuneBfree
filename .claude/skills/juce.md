@@ -260,6 +260,17 @@ juce::AudioProcessorEditor* MyAudioProcessor::createEditor() {
 }
 ```
 
+### Custom editor — see the `gui` skill
+
+The real tuneBfree editor (`plugin/PluginEditor.{h,cpp}`, custom `LookAndFeel`,
+layout, tuning panel) is documented in the **`gui`** skill, including a
+"JUCE 8 gotchas & lessons" section. Two framework-wide ones worth repeating:
+
+- **`juce::Font(float)` is deprecated in JUCE 8.** Use
+  `juce::Font (juce::FontOptions().withHeight(h).withStyle("Bold"))`.
+- **UTF-8 literals need wrapping.** Non-ASCII text passed as `const char*` renders
+  garbage; wrap with `juce::String (juce::CharPointer_UTF8 (s))`.
+
 ---
 
 ## Platform Notes
