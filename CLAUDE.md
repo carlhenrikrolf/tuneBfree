@@ -17,9 +17,10 @@ tuneBfree is a microtunable Hammond B3 tonewheel organ emulator, forked from set
 |------|--------|
 | JUCE CMake build | Working -- builds Standalone, AU, VST3, CLAP on Mac |
 | PluginProcessor | Complete -- wraps all DSP, 38 APVTS parameters, MTS-ESP, silence detection |
-| PluginEditor | Placeholder using GenericAudioProcessorEditor (sliders for all 38 params) |
+| PluginEditor | Phase 2 tuning UI: menu bar + TuningPanel (MTS-ESP status, .scl/.kbm load, cents table) |
 | CLAP note-off bug | Fixed in src/clap.cpp -- added MIDI dialect + CLAP_EVENT_MIDI handler |
-| Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md |
+| Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md, gui.md (OSC quirks documented) |
+| GUI mockup | roadmap/gui.json (OSC 1.30.3) -- v1 tested, screenshots in roadmap/screenshots/ |
 | JUCE submodule | libs/JUCE -- JUCE 8.0.14 |
 | Bluetooth MIDI (Standalone) | Fixed -- use BLUETOOTH_PERMISSION_ENABLED/TEXT in juce_add_plugin (PLIST_TO_MERGE is silently ignored) |
 
