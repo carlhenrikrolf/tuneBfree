@@ -133,6 +133,38 @@ This is probably overkill from the point of view of engineering.
 However, it would be good if you can look into both audio tools and psychophysics papers and geenrate a report on the matter.
 
 
+**Problems**
+- cannot load several kbm files or directories
+- name is shown as the filename rather than as the top entry to the scl file
+- inferred period on scala files even though this is specified in the files. Take [9ed3halves](../tunings/9ed3halves/) as an example. If you look in the .scl file, it seems as though the scale period is 9/4 (as a ratio, but can be converted to cents). A period of 18 steps per 9/4 is equivalent to 9 steps per 3/2 so that is also an answer. More informative answers would be either the step size ~78c or looking at the kbm files and see that 14 scale steps (~1092c) is an octave in terms of piano keys (i.e. not the actual interval octave). I think the ~78c value is probably the right call here as the smallest possible period and also one that is practically useful. On the other hand it is easy to infer from the penultimate to last note information. So maybe look at scale degree for formal octave in the earliest kbm file is the most reasonable. (ignore the notes about empty map—thats from the surge xt template.)
+- shows loaded scale from scala files even though mts esp is activated or anything other than FILE. the files should only be used when FILE is selected. If you select a file and it's not maybe it makes sense to automatically switch to FILE or at least bring up a dialog asking you whether that's what you want to do. So far I have only tested the scala files as that's easier.
+- The default directories when you load scl and kbm is always home, can you change this so it is the last opened directory instead.
+- I think soft/normal is the wrong way around. Actually I though hard was the opposite of soft so may have tricked you on the labelling in the gui, maybe it should be normal? or norm? or soemthing? It is a bit hard to hear much of a difference though.
+
+**successes**
+- Loads scl and kbm files
+- The default scale sounds like 12edo.
+- The drive is good as it is!
+- I think 2nd 3rd is the right way!
+- reverb works
+- leslie works
+- chorus vibrato works
+- drawbars work even though I'm not completely sure that the quantization works as it should.
+- the last note and penultimate note seem to work for hz and cents. maybe there should be an arrow from the penultimate hx to the last hz, but let's not do that now as the gui looks good as it is. an idea for future small details.
+- from what I can hear by briefly testing the tuning works as it should. At least for simple sine waves. I am not entirely sure about the quantization.
+
+
+**clarifications**
+- The default scale should be "Gear60 (~12edo)".
+- This should be visible in the scale name at start-up and should be the inital state for all the scale encodings at start-up. From there on, each encodeding scheme is updated separately.
+- I have added a tunings directory to the repo with some example tunings.
+- It should be the combined switch for the leslie, but we will come back to this later.
+
+**sandbox**
+- claude, you are in a sandbox and I want to keep it so.
+- Even so, can you test audio?
+- Or can you write the test files and then I can run them, e.g. through some of the debugging tools in vscode
+- Some things need a daw rather than the standalone. On mac it seems as though mts esp only works within a daw and not for standalones? that is easier on raspberry pi where it doesn't matter.
 
 [^SurgeTuningEditor]: Surge XT has a tuning editor where you can see the frequency of each midi note. This has a use as Surge can act as an MTS ESP master. However, this tuning panel is only meant to be used as a client (or equivalent for other microtuning coding schemes). Therefore, a live update on frequencies and cents ratios is a more lightweight approach that is more suitible here.
 [^TuningFiles]: For a complete list of tuning file formats, see https://scaleworkshop.plainsound.org/

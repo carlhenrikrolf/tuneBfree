@@ -77,66 +77,68 @@ intent* than the current exact test, not less.
 
 ---
 
-## 3. A period-size-aware inference algorithm
+## 3. Inferring the period robustly
 
-### 3.1 Fit, don't chain
+> **Is this a standard method?** No. The *estimators* below (minimax/midrange,
+> least-squares) are textbook, but inferring a scale period from a frequency table is
+> niche enough that there is no off-the-shelf named algorithm. Treat §3 as first
+> principles, not a citation.
 
-For a candidate scale size `s` (steps per period), let the per-pair period in octaves be
-`ρ_i = log₂(f[i+s] / f[i])`. The current code effectively takes `ρ_0` and demands every
-other pair equal it — errors **chain**. Instead, fit a single period by least squares in
-log space, which is just the mean:
+### 3.1 A bound, not a mean
 
-```
-ρ̂ = mean_i(ρ_i)          P̂ = 2^ρ̂   (geometric mean of the ratios)
-residual_i (cents) = 1200·(ρ_i − ρ̂)
-```
-
-One global `P̂` cannot compound, because every pair is compared to the same fitted value.
-
-### 3.2 The threshold must scale with period size (your point, formalized)
-
-What we actually care about is the **accumulated pitch error at the top of the range we
-tile to**, not the per-step residual. Extending the table adds
-`N = NOF_FREQS − 128 = 172` wheels ([tonegen.h:85](../src/tonegen.h#L85)); reaching the
-top wheel tiles the period
+For a candidate scale size `s` (steps per period), compute the period each adjacent pair
+implies, in cents:
 
 ```
-m = N / s           (number of period repetitions in the extension)
+p_i = 1200 · log₂(f[i+s] / f[i])
 ```
 
-times, so worst-case accumulated error ≈ `m · ē`, where `ē` is the typical per-period
-residual (§3.1). Requiring that to stay within a budget `B` gives a tolerance that
-**depends on `s`**:
+If the table were exactly periodic all `p_i` would be equal; with rounding they scatter.
+The natural test is a **bound on the spread**, not an average:
 
 ```
-ē_max  =  B · s / N            (per-period residual tolerance, in cents)
+spread(s) = max_i p_i − min_i p_i
+accept s   if   spread(s) ≤ τ
 ```
 
-This is exactly why "~1 cent" only made sense for an octave-ish period:
+and take the period as the **midrange**, `P̂ = (max_i p_i + min_i p_i) / 2`. The midrange
+is the minimax estimate — it minimises the *worst-case* deviation, which is what a bound
+cares about. (A least-squares geometric mean instead minimises RMS and can let a single
+outlier pair slip through, which is why it's the wrong tool here.) Pick the **smallest**
+`s` that passes, so 12-EDO reports `s = 12`, not 24.
 
-- Octave EDO, `s = 12`, `B = 5 c`:  `ē_max ≈ 5·12/172 ≈ 0.35 cent`.
-- A **78-cent** period spanning `s = 2` steps, same budget: `ē_max ≈ 5·2/172 ≈ 0.06
-  cent` — much tighter, because we tile it ~86 times instead of ~14.
+This matches your instinct directly: *a quantised octave is accepted iff every step agrees
+on the octave to within τ.* A flat **τ ≈ 1 cent** is a sound default — comfortably below
+the ~3–5 cent musical JND (§1–§2) yet loose enough to absorb 14-bit MTS quantisation
+(~0.01 c) and cents-rounded `.scl` files.
 
-So the smaller the period (the smaller `s`), the tighter the per-period residual must be.
-A flat cent threshold is wrong; `B·s/N` makes it self-scaling. (The same logic bounds the
-*within-table* fit, which tiles `128/s` times — use whichever range is longer.)
+### 3.2 Optional: tightening τ for very small periods
 
-### 3.3 Choosing `s` and labelling the result
+A flat τ ignores one effect. `extendFrequencies` tiles the period to fill the `N = 172`
+wheels above the table ([tonegen.h:85](../src/tonegen.h#L85)), so a per-period error is
+re-applied up to `m = N / s` times and the error at the top wheel grows ≈ `m · (per-period
+error)`. To *guarantee* the extended top note stays within a budget `B`, tighten the bound
+for small `s`:
 
-1. For each `s = 1 … 127`, compute `ρ̂(s)` and `max_i |residual_i|`.
-2. Pick the **smallest `s`** whose fit passes `max|residual| < ē_max(s)`. (Smallest, so
-   12-EDO reports `s = 12` / period 2:1, not `s = 24`.)
-3. Label for the panel's row-5 descriptor:
-   - `max|residual|` ≲ 0.01 cent (float noise) → **"specified / exact period"**
-   - passes but above that floor → **"approximated period"**
+```
+τ(s) = B · s / N
+```
+
+Octave (`s=12`, `B=5 c`) → `τ ≈ 0.35 c`; a 78-cent period (`s≈2`) → `τ ≈ 0.06 c` — tighter,
+because it is tiled ~86× instead of ~14×. **In practice this is usually moot:** the sources
+that actually feed tuneBfree (MTS ~0.01 c, sane `.scl`) sit far under even the flat τ, and
+the extended region only matters for the upper harmonics of very high notes. Ship the flat
+τ first; add the `·s/N` tightening only if a real tuning trips it.
+
+### 3.3 Labelling the result
+
+1. For each `s = 1 … 127`, compute `spread(s)`.
+2. Pick the **smallest** `s` with `spread(s) ≤ τ`.
+3. Panel row-5 descriptor:
+   - `spread` ≲ 0.01 cent (float noise) → **"specified / exact period"**
+   - passes τ but above that floor → **"approximated period"**
    - nothing passes → **no period** → fall back to **whole-table span as the period**
      (replacing the current clamp — see §4).
-
-`B` should be a single tunable constant; **`B ≈ 3–5 cents`** is well-justified by §1–§2.
-Optionally make `B` frequency-aware (looser below ~200 Hz where cents-JND balloons), but
-that is almost certainly over-engineering for this use — a flat `B` with the `·s/N`
-scaling already captures the important effect.
 
 ---
 
@@ -150,9 +152,16 @@ scaling already captures the important effect.
 2. **Add approximate inference** (§3) behind `inferScaleSize`, returning the period, the
    max residual, and the exact/approx/none label. Keep the exact path as the residual ≈ 0
    case.
-3. **Multichannel** — separate design task; the table is single-channel today
-   (channel 0). The fundamental-vs-harmonic question is architectural, not perceptual
-   (see the discussion accompanying this report), and is deferred.
+3. **Multichannel = more notes, one scale.** Different MIDI channels carry different
+   keyboard *mappings* into the *same* scale, to address > 128 notes — e.g. two staggered
+   keyboards splitting 24-EDO (naturals on one channel, quarter-tones on the other), or a
+   Lumatone. Implement by merging every mapped `(note, channel)` pitch into one ascending,
+   de-duplicated frequency table (the full gamut, with a small cents tolerance for the
+   dedup), then run §3 inference and the step-1 extension on that merged table. Routing then
+   needs the channel — today [`oscKeyOn`](../src/tonegen.h#L593) takes only a note number
+   and the table is built from channel 0 alone ([tuning.cpp:19](../src/tuning.cpp#L19)) —
+   and `NOF_FREQS` (300) may need raising for large gamuts. Per-*channel* different
+   *scales* (kora+bala, gamelan+flute) are explicitly **out of scope**: assume one scale.
 
 ---
 

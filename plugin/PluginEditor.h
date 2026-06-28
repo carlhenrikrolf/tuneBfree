@@ -126,7 +126,13 @@ public:
     bool isTuningPanelShowing () const;
     void refreshTuningPanel ();
 
+    // Pull current parameter values into the controls (host automation / preset
+    // recall). Called from the editor's timer; skips while the user is dragging.
+    void syncFromParams ();
+
 private:
+    TuneBfreeAudioProcessor& proc;
+
     // Tuning overlay (child component; hidden until TUNING is pressed).
     TuningSidePanelContent tuningContent;
 
@@ -182,6 +188,13 @@ private:
     ManualState captureStateFromControls () const;
     void updateControlsFromState (const ManualState& s);
     void switchToManual (bool toUpper);
+
+    // --- engine wiring (control -> parameter) ---
+    void  setParam (const juce::String& id, float realValue);
+    float getParam (const juce::String& id) const;
+    void  applyLfoToParams ();      // VIBRATO/CHORUS/OFF + DEPTH -> vibrato, vibrato_type
+    void  applyLeslieToParams ();   // CHORALE/STOP/TREMOLO      -> drum, horn
+    void  applyPercToParams ();     // the four percussion 2-way switches
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DefaultPage)
 };

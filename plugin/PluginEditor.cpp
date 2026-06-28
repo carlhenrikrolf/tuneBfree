@@ -188,17 +188,21 @@ juce::Font TuneBfreeLookAndFeel::getPopupMenuFont ()                { return uiF
 // ============================================================================
 
 // Wire a set of buttons as a mutually-exclusive (radio) group: clicking one
-// turns it on and the others off. Used for every switch on the page.
-static void makeRadioGroup (std::initializer_list<juce::TextButton*> list)
+// turns it on and the others off. Used for every switch on the page. The optional
+// onChange callback runs after the toggle update (used to push the new state to a
+// parameter).
+static void makeRadioGroup (std::initializer_list<juce::TextButton*> list,
+                            std::function<void()> onChange = {})
 {
     std::vector<juce::TextButton*> group (list);
     for (auto* b : group)
     {
         b->setClickingTogglesState (true);
-        b->onClick = [group, b]
+        b->onClick = [group, b, onChange]
         {
             for (auto* other : group)
                 other->setToggleState (other == b, juce::dontSendNotification);
+            if (onChange) onChange();
         };
     }
 }
@@ -469,25 +473,26 @@ static const char* kFootage[9] = {
     "16'", "5\xe2\x85\x93'", "8'", "4'", "2\xe2\x85\x94'", "2'", "1\xe2\x85\x97'", "1\xe2\x85\x93'", "1'"
 };
 
-DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : tuningContent (p)
+DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent (p)
 {
-    // ---- LFO: vibrato / chorus / off ----
-    makeRadioGroup ({ &vibratoBtn, &chorusBtn, &modOffBtn });
+    // ---- LFO: vibrato / chorus / off (+ depth) -> vibrato, vibrato_type ----
+    makeRadioGroup ({ &vibratoBtn, &chorusBtn, &modOffBtn }, [this] { applyLfoToParams(); });
     for (auto* b : { &vibratoBtn, &chorusBtn, &modOffBtn }) addAndMakeVisible (b);
 
     depthKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     depthKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     depthKnob.setRange (1.0, 3.0, 1.0);
     depthKnob.setValue (2.0, juce::dontSendNotification);
+    depthKnob.onValueChange = [this] { applyLfoToParams(); };
     addAndMakeVisible (depthKnob);
     styleCaption (depthLabel, "DEPTH");
     addAndMakeVisible (depthLabel);
 
     // ---- Envelope: percussion, four 2-way vertical switches ----
-    makeRadioGroup ({ &percOnBtn,   &percOffBtn  });
-    makeRadioGroup ({ &percFastBtn, &percSlowBtn });
-    makeRadioGroup ({ &percSoftBtn, &percHardBtn });
-    makeRadioGroup ({ &perc2ndBtn,  &perc3rdBtn  });
+    makeRadioGroup ({ &percOnBtn,   &percOffBtn  }, [this] { applyPercToParams(); });
+    makeRadioGroup ({ &percFastBtn, &percSlowBtn }, [this] { applyPercToParams(); });
+    makeRadioGroup ({ &percSoftBtn, &percHardBtn }, [this] { applyPercToParams(); });
+    makeRadioGroup ({ &perc2ndBtn,  &perc3rdBtn  }, [this] { applyPercToParams(); });
     for (auto* b : { &percOnBtn, &percOffBtn, &percFastBtn, &percSlowBtn,
                      &percSoftBtn, &percHardBtn, &perc2ndBtn, &perc3rdBtn })
         addAndMakeVisible (b);
@@ -551,6 +556,7 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : tuningContent (p)
         db.setValue ((double) upperState.drawbars[i], juce::dontSendNotification);
         db.setColour (juce::Slider::thumbColourId, TuneBfreeLookAndFeel::drawbarColour (i));
         db.getProperties().set ("drawbar", true);
+        db.onValueChange = [this, i] { setParam ("drawbar" + juce::String (i), (float) drawbars[i].getValue()); };
         addAndMakeVisible (db);
 
         styleCaption (footageLabels[i], utf8 (kFootage[i]));
@@ -558,7 +564,7 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : tuningContent (p)
     }
 
     // ---- Leslie ----
-    makeRadioGroup ({ &choraleBtn, &stopBtn, &tremoloBtn });
+    makeRadioGroup ({ &choraleBtn, &stopBtn, &tremoloBtn }, [this] { applyLeslieToParams(); });
     choraleBtn.setToggleState (true, juce::dontSendNotification);
     for (auto* b : { &choraleBtn, &stopBtn, &tremoloBtn }) addAndMakeVisible (b);
 
@@ -579,17 +585,34 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : tuningContent (p)
         k->setRange (0.0, 1.0);
         addAndMakeVisible (k);
     }
+    // DRIVE drives the overdrive "character" (0..1) and switches overdrive on when > 0.
+    driveKnob.onValueChange = [this]
+    {
+        float d = (float) driveKnob.getValue();
+        setParam ("character", d);
+        setParam ("overdrive", d > 0.0f ? 1.0f : 0.0f);
+    };
+    reverbKnob.onValueChange = [this] { setParam ("reverb_mix", (float) reverbKnob.getValue()); };
     styleCaption (driveLabel,  "DRIVE");
     styleCaption (reverbLabel, "REVERB");
     addAndMakeVisible (driveLabel);
     addAndMakeVisible (reverbLabel);
 
-    // Initial UI state
-    setModButtons  (upperState.vibratoMode);
-    setPercButtons (upperState.percOn, upperState.percFast, upperState.percSoft, upperState.percThird);
+    // ---- Disable controls with no engine backing yet (see roadmap/GUI_WIRING.md) ----
+    // Single manual only; bitimbral / split / crossfade and a dedicated expression
+    // (volume) parameter are not in the DSP yet, so grey them out rather than imply
+    // they work.
+    auto disable = [] (juce::Component& c) { c.setEnabled (false); c.setAlpha (0.4f); };
+    for (auto* b : { &upperBtn, &lowerBtn, &bitimbralBtn }) disable (*b);
+    disable (splitKnob);     disable (splitLabel);   disable (splitNoteLabel);
+    disable (crossfadeKnob); disable (crossfadeLabel);
+    disable (expressionKnob); disable (expressionLabel);
 
     // Add the tuning overlay LAST so it paints on top of everything.
     addChildComponent (tuningContent);
+
+    // Reflect the processor's current parameter values in every wired control.
+    syncFromParams();
 }
 
 // ---- State helpers ----
@@ -646,6 +669,82 @@ void DefaultPage::switchToManual (bool toUpper)
     (isUpper ? upperState : lowerState) = captureStateFromControls();
     isUpper = toUpper;
     updateControlsFromState (isUpper ? upperState : lowerState);
+}
+
+// ---- Engine wiring (control -> parameter) ----
+
+void DefaultPage::setParam (const juce::String& id, float realValue)
+{
+    if (auto* p = proc.apvts.getParameter (id))
+        p->setValueNotifyingHost (p->convertTo0to1 (realValue));
+}
+
+float DefaultPage::getParam (const juce::String& id) const
+{
+    return proc.apvts.getRawParameterValue (id)->load();
+}
+
+// VIBRATO/CHORUS/OFF + DEPTH -> vibrato (on/off) + vibrato_type.
+// vibrato_type is interleaved: 0=V1 1=C1 2=V2 3=C2 4=V3 5=C3 (vibrato.cpp).
+void DefaultPage::applyLfoToParams()
+{
+    const bool off = modOffBtn.getToggleState();
+    setParam ("vibrato", off ? 0.0f : 1.0f);
+    if (! off)
+    {
+        int depth = juce::jlimit (1, 3, (int) std::lround (depthKnob.getValue()));
+        int type  = 2 * (depth - 1) + (chorusBtn.getToggleState() ? 1 : 0);
+        setParam ("vibrato_type", (float) type);
+    }
+}
+
+// CHORALE/STOP/TREMOLO -> drum & horn together (0=stop, 1=slow, 2=fast; whirl.cpp).
+void DefaultPage::applyLeslieToParams()
+{
+    int speed = stopBtn.getToggleState() ? 0 : (choraleBtn.getToggleState() ? 1 : 2);
+    setParam ("drum", (float) speed);
+    setParam ("horn", (float) speed);
+}
+
+// The four percussion 2-way switches. NOTE: percussion_vol is inverted in the
+// engine (applyParam does 1 - value), so SOFT -> 0 and NORMAL/HARD -> 1.
+void DefaultPage::applyPercToParams()
+{
+    setParam ("percussion",     percOnBtn.getToggleState()   ? 1.0f : 0.0f);
+    setParam ("percussion_dec", percFastBtn.getToggleState() ? 1.0f : 0.0f);
+    setParam ("percussion_vol", percSoftBtn.getToggleState() ? 0.0f : 1.0f);
+    setParam ("percussion_har", perc3rdBtn.getToggleState()  ? 1.0f : 0.0f);
+}
+
+void DefaultPage::syncFromParams()
+{
+    // Don't fight the user mid-gesture; resume syncing once the mouse is released.
+    if (juce::Component::isMouseButtonDownAnywhere())
+        return;
+
+    for (int i = 0; i < 9; ++i)
+        drawbars[i].setValue (getParam ("drawbar" + juce::String (i)), juce::dontSendNotification);
+
+    reverbKnob.setValue (getParam ("reverb_mix"), juce::dontSendNotification);
+    driveKnob.setValue  (getParam ("character"),  juce::dontSendNotification);
+
+    // LFO: rebuild mode + depth from vibrato / vibrato_type.
+    const bool vibOn = getParam ("vibrato") > 0.5f;
+    const int  vtype = (int) std::lround (getParam ("vibrato_type"));
+    setModButtons (vibOn ? ((vtype % 2 == 1) ? 2 : 1) : 0);   // odd type = chorus
+    depthKnob.setValue (vtype / 2 + 1, juce::dontSendNotification);
+
+    // Percussion (note the inverted percussion_vol: value 0 = soft).
+    setPercButtons (getParam ("percussion")     > 0.5f,
+                    getParam ("percussion_dec") > 0.5f,
+                    getParam ("percussion_vol") < 0.5f,
+                    getParam ("percussion_har") > 0.5f);
+
+    // Leslie: derive the 3-way from the horn speed.
+    const int horn = (int) std::lround (getParam ("horn"));
+    choraleBtn.setToggleState (horn == 1, juce::dontSendNotification);
+    stopBtn.setToggleState    (horn == 0, juce::dontSendNotification);
+    tremoloBtn.setToggleState (horn == 2, juce::dontSendNotification);
 }
 
 // ---- Tuning panel ----
@@ -841,7 +940,7 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     addAndMakeVisible (defaultPage);
 
     setSize (740, 430);
-    startTimerHz (2);
+    startTimerHz (15);   // drives the tuning clock + control sync (host automation / presets)
 }
 
 TuneBfreeAudioProcessorEditor::~TuneBfreeAudioProcessorEditor()
@@ -868,6 +967,7 @@ void TuneBfreeAudioProcessorEditor::resized()
 
 void TuneBfreeAudioProcessorEditor::timerCallback()
 {
+    defaultPage.syncFromParams();
     if (defaultPage.isTuningPanelShowing())
         defaultPage.refreshTuningPanel();
 }
