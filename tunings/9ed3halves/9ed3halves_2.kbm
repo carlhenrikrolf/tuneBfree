@@ -1,19 +1,20 @@
-! Automatically generated mapping, tuning note 69 to 440 Hz
-!
+! 9ed3halves keyboard 2. Identical to keyboard 1 but tuned one ~78c step lower
+! (note 69 -> 440 / 2^(78/1200) = 420.618 Hz), so a second manual/channel fills the
+! notes keyboard 1 skips at E-F and B-C. Together the two keyboards cover every step.
 ! Size of map
 12
-! First and last MIDI notes to map - map the entire keyboard
+! First and last MIDI notes to map
 0
 127
-! Middle note where the first entry in the scale is mapped.
-61
+! Middle note where the first scale degree is mapped
+60
 ! Reference note where frequency is fixed
 69
-! Frequency for MIDI note 69
-440
-! Scale degree for formal octave. This is am empty mapping, so:
+! Frequency for MIDI note 69 (one ~78c step below 440)
+420.6172
+! Scale degree for the formal octave = 14 (= scale size, so it tiles cleanly)
 14
-! Mapping. This is an empty mapping so list no keys
+! Mapping: same as keyboard 1
 0
 1
 2

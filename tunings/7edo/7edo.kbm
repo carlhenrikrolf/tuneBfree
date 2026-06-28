@@ -1,0 +1,28 @@
+! Automatically generated mapping, tuning note 69 to 440 Hz
+!
+! Size of map
+12
+! First and last MIDI notes to map - map the entire keyboard
+0
+127
+! Middle note where the first entry in the scale is mapped.
+60
+! Reference note where frequency is fixed
+69
+! Frequency for MIDI note 69
+440
+! Scale degree for formal octave. This is am empty mapping, so:
+7
+! Mapping. This is an empty mapping so list no keys
+0
+x
+1
+x
+2
+3
+x
+4
+x
+5
+x
+6

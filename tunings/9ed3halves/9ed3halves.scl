@@ -1,6 +1,8 @@
-! Automatically generated Even Division of 1403.91 ct into 18 scale
-Automatically generated Even Division of 1403.91 ct into 18 scale
-18
+! 9ed3halves laid out for a major-seventh piano octave: 14 equal ~78c steps.
+! Pitches are the 9-EDO-of-3/2 grid (step = (3/2)^(1/9)); the period here is the
+! major seventh (14 steps ~ 1091.9c) so it tiles the keyboard cleanly.
+9ed3halves (major-seventh octave): 14 x 77.995 ct
+14
 !
 77.995002
 155.990004
@@ -16,7 +18,3 @@ Automatically generated Even Division of 1403.91 ct into 18 scale
 935.940023
 1013.935025
 1091.930027
-1169.925028
-1247.920030
-1325.915032
-9/4

@@ -1,0 +1,30 @@
+! 13ed3 chromatic mapping: 13 consecutive keys per 3/1 tritave, every key plays.
+! (Treats 3/1 as the keyboard "octave". For a white-keys-only layout that keeps the
+! ~146c piano feel, load 13ed3_white.scl + 13ed3_white.kbm instead.) Note 69 -> 440 Hz.
+! Size of map
+13
+! First and last MIDI notes to map
+0
+127
+! Middle note where the first scale degree is mapped
+60
+! Reference note where frequency is fixed
+69
+! Frequency for MIDI note 69
+440
+! Scale degree for the formal octave (one 3/1 tritave = 13 degrees)
+13
+! Mapping: keys 0..12 -> scale degrees 0..12
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12

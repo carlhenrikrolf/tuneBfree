@@ -101,6 +101,10 @@ private:
     juce::TextButton noteOnBtn { "NOTE ON" }, alwaysBtn { "ALWAYS" }; // 2-way toggle
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::File lastTuningDir { juce::File::getSpecialLocation (juce::File::userHomeDirectory) };
+
+    // After loading a file while the source isn't FILE, offer to switch to FILE.
+    void maybeOfferSwitchToFile();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuningSidePanelContent)
 };
@@ -146,7 +150,7 @@ private:
     // --- Envelope: percussion, as four 2-way vertical switches in a row ---
     juce::TextButton percOnBtn   { "ON"   }, percOffBtn  { "OFF"  };
     juce::TextButton percFastBtn { "FAST" }, percSlowBtn { "SLOW" };
-    juce::TextButton percSoftBtn { "SOFT" }, percHardBtn { "HARD" };
+    juce::TextButton percSoftBtn { "SOFT" }, percNormBtn { "NORM" };
     juce::TextButton perc2ndBtn  { "2ND"  }, perc3rdBtn  { "3RD"  };
 
     // --- Timbrality (UI only) ---

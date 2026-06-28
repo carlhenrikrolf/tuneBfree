@@ -1,0 +1,29 @@
+! Play the white keys only; each is one 13ed3 step (~146.3c) above the last, and a
+! "piano octave" of 7 white keys = 1024.13c. Black keys are silent. Every white key
+! sounds (regular, no gaps) because the scale repeats every 7 steps. Note 69 -> 440 Hz.
+! Size of map
+12
+! First and last MIDI notes to map
+0
+127
+! Middle note where the first scale degree is mapped
+60
+! Reference note where frequency is fixed
+69
+! Frequency for MIDI note 69
+440
+! Scale degree for the formal octave = 7 (= scale size, so it tiles cleanly)
+7
+! Mapping: white keys -> degrees 0..6, black keys -> x (silent)
+0
+x
+1
+x
+2
+3
+x
+4
+x
+5
+x
+6

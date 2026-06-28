@@ -121,6 +121,13 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     currentSampleRate = sampleRate;
     boffset = BUFFER_SIZE_SAMPLES;
 
+    // Plain 12-TET table for the STANDARD source ("Gear60 (~12edo)").
+    for (int i = 0; i < NOF_FREQS; ++i)
+        standardFrequencies[i] = 440.0 * std::pow(2.0, (i - 69) / 12.0);
+
+    // No local tuning yet: every note is mapped (nothing silenced).
+    for (int i = 0; i < 128; ++i) localMapped[i] = currentNoteMapped[i] = true;
+
     // Build targetRatio from current parameter values
     double targetRatio[NOF_DRAWBARS] = {};
     for (int i = 0; i < NOF_DRAWBARS; i++) {
@@ -191,8 +198,20 @@ void TuneBfreeAudioProcessor::reinitToneGen()
         previousRatio[i] = targetRatio[i];
     }
 
-    const double* freqSrc = hasLocalTuning.load() ? localFrequencies : nullptr;
+    // Pick the frequency table for the active tuning source. FILE uses the loaded
+    // .scl/.kbm; STANDARD uses plain 12-TET; MTS/SYSEX leave it null so the tonegen
+    // pulls from the MTS-ESP client.
+    const int src = tuningSource.load();
+    const double* freqSrc = nullptr;
+    if (src == TS_FILE && hasLocalTuning.load())  freqSrc = localFrequencies;
+    else if (src == TS_STANDARD)                  freqSrc = standardFrequencies;
     initToneGenerator(synth, nullptr, currentSampleRate, targetRatio, freqSrc);
+
+    // Snapshot the .kbm's note mapping for note-on filtering. Only FILE silences
+    // unmapped ("x") keys; every other source maps all notes.
+    const bool fileMapped = (src == TS_FILE && hasLocalTuning.load());
+    for (int i = 0; i < 128; ++i)
+        currentNoteMapped[i] = fileMapped ? localMapped[i] : true;
     init_vibrato(&synth->inst_vibrato, currentSampleRate);
 
     // Re-apply tonegen parameters
@@ -348,10 +367,16 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
-    if (tuningChanged)
+    // MTS-ESP frequency changes only matter when an MTS-based source is active.
+    const int  src           = tuningSource.load();
+    const bool sourceUsesMTS = (src == TS_MTS || src == TS_SYSEX);
+    if (tuningChanged && sourceUsesMTS)
         lastTuningChangeMs.store(juce::Time::currentTimeMillis());
 
-    if (tuningChanged || ratioChanged || localTuningNeedsReinit.exchange(false, std::memory_order_acquire))
+    // Always consume the reinit flag (set by file load or source change) so it can't
+    // re-trigger; short-circuiting it inside the || would leave it stuck.
+    const bool needReinit = localTuningNeedsReinit.exchange(false, std::memory_order_acquire);
+    if ((tuningChanged && sourceUsesMTS) || ratioChanged || needReinit)
         reinitToneGen();
 
     // --- Silence detection: skip DSP when no notes have sounded for > tail length ---
@@ -385,15 +410,23 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             // Forward raw sysex to MTS-ESP client. Handles all MTS tuning bulk-dump and
             // single-note retune formats, allowing tuning without an MTS-ESP master plug-in.
             MTS_ParseMIDIDataU(mtsClient, msg.getRawData(), msg.getRawDataSize());
-            lastTuningChangeMs.store(juce::Time::currentTimeMillis());
-            reinitToneGen();
+            if (sourceUsesMTS) {
+                lastTuningChangeMs.store(juce::Time::currentTimeMillis());
+                reinitToneGen();
+            }
         }
         else {
             const int  noteNumber = msg.getNoteNumber();
             const char midiCh     = (char)(msg.getChannel() - 1); // JUCE 1-16 → MTS-ESP 0-15
 
             if (msg.isNoteOn()) {
-                if (MTS_ShouldFilterNote(mtsClient, (char) noteNumber, midiCh)) {
+                // Silence notes the active source marks as unplayed: MTS-ESP via its
+                // per-scale filter signal, FILE via the .kbm's "x" (unmapped) keys.
+                // SYSEX / STANDARD never filter.
+                const bool filter =
+                    (src == TS_MTS  && MTS_ShouldFilterNote(mtsClient, (char) noteNumber, midiCh)) ||
+                    (src == TS_FILE && ! currentNoteMapped[noteNumber]);
+                if (filter) {
                     filteredNotes[noteNumber] = true;
                 } else {
                     filteredNotes[noteNumber] = false;
@@ -447,6 +480,8 @@ void TuneBfreeAudioProcessor::loadSCLFile(const juce::File& file)
     try {
         localScale    = Tunings::readSCLFile(std::filesystem::path(file.getFullPathName().toStdString()));
         localSclName  = file.getFileName();
+        // The .scl's own name line (top of the file), shown instead of the filename.
+        localSclDescription = juce::String(localScale.description).trim();
         localTuningError = {};
         rebuildLocalTuning();
     } catch (const Tunings::TuningError& e) {
@@ -471,6 +506,7 @@ void TuneBfreeAudioProcessor::clearLocalTuning()
 {
     localSclName  = {};
     localKbmName  = {};
+    localSclDescription = {};
     hasLocalKBM   = false;
     hasLocalTuning.store(false, std::memory_order_release);
     localTuningNeedsReinit.store(true, std::memory_order_release);
@@ -485,7 +521,10 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
                                   : Tunings::Tuning(localScale);
 
         for (int i = 0; i < 128; ++i)
+        {
             localFrequencies[i] = localTuning.frequencyForMidiNote(i);
+            localMapped[i]      = localTuning.isMidiNoteMapped(i);   // false = "x" key
+        }
 
         extendFrequencies(localFrequencies, NOF_FREQS);
 
@@ -500,17 +539,19 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
 double TuneBfreeAudioProcessor::getDisplayFrequency(int midiNote) const
 {
     midiNote = juce::jlimit(0, 127, midiNote);
-    if (hasLocalTuning.load())
+    const int src = tuningSource.load();
+    if (src == TS_FILE && hasLocalTuning.load())
         return localTuning.frequencyForMidiNote(midiNote);
-    if (mtsClient)
+    if ((src == TS_MTS || src == TS_SYSEX) && mtsClient)
         return MTS_NoteToFrequency(mtsClient, (char) midiNote, 0);
+    // STANDARD, or any source with nothing connected: plain 12-TET.
     return 440.0 * std::pow(2.0, (midiNote - 69) / 12.0);
 }
 
 double TuneBfreeAudioProcessor::getDisplayCents(int midiNote) const
 {
     midiNote = juce::jlimit(0, 127, midiNote);
-    if (hasLocalTuning.load())
+    if (tuningSource.load() == TS_FILE && hasLocalTuning.load())
         return localTuning.retuningFromEqualInCentsForMidiNote(midiNote);
     double freq    = getDisplayFrequency(midiNote);
     double refFreq = 440.0 * std::pow(2.0, (midiNote - 69) / 12.0);
@@ -520,11 +561,27 @@ double TuneBfreeAudioProcessor::getDisplayCents(int midiNote) const
 bool TuneBfreeAudioProcessor::isMidiNoteMapped(int midiNote) const
 {
     midiNote = juce::jlimit(0, 127, midiNote);
-    if (hasLocalTuning.load())
+    const int src = tuningSource.load();
+    if (src == TS_FILE && hasLocalTuning.load())
         return localTuning.isMidiNoteMapped(midiNote);
-    if (mtsClient)
+    if (src == TS_MTS && mtsClient)            // filtering is MTS-ESP only (see processBlock)
         return !MTS_ShouldFilterNote(mtsClient, (char) midiNote, 0);
-    return true;
+    return true;   // SYSEX / STANDARD map every note
+}
+
+void TuneBfreeAudioProcessor::setTuningSource(int sourceId)
+{
+    tuningSource.store(sourceId);
+    // Force the audio thread to rebuild the tonewheel table from the new source.
+    localTuningNeedsReinit.store(true, std::memory_order_release);
+}
+
+// The period the .scl declares: its last tone (the repeat interval), in cents.
+double TuneBfreeAudioProcessor::getLocalSclPeriodCents() const
+{
+    if (localSclName.isEmpty() || localScale.tones.empty())
+        return -1.0;
+    return localScale.tones.back().cents;
 }
 
 bool TuneBfreeAudioProcessor::isMTSConnected() const noexcept

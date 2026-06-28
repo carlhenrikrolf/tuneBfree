@@ -1,0 +1,5 @@
+{
+	"cmake.configureSettings": {
+		"TUNEBFREE_BUILD_TESTS": true
+	}
+}

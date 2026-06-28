@@ -31,6 +31,10 @@
 #define P_RATIO_BOT_MAX   37
 #define P_COUNT           38
 
+// Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
+// (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
+enum TuningSourceId { TS_MTS = 1, TS_SYSEX = 2, TS_FILE = 3, TS_STANDARD = 6 };
+
 class TuneBfreeAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -78,7 +82,14 @@ public:
     bool           getHasLocalTuning()  const noexcept { return hasLocalTuning.load(); }
     juce::String   getLocalSclName()    const { return localSclName; }
     juce::String   getLocalKbmName()    const { return localKbmName; }
+    juce::String   getLocalSclDescription() const { return localSclDescription; }
     juce::String   getLocalTuningError() const { return localTuningError; }
+    // Period the .scl file itself declares (its last tone), in cents; -1 if none loaded.
+    double         getLocalSclPeriodCents() const;
+
+    // Which encoding feeds the engine (TuningSourceId). Files apply only under TS_FILE.
+    void setTuningSource(int sourceId);
+    int  getTuningSource() const noexcept { return tuningSource.load(); }
 
     // Per-note display frequency / cents — safe to call from any thread.
     // Falls back to 12-TET if no tuning source is active.
@@ -159,7 +170,20 @@ private:
     bool                     hasLocalKBM = false;
     juce::String             localSclName;
     juce::String             localKbmName;
+    juce::String             localSclDescription;  // the .scl's name/description line
     juce::String             localTuningError;  // set if last load failed
+
+    // Which encoding feeds the engine (TuningSourceId). Default: MTS-ESP.
+    std::atomic<int>         tuningSource{ TS_MTS };
+
+    // 12-TET frequency table used when the source is STANDARD (ignores MTS / files).
+    double                   standardFrequencies[NOF_FREQS] = {};
+
+    // Which MIDI notes the local .kbm maps (false = an "x"/unmapped key, to be silenced).
+    // localMapped is written on the message thread; currentNoteMapped is the audio-thread
+    // snapshot taken at reinit and read at note-on (so localTuning is never touched there).
+    bool                     localMapped[128] = {};
+    bool                     currentNoteMapped[128] = {};
 
     void rebuildLocalTuning();
 

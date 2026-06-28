@@ -168,6 +168,20 @@ short getPairedWheel(short n)
 }
 
 #ifdef TESTS
+
+#include "Tunings.h"
+#include <filesystem>
+
+// Path to a file under the repo's tunings/ directory. TUNEBFREE_TUNINGS_DIR is
+// set by CMake (the test target); the fallback lets the file compile elsewhere.
+#ifndef TUNEBFREE_TUNINGS_DIR
+#define TUNEBFREE_TUNINGS_DIR "tunings"
+#endif
+static std::filesystem::path tuningFile(const char *rel)
+{
+    return std::filesystem::path(TUNEBFREE_TUNINGS_DIR) / rel;
+}
+
 TEST_CASE("Testing getMTSESPFrequencies")
 {
     double frequency[128] = {0.0};
@@ -444,5 +458,124 @@ TEST_CASE("Testing getPairedWheel")
     CHECK(getPairedWheel(60) == 12);
     CHECK(getPairedWheel(150) == 102);
     CHECK(getPairedWheel(102) == 150);
+}
+
+// ---------------------------------------------------------------------------
+// Example tunings from the repo's tunings/ directory (loaded via Surge's
+// tuning-library). These validate the values the tuning panel reports.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Example tuning: 12ed2 is plain 12-TET")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("12ed2/12ed2.scl"));
+    CHECK(scale.count == 12);
+
+    Tunings::Tuning t(scale);
+    // Ratios are reference-independent: octave doubles, each step is 100 cents.
+    CHECK(std::fabs(t.frequencyForMidiNote(72) / t.frequencyForMidiNote(60) - 2.0) < 1e-9);
+    double stepCents = 1200.0 * std::log2(t.frequencyForMidiNote(61) / t.frequencyForMidiNote(60));
+    CHECK(std::fabs(stepCents - 100.0) < 1e-6);
+}
+
+TEST_CASE("Example tuning: 9ed3halves is 14 equal ~78c steps over a major seventh")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("9ed3halves/9ed3halves.scl"));
+    CHECK(scale.count == 14);
+    // The period is the major-seventh "octave" = 14 steps ~ 1091.9 cents.
+    CHECK(std::fabs(scale.tones.back().cents  - 1091.930) < 0.01);
+    CHECK(std::fabs(scale.tones.front().cents -   77.995) < 0.01);   // one ~78c step
+}
+
+TEST_CASE("Example tuning: 9ed3halves smallest inferred period is one ~78c step")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("9ed3halves/9ed3halves.scl"));
+    Tunings::Tuning t(scale);
+
+    double frequency[128];
+    for (int i = 0; i < 128; ++i)
+        frequency[i] = t.frequencyForMidiNote(i);
+
+    int scaleSize;
+    float period;
+    inferScaleSize(frequency, &scaleSize, &period);
+    CHECK(scaleSize == 1);   // equal temperament -> every step is a period
+    CHECK(std::fabs(1200.0 * std::log2((double) period) - 77.995) < 0.01);
+}
+
+TEST_CASE("Example tuning: 9ed3halves keyboards step 78c except E-F/B-C; kb2 one step below")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("9ed3halves/9ed3halves.scl"));
+    auto k1    = Tunings::readKBMFile(tuningFile("9ed3halves/9ed3halves_1.kbm"));
+    auto k2    = Tunings::readKBMFile(tuningFile("9ed3halves/9ed3halves_2.kbm"));
+    CHECK(k1.octaveDegrees == 14);          // == scale size, so it tiles without jumps
+    Tunings::Tuning t1(scale, k1), t2(scale, k2);
+
+    CHECK(std::fabs(t1.frequencyForMidiNote(69) - 440.0) < 0.01);
+
+    auto step = [&] (Tunings::Tuning& t, int n) {
+        return 1200.0 * std::log2(t.frequencyForMidiNote(n) / t.frequencyForMidiNote(n - 1)); };
+    // Adjacent keys are one ~78c step, except E-F (64->65) and B-C (71->72) skip a note.
+    for (int n : { 61, 62, 63, 64, 66, 67, 68, 69, 70, 71 })
+        CHECK(std::fabs(step(t1, n) - 77.995) < 0.01);
+    CHECK(std::fabs(step(t1, 65) - 155.990) < 0.01);
+    CHECK(std::fabs(step(t1, 72) - 155.990) < 0.01);
+    // Piano octave C->C is the major seventh (14 steps).
+    CHECK(std::fabs(1200.0 * std::log2(t1.frequencyForMidiNote(72)
+                                       / t1.frequencyForMidiNote(60)) - 1091.930) < 0.01);
+
+    // Keyboard 2 is a uniform ~78c below keyboard 1 (so it fills kb1's skipped notes).
+    for (int n = 60; n <= 72; ++n)
+        CHECK(std::fabs(1200.0 * std::log2(t2.frequencyForMidiNote(n)
+                                           / t1.frequencyForMidiNote(n)) + 77.995) < 0.05);
+}
+
+TEST_CASE("Example tuning: 7edo .kbm leaves the black keys unmapped (x)")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("7edo/7edo.scl"));
+    auto kbm   = Tunings::readKBMFile(tuningFile("7edo/7edo.kbm"));
+    Tunings::Tuning t(scale, kbm);
+
+    // White keys C..B map to the 7 scale degrees; the 5 black keys are "x" -> tuneBfree
+    // silences notes where isMidiNoteMapped() is false (see PluginProcessor note-on).
+    for (int n : { 60, 62, 64, 65, 67, 69, 71 }) CHECK(t.isMidiNoteMapped(n));
+    for (int n : { 61, 63, 66, 68, 70 })         CHECK(! t.isMidiNoteMapped(n));
+}
+
+TEST_CASE("Example tuning: 13ed3 is the Bohlen-Pierce tritave EDO")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("13ed3/13ed3.scl"));
+    CHECK(scale.count == 13);
+    CHECK(std::fabs(scale.tones.back().cents  - 1901.955) < 0.01);   // period = 3/1
+    CHECK(std::fabs(scale.tones.front().cents - 146.304231) < 0.001); // one step
+}
+
+TEST_CASE("Example tuning: 13ed3 chromatic mapping plays every key over a tritave")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("13ed3/13ed3.scl"));
+    auto kbm   = Tunings::readKBMFile(tuningFile("13ed3/13ed3.kbm"));
+    Tunings::Tuning t(scale, kbm);
+    for (int n = 55; n <= 75; ++n) CHECK(t.isMidiNoteMapped(n));      // every key plays
+    // 13 consecutive keys span one tritave (3:1).
+    CHECK(std::fabs(t.frequencyForMidiNote(73) / t.frequencyForMidiNote(60) - 3.0) < 1e-6);
+}
+
+TEST_CASE("Example tuning: 13ed3_white plays every white key (blacks silent), 146c apart")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("13ed3/13ed3_white.scl"));
+    CHECK(scale.count == 7);
+    auto kbm = Tunings::readKBMFile(tuningFile("13ed3/13ed3_white.kbm"));
+    Tunings::Tuning t(scale, kbm);
+
+    // EVERY white key sounds (incl. B3=71 and B5=83 — no silent white keys)...
+    for (int n : { 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83 })
+        CHECK(t.isMidiNoteMapped(n));
+    // ...and every black key is silent.
+    for (int n : { 61, 63, 66, 68, 70, 73, 75, 78, 80, 82 })
+        CHECK(! t.isMidiNoteMapped(n));
+
+    auto cents = [&](int n) { return 1200.0 * std::log2(t.frequencyForMidiNote(n)
+                                                        / t.frequencyForMidiNote(60)); };
+    CHECK(std::fabs(cents(62) -  146.304) < 0.01);   // adjacent white keys = one step
+    CHECK(std::fabs(cents(72) - 1024.130) < 0.01);   // a "piano octave" = 7 white steps
 }
 #endif

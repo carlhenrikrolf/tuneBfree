@@ -19,7 +19,7 @@ tuneBfree is a microtunable Hammond B3 tonewheel organ emulator, forked from set
 | PluginProcessor | Complete -- wraps all DSP, 38 APVTS parameters, MTS-ESP, silence detection |
 | PluginEditor | Phase 2 tuning UI: menu bar + TuningPanel (MTS-ESP status, .scl/.kbm load, cents table) |
 | CLAP note-off bug | Fixed in src/clap.cpp -- added MIDI dialect + CLAP_EVENT_MIDI handler |
-| Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md, gui.md (OSC quirks documented) |
+| Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md, gui.md, scala.md, mts-esp.md (OSC quirks documented) |
 | GUI mockup | roadmap/gui.json (OSC 1.30.3) -- v1 tested, screenshots in roadmap/screenshots/ |
 | JUCE submodule | libs/JUCE -- JUCE 8.0.14 |
 | Bluetooth MIDI (Standalone) | Fixed -- use BLUETOOTH_PERMISSION_ENABLED/TEXT in juce_add_plugin (PLIST_TO_MERGE is silently ignored) |
@@ -39,12 +39,22 @@ RPi: not yet tested.
 ### Build commands
 
 ```bash
-# First-time setup
-git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue
+# First-time setup (libs/doctest is only needed for the unit tests)
+git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue libs/doctest
 
 # Configure + build (auto-copies AU to ~/Library/Audio/Plug-Ins/Components/)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
+```
+
+### Tests
+
+JUCE-free doctest unit tests cover the DSP/tuning math (see TESTING.md):
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DTUNEBFREE_BUILD_TESTS=ON
+cmake --build build --target tuneBfree_tests
+ctest --test-dir build --output-on-failure
 ```
 
 Outputs land in build/tuneBfree_artefacts/Release/: Standalone/, AU/, VST3/, CLAP/.
@@ -87,7 +97,9 @@ tuneBfree/
 +-- .claude/skills/
 |   +-- setbfree.md         <- DSP architecture, API, signal chain
 |   +-- juce.md             <- JUCE AudioProcessor patterns, CMake
-|   +-- microtuning.md      <- MTS-ESP API, scale period, Sethares
+|   +-- microtuning.md      <- MTS-ESP API, scale period, Sethares (overview)
+|   +-- scala.md            <- .scl/.kbm format, octaveDegrees gotcha, layout recipe
+|   +-- mts-esp.md          <- MTS-ESP client API, note filtering, source gating
 +-- roadmap/
 |   +-- ROADMAP.md          <- full phased roadmap (Phases 0-4 + References)
 |   +-- TUNEBFREE_2.md      <- immediate next steps (Phase 0-1)

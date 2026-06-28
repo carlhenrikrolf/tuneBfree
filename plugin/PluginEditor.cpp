@@ -266,18 +266,19 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     styleSectionTitle (settingsTitle, "SETTINGS");
     addAndMakeVisible (settingsTitle);
 
-    // Encoding menu. UI-only for now: it remembers the choice but does not yet
-    // switch the engine's tuning source. MPE / MIDI 2.0 are shown but disabled.
-    encodingBox.addItem ("MTS ESP",  1);
-    encodingBox.addItem ("SYSEX",    2);
-    encodingBox.addItem ("FILE",     3);
+    // Encoding menu — selects which source feeds the engine. Item ids match the
+    // TuningSourceId enum. MPE / MIDI 2.0 are shown but disabled.
+    encodingBox.addItem ("MTS ESP",  TS_MTS);
+    encodingBox.addItem ("SYSEX",    TS_SYSEX);
+    encodingBox.addItem ("FILE",     TS_FILE);
     encodingBox.addItem ("MPE",      4);
     encodingBox.addItem ("MIDI 2.0", 5);
-    encodingBox.addItem ("STANDARD", 6);
+    encodingBox.addItem ("STANDARD", TS_STANDARD);
     encodingBox.setItemEnabled (4, false);
     encodingBox.setItemEnabled (5, false);
-    encodingBox.setSelectedId (1, juce::dontSendNotification);
+    encodingBox.setSelectedId (proc.getTuningSource(), juce::dontSendNotification);
     encodingBox.setJustificationType (juce::Justification::centred);
+    encodingBox.onChange = [this] { proc.setTuningSource (encodingBox.getSelectedId()); refresh(); };
     addAndMakeVisible (encodingBox);
 
     addAndMakeVisible (loadSclBtn);
@@ -286,28 +287,38 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     loadSclBtn.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Load Scala Scale (.scl)",
-            juce::File::getSpecialLocation (juce::File::userHomeDirectory), "*.scl");
+            "Load Scala Scale (.scl)", lastTuningDir, "*.scl");
         fileChooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
             [this] (const juce::FileChooser& fc)
             {
                 auto r = fc.getResults();
-                if (! r.isEmpty()) { proc.loadSCLFile (r[0]); refresh(); }
+                if (! r.isEmpty())
+                {
+                    lastTuningDir = r[0].getParentDirectory();   // remember for next time
+                    proc.loadSCLFile (r[0]);
+                    maybeOfferSwitchToFile();
+                    refresh();
+                }
             });
     };
 
     loadKbmBtn.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Load Keyboard Mapping (.kbm)",
-            juce::File::getSpecialLocation (juce::File::userHomeDirectory), "*.kbm");
+            "Load Keyboard Mapping (.kbm)", lastTuningDir, "*.kbm");
         fileChooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
             [this] (const juce::FileChooser& fc)
             {
                 auto r = fc.getResults();
-                if (! r.isEmpty()) { proc.loadKBMFile (r[0]); refresh(); }
+                if (! r.isEmpty())
+                {
+                    lastTuningDir = r[0].getParentDirectory();
+                    proc.loadKBMFile (r[0]);
+                    maybeOfferSwitchToFile();
+                    refresh();
+                }
             });
     };
 
@@ -383,20 +394,32 @@ void TuningSidePanelContent::resized()
 
 void TuningSidePanelContent::refresh()
 {
+    const int  src       = proc.getTuningSource();
     const bool connected = proc.isMTSConnected();
-    const bool hasFile   = proc.getLocalSclName().isNotEmpty();
+    const bool mtsLive    = (src == TS_MTS || src == TS_SYSEX) && connected;
 
-    // --- tuning name: local file wins (it overrides MTS in the engine), then MTS ---
-    juce::String name = hasFile ? proc.getLocalSclName()
-                                : (connected ? proc.getMTSScaleName() : juce::String());
-    scaleNameLabel.setText (name.isNotEmpty() ? name.toUpperCase() : "UNNAMED",
+    // --- tuning name: depends on the active source. "GEAR60 (~12EDO)" is the start-up
+    //     state for every encoding, shown whenever nothing is providing a tuning. ---
+    juce::String name;
+    if (src == TS_FILE)
+        name = proc.getLocalSclDescription().isNotEmpty() ? proc.getLocalSclDescription()
+                                                          : proc.getLocalSclName();
+    else if ((src == TS_MTS || src == TS_SYSEX) && connected)
+        name = proc.getMTSScaleName();
+    scaleNameLabel.setText (name.isNotEmpty() ? name.toUpperCase() : "GEAR60 (~12EDO)",
                             juce::dontSendNotification);
 
     // --- scale period (cents) ---
-    float period = proc.getInferredPeriod();
-    if (period > 0.0f)
+    // Under FILE, the .scl declares its own period (its last tone) -> "SPECIFIED".
+    double sclPeriod = (src == TS_FILE) ? proc.getLocalSclPeriodCents() : -1.0;
+    if (sclPeriod > 0.0)
     {
-        double cents = 1200.0 * std::log2 ((double) period);
+        periodLabel.setText (juce::String (sclPeriod, 0) + utf8 ("c \xc2\xb7 SPECIFIED PERIOD"),
+                             juce::dontSendNotification);
+    }
+    else if (proc.getInferredPeriod() > 0.0f)
+    {
+        double cents = 1200.0 * std::log2 ((double) proc.getInferredPeriod());
         periodLabel.setText (juce::String (cents, 0) + utf8 ("c \xc2\xb7 INFERRED PERIOD"),
                              juce::dontSendNotification);
     }
@@ -418,11 +441,10 @@ void TuningSidePanelContent::refresh()
             periodLabel.setText ("NONE", juce::dontSendNotification);
     }
 
-    // --- last-update clock: white text like the other boxes. While a live MTS
-    //     master is queried it shows the current time, so the ticking seconds
-    //     (not colour) signal that it is active; otherwise it shows the time of
-    //     the last file load / sysex retune. ---
-    if (connected)
+    // --- last-update clock: white text like the other boxes. While a live MTS source
+    //     is queried it shows the current time, so the ticking seconds signal it is
+    //     active; otherwise it shows the time of the last file load / sysex retune. ---
+    if (mtsLive)
     {
         timestampLabel.setText (juce::Time::getCurrentTime().toString (false, true, true, true),
                                 juce::dontSendNotification);
@@ -464,6 +486,23 @@ void TuningSidePanelContent::refresh()
     loadKbmBtn.setButtonText (kbm.isNotEmpty() ? kbm.toUpperCase() : "MAP");
 }
 
+void TuningSidePanelContent::maybeOfferSwitchToFile()
+{
+    if (proc.getTuningSource() == TS_FILE)
+        return;   // already using files
+
+    juce::AlertWindow::showOkCancelBox (
+        juce::MessageBoxIconType::QuestionIcon,
+        "Tuning source",
+        "A tuning file was loaded, but the active source is not FILE.\nSwitch to FILE now?",
+        "Switch", "Cancel", this,
+        juce::ModalCallbackFunction::create ([this] (int result)
+        {
+            if (result == 1)   // "Switch" -> sendNotification fires encodingBox.onChange
+                encodingBox.setSelectedId (TS_FILE, juce::sendNotification);
+        }));
+}
+
 // ============================================================================
 //  DEFAULT PAGE
 // ============================================================================
@@ -491,10 +530,10 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     // ---- Envelope: percussion, four 2-way vertical switches ----
     makeRadioGroup ({ &percOnBtn,   &percOffBtn  }, [this] { applyPercToParams(); });
     makeRadioGroup ({ &percFastBtn, &percSlowBtn }, [this] { applyPercToParams(); });
-    makeRadioGroup ({ &percSoftBtn, &percHardBtn }, [this] { applyPercToParams(); });
+    makeRadioGroup ({ &percSoftBtn, &percNormBtn }, [this] { applyPercToParams(); });
     makeRadioGroup ({ &perc2ndBtn,  &perc3rdBtn  }, [this] { applyPercToParams(); });
     for (auto* b : { &percOnBtn, &percOffBtn, &percFastBtn, &percSlowBtn,
-                     &percSoftBtn, &percHardBtn, &perc2ndBtn, &perc3rdBtn })
+                     &percSoftBtn, &percNormBtn, &perc2ndBtn, &perc3rdBtn })
         addAndMakeVisible (b);
 
     // ---- Timbrality ----
@@ -631,7 +670,7 @@ void DefaultPage::setPercButtons (bool on, bool fast, bool soft, bool third)
     percFastBtn.setToggleState (fast,  juce::dontSendNotification);
     percSlowBtn.setToggleState (! fast, juce::dontSendNotification);
     percSoftBtn.setToggleState (soft,  juce::dontSendNotification);
-    percHardBtn.setToggleState (! soft, juce::dontSendNotification);
+    percNormBtn.setToggleState (! soft, juce::dontSendNotification);
     perc2ndBtn.setToggleState (! third, juce::dontSendNotification);
     perc3rdBtn.setToggleState (third,  juce::dontSendNotification);
 }
@@ -826,7 +865,7 @@ void DefaultPage::resized()
         const int percBtnH = (bandH - gap) / 2;
         auto percRow = band.removeFromRight (percW * 4 + percGap * 3);
         juce::TextButton* tops[4] = { &percOnBtn,  &percFastBtn, &percSoftBtn, &perc2ndBtn };
-        juce::TextButton* bots[4] = { &percOffBtn, &percSlowBtn, &percHardBtn, &perc3rdBtn };
+        juce::TextButton* bots[4] = { &percOffBtn, &percSlowBtn, &percNormBtn, &perc3rdBtn };
         for (int i = 0; i < 4; ++i)
         {
             auto cell = percRow.removeFromLeft (percW);

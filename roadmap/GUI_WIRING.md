@@ -25,18 +25,39 @@ the drawbars' reversed (pull-down-louder) range.
 | VIBRATO/CHORUS/OFF + DEPTH | `vibrato`, `vibrato_type` | type interleaved `0=V1,1=C1,2=V2,…`; `type = 2·(depth−1)+chorus` |
 | CHORALE/STOP/TREMOLO | `drum`, `horn` (set together) | speed `0=stop,1=slow,2=fast` |
 
-## Wired but **verify by ear** (polarity I couldn't confirm from code alone)
+## Confirmed by the user (2026-06-28 test pass)
 
-- **DRIVE knob → `character` (0–1), and `overdrive` on when DRIVE > 0.** This is a
-  simplification — see open spec below. Check that "drive up = more grit" and that DRIVE
-  at 0 is genuinely clean.
-- **Percussion NORMAL/SOFT → `percussion_vol`.** The engine *inverts* this
-  (`applyParam` does `1 − value`), so the wiring sends **SOFT → 0, NORMAL → 1**. Confirm
-  SOFT is actually quieter.
-- **Percussion 2ND/3RD → `percussion_har`.** Maps `setPercussionFirst`, which picks
-  percussion send-bus A vs B; which bus is the 2nd vs 3rd harmonic isn't obvious in code.
-  I mapped **3RD → 1, 2ND → 0** — if it's backwards, swap the two constants in
-  `applyPercToParams()`.
+- Drive, reverb, Leslie, vibrato/chorus, drawbars, default 12-EDO all good.
+- **Percussion 2ND/3RD is correct** (my guessed `3RD → 1, 2ND → 0` mapping was right).
+- **Percussion SOFT/NORM**: the button was relabelled HARD → **NORM**. Polarity kept as
+  **SOFT → `percussion_vol` 0** (engine `isSoft=1`); I traced this as correct, but it's
+  subtle to hear — re-confirm, and if inverted it's a one-line swap in `applyPercToParams()`.
+
+## Tuning-source gating (done 2026-06-28)
+
+The encoding dropdown now actually selects which source feeds the engine
+(`TuningSourceId`: MTS / SYSEX / FILE / STANDARD). Implemented:
+- `reinitToneGen`, `getDisplayFrequency`, `getDisplayCents`, `isMidiNoteMapped` all branch
+  on the source — `.scl/.kbm` apply **only under FILE**; STANDARD uses a plain 12-TET
+  table; MTS/SYSEX read the MTS-ESP client. MTS change-detection only reinits under
+  MTS/SYSEX.
+- Loading a file while the source isn't FILE pops an OK/Cancel dialog offering to switch.
+- Scale **name** comes from the `.scl` description line; **period** under FILE shows the
+  Scala-declared period (last tone) as "SPECIFIED PERIOD"; default name "GEAR60 (~12EDO)".
+- File choosers remember the last-used directory.
+
+- **Note-on filtering** silences notes the active source marks as unplayed, per source:
+  **MTS-ESP** via `MTS_ShouldFilterNote` (the master's per-scale signal), **FILE** via the
+  `.kbm`'s `x` (unmapped) keys. SYSEX and STANDARD never filter. The `.kbm` mapping is
+  snapshotted into an audio-thread-owned `currentNoteMapped[]` at reinit (filled from
+  `localMapped[]`, written on the message thread), so `localTuning` is never read on the
+  audio thread.
+
+Caveats / still open:
+- **`tuningSource` + loaded files are not persisted** across plugin reloads yet (reset to
+  MTS / Gear60). Worth adding to `get/setStateInformation`.
+- Per-encoding state is shallow: FILE keeps its loaded files when you toggle away and back,
+  but the NOTE ON / ALWAYS toggle is global, not per-encoding.
 
 ## Disabled in the GUI — decisions needed before wiring
 

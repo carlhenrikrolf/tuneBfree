@@ -115,6 +115,39 @@ target_link_libraries(tuneBfree
 )
 
 # ---------------------------------------------------------------------------
+# Unit tests (doctest) — JUCE-free console runner.
+# Builds the DSP core + config stubs with -DTESTS, so the in-file TEST_CASE
+# blocks (src/tuning.cpp, src/tonegen.cpp) compile into one executable.
+#
+#   git submodule update --init libs/doctest
+#   cmake -B build -DTUNEBFREE_BUILD_TESTS=ON
+#   cmake --build build --target tuneBfree_tests
+#   ctest --test-dir build --output-on-failure   # or run the exe directly
+#
+# In VSCode (CMake Tools): set TUNEBFREE_BUILD_TESTS in settings, then use the
+# "Run CTest" button in the status bar.
+# ---------------------------------------------------------------------------
+option(TUNEBFREE_BUILD_TESTS "Build the doctest unit tests" OFF)
+if(TUNEBFREE_BUILD_TESTS)
+    enable_testing()
+    add_executable(tuneBfree_tests
+        ${DSP_SOURCES}
+        plugin/midi_stubs.cpp
+    )
+    target_compile_definitions(tuneBfree_tests PRIVATE
+        TESTS
+        TUNEBFREE_TUNINGS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tunings"
+    )
+    target_include_directories(tuneBfree_tests PRIVATE
+        src
+        libs/MTS-ESP/Client
+        libs/tuning-library/include
+        libs/doctest/doctest
+    )
+    add_test(NAME tuneBfree_tests COMMAND tuneBfree_tests)
+endif()
+
+# ---------------------------------------------------------------------------
 # Legacy CLAP build (original implementation, kept for reference)
 # Build with: cmake -S src -B src/build
 # ---------------------------------------------------------------------------
