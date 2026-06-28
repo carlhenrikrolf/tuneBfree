@@ -16,7 +16,6 @@ static const juce::Colour kAmber     { 0xffff8c00 }; // accent + header + active
 static const juce::Colour kRed       { 0xffcc2a2a }; // active TUNING + two drawbars
 static const juce::Colour kWhite     { 0xffe8e8e8 }; // main text + three drawbars
 static const juce::Colour kGrey      { 0xff707070 }; // muted text (labels)
-static const juce::Colour kGreen     { 0xff4cce5c }; // "connected" status only
 static const juce::Colour kBorder    { 0xff3a3a3a }; // box outlines
 
 // One geometric sans-serif everywhere (Century-Gothic-like). Two weights only.
@@ -68,6 +67,12 @@ TuneBfreeLookAndFeel::TuneBfreeLookAndFeel()
     setColour (juce::Label::backgroundColourId,    juce::Colours::transparentBlack);
     setColour (juce::PopupMenu::backgroundColourId, kPanel);
     setColour (juce::PopupMenu::textColourId,       kWhite);
+
+    // Encoding dropdown: same dark fill / white text / amber arrow as the buttons.
+    setColour (juce::ComboBox::backgroundColourId, kBtn);
+    setColour (juce::ComboBox::textColourId,       kWhite);
+    setColour (juce::ComboBox::outlineColourId,    kBorder);
+    setColour (juce::ComboBox::arrowColourId,      kAmber);
 }
 
 void TuneBfreeLookAndFeel::drawLinearSlider (
@@ -175,6 +180,9 @@ juce::Font TuneBfreeLookAndFeel::getTextButtonFont (juce::TextButton&, int butto
     return uiFont (juce::jmin (12.0f, (float) buttonHeight * 0.5f));
 }
 
+juce::Font TuneBfreeLookAndFeel::getComboBoxFont  (juce::ComboBox&) { return uiFont (12.0f); }
+juce::Font TuneBfreeLookAndFeel::getPopupMenuFont ()                { return uiFont (12.0f); }
+
 // ============================================================================
 //  SHARED HELPERS
 // ============================================================================
@@ -213,34 +221,60 @@ static void styleCaption (juce::Label& l, const juce::String& text)
     l.setText (text, juce::dontSendNotification);
 }
 
+// Style a section header ("STATUS", "SETTINGS"): muted grey, left-aligned.
+static void styleSectionTitle (juce::Label& l, const juce::String& text)
+{
+    l.setFont (uiFont (11.0f, true));
+    l.setJustificationType (juce::Justification::centredLeft);
+    l.setColour (juce::Label::textColourId, kGrey);
+    l.setText (text, juce::dontSendNotification);
+}
+
 // ============================================================================
 //  TUNING SIDE PANEL
 // ============================================================================
 
 TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : proc (p)
 {
-    styleInfoBox (scaleNameLabel, juce::Justification::centredLeft);
+    // ---- frequency read-out (top block) ----
+    for (auto* l : { &penultimateHzLabel, &lastHzLabel, &centsLabel })
+        { styleInfoBox (*l); addAndMakeVisible (l); }
+
+    // ---- STATUS block ----
+    styleSectionTitle (statusTitle, "STATUS");
+    addAndMakeVisible (statusTitle);
+
+    // Tuning name is centred to match the (centred) encoding dropdown below — the
+    // first widget under each section title looks the same.
+    styleInfoBox (scaleNameLabel, juce::Justification::centred);
     scaleNameLabel.setFont (uiFont (12.0f));
     addAndMakeVisible (scaleNameLabel);
-
-    styleInfoBox (statusArea);
-    statusArea.setFont (uiFont (13.0f, true));
-    addAndMakeVisible (statusArea);
 
     styleInfoBox (periodLabel);
     addAndMakeVisible (periodLabel);
 
-    makeRadioGroup ({ &monoBtn, &polyBtn });
-    polyBtn.setToggleState (true, juce::dontSendNotification);
-    addAndMakeVisible (monoBtn);
-    addAndMakeVisible (polyBtn);
+    // Clock uses the same font as the other read-out boxes (styleInfoBox); only its
+    // colour changes (green while a live MTS master ticks).
+    styleInfoBox (timestampLabel);
+    addAndMakeVisible (timestampLabel);
 
-    stdBtn.setClickingTogglesState (true);
-    stdBtn.setToggleState (true, juce::dontSendNotification);
-    addAndMakeVisible (stdBtn);
+    // ---- SETTINGS block ----
+    styleSectionTitle (settingsTitle, "SETTINGS");
+    addAndMakeVisible (settingsTitle);
 
-    onlyAtNoteOnBtn.setClickingTogglesState (true);
-    addAndMakeVisible (onlyAtNoteOnBtn);
+    // Encoding menu. UI-only for now: it remembers the choice but does not yet
+    // switch the engine's tuning source. MPE / MIDI 2.0 are shown but disabled.
+    encodingBox.addItem ("MTS ESP",  1);
+    encodingBox.addItem ("SYSEX",    2);
+    encodingBox.addItem ("FILE",     3);
+    encodingBox.addItem ("MPE",      4);
+    encodingBox.addItem ("MIDI 2.0", 5);
+    encodingBox.addItem ("STANDARD", 6);
+    encodingBox.setItemEnabled (4, false);
+    encodingBox.setItemEnabled (5, false);
+    encodingBox.setSelectedId (1, juce::dontSendNotification);
+    encodingBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (encodingBox);
 
     addAndMakeVisible (loadSclBtn);
     addAndMakeVisible (loadKbmBtn);
@@ -273,11 +307,13 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
             });
     };
 
-    for (auto* l : { &lastHzLabel, &currentHzLabel, &centsLabel })
-        { styleInfoBox (*l); addAndMakeVisible (l); }
-    lastHzLabel.setText    ("? Hz", juce::dontSendNotification);
-    currentHzLabel.setText ("? Hz", juce::dontSendNotification);
-    centsLabel.setText     ("? c",  juce::dontSendNotification);
+    // NOTE ON vs ALWAYS retuning: a 2-way toggle (UI-only for now). "Always" lets a
+    // sounding note change pitch; note-on is the default — it suits tuneBfree's
+    // wavetable rebuild step.
+    makeRadioGroup ({ &noteOnBtn, &alwaysBtn });
+    noteOnBtn.setToggleState (true, juce::dontSendNotification);
+    addAndMakeVisible (noteOnBtn);
+    addAndMakeVisible (alwaysBtn);
 
     refresh();
 }
@@ -292,71 +328,136 @@ void TuningSidePanelContent::resized()
     const int pad     = 12;
     const int gap     = 8;
     const int btnH    = 30;
-    const int twoWayW = 56;   // same as UPPER/LOWER on the main page
+    const int titleH  = 18;
 
     auto r = getLocalBounds().reduced (pad);
 
-    // --- bottom: [last Hz][current Hz] over [cents] (Hz fields half-width) ---
-    centsLabel.setBounds (r.removeFromBottom (btnH));
-    r.removeFromBottom (gap);
-    auto hzRow = r.removeFromBottom (btnH);
-    lastHzLabel.setBounds    (hzRow.removeFromLeft  (hzRow.getWidth() / 2).withTrimmedRight (gap / 2));
-    currentHzLabel.setBounds (hzRow.withTrimmedLeft (gap / 2));
+    // Fixed heights of the three blocks (everything except the two section gaps).
+    const int freqH     = btnH + gap + btnH;                 // Hz row + cents
+    const int statusH   = titleH + gap + btnH * 3 + gap * 2; // title + 3 boxes
+    const int settingsH = titleH + gap + btnH + gap          // title + menu
+                        + btnH * 2 + gap;                     // loader / toggle row
+    // Leftover height is split equally into the gap above each section title, so
+    // the panel fills to the bottom with the same space above STATUS and SETTINGS.
+    const int sectionGap = juce::jmax (gap, (r.getHeight() - freqH - statusH - settingsH) / 2);
 
-    // --- top: status, then settings, then file loaders (top-anchored) ---
+    // --- top block: [penultimate Hz][last Hz] over [cents] (Hz fields half-width) ---
+    auto hzRow = r.removeFromTop (btnH);
+    penultimateHzLabel.setBounds (hzRow.removeFromLeft (hzRow.getWidth() / 2).withTrimmedRight (gap / 2));
+    lastHzLabel.setBounds        (hzRow.withTrimmedLeft (gap / 2));
+    r.removeFromTop (gap);
+    centsLabel.setBounds (r.removeFromTop (btnH));
+
+    // --- STATUS block ---
+    r.removeFromTop (sectionGap);
+    statusTitle.setBounds (r.removeFromTop (titleH));
+    r.removeFromTop (gap);
     scaleNameLabel.setBounds (r.removeFromTop (btnH));
     r.removeFromTop (gap);
-    statusArea.setBounds (r.removeFromTop (50));
-    r.removeFromTop (gap);
     periodLabel.setBounds (r.removeFromTop (btnH));
-    r.removeFromTop (gap * 2);
+    r.removeFromTop (gap);
+    timestampLabel.setBounds (r.removeFromTop (btnH));
 
-    // MONO/POLY: fixed-size 2-way switch (matches UPPER/LOWER); STD beside it.
-    auto mpRow = r.removeFromTop (btnH);
-    monoBtn.setBounds (mpRow.removeFromLeft (twoWayW));
-    polyBtn.setBounds (mpRow.removeFromLeft (twoWayW));
-    mpRow.removeFromLeft (gap);
-    stdBtn.setBounds (mpRow);
+    // --- SETTINGS block ---
+    r.removeFromTop (sectionGap);
+    settingsTitle.setBounds (r.removeFromTop (titleH));
+    r.removeFromTop (gap);
+    encodingBox.setBounds (r.removeFromTop (btnH));
     r.removeFromTop (gap);
 
-    onlyAtNoteOnBtn.setBounds (r.removeFromTop (btnH));
-    r.removeFromTop (gap * 2);
-
-    loadSclBtn.setBounds (r.removeFromTop (btnH));
-    r.removeFromTop (gap);
-    loadKbmBtn.setBounds (r.removeFromTop (btnH));
-    // whatever is left between the loaders and the Hz row stays empty (centre gap)
+    // Two columns: SCALE/MAP loaders (left) | NOTE ON / CONTINUOUS toggle (right).
+    auto fileRow  = r.removeFromTop (btnH * 2 + gap);
+    auto leftCol  = fileRow.removeFromLeft (fileRow.getWidth() / 2).withTrimmedRight (gap / 2);
+    auto rightCol = fileRow.withTrimmedLeft (gap / 2);
+    loadSclBtn.setBounds (leftCol.removeFromTop (btnH));
+    leftCol.removeFromTop (gap);
+    loadKbmBtn.setBounds (leftCol.removeFromTop (btnH));
+    noteOnBtn.setBounds (rightCol.removeFromTop (btnH));
+    rightCol.removeFromTop (gap);
+    alwaysBtn.setBounds (rightCol.removeFromTop (btnH));
 }
 
 void TuningSidePanelContent::refresh()
 {
-    bool connected = proc.isMTSConnected();
-    statusArea.setText (connected ? "CONNECTED" : "NO MASTER", juce::dontSendNotification);
-    statusArea.setColour (juce::Label::textColourId, connected ? kGreen : kGrey);
+    const bool connected = proc.isMTSConnected();
+    const bool hasFile   = proc.getLocalSclName().isNotEmpty();
 
-    scaleNameLabel.setText (connected ? proc.getMTSScaleName().toUpperCase()
-                                      : utf8 ("\xe2\x80\x94"),   // em-dash
+    // --- tuning name: local file wins (it overrides MTS in the engine), then MTS ---
+    juce::String name = hasFile ? proc.getLocalSclName()
+                                : (connected ? proc.getMTSScaleName() : juce::String());
+    scaleNameLabel.setText (name.isNotEmpty() ? name.toUpperCase() : "UNNAMED",
                             juce::dontSendNotification);
 
-    // Scale period: shown in cents. Source is currently always "inferred" from
-    // the tuning table; when MTS-ESP exposes a period we'll add an "MTS" state.
+    // --- scale period (cents) ---
     float period = proc.getInferredPeriod();
     if (period > 0.0f)
     {
         double cents = 1200.0 * std::log2 ((double) period);
-        periodLabel.setText (utf8 ("PERIOD ") + juce::String (cents, 0)
-                                 + utf8 ("c \xc2\xb7 INFERRED"),   // middle dot
+        periodLabel.setText (juce::String (cents, 0) + utf8 ("c \xc2\xb7 INFERRED PERIOD"),
                              juce::dontSendNotification);
     }
     else
     {
-        periodLabel.setText (utf8 ("PERIOD \xc2\xb7 APERIODIC"), juce::dontSendNotification);
+        // No repeating period: treat the whole span of mapped notes as one period
+        // and report that interval in cents — "NONE (x c)".
+        int lo = -1, hi = -1;
+        for (int n = 0; n < 128; ++n)
+            if (proc.isMidiNoteMapped (n)) { if (lo < 0) lo = n; hi = n; }
+
+        double fLo = lo >= 0 ? proc.getDisplayFrequency (lo) : 0.0;
+        double fHi = hi >= 0 ? proc.getDisplayFrequency (hi) : 0.0;
+        if (hi > lo && fLo > 0.0 && fHi > 0.0)
+            periodLabel.setText (utf8 ("NONE (") + juce::String (1200.0 * std::log2 (fHi / fLo), 0)
+                                     + utf8 (" c)"),
+                                 juce::dontSendNotification);
+        else
+            periodLabel.setText ("NONE", juce::dontSendNotification);
     }
 
+    // --- last-update clock: white text like the other boxes. While a live MTS
+    //     master is queried it shows the current time, so the ticking seconds
+    //     (not colour) signal that it is active; otherwise it shows the time of
+    //     the last file load / sysex retune. ---
+    if (connected)
+    {
+        timestampLabel.setText (juce::Time::getCurrentTime().toString (false, true, true, true),
+                                juce::dontSendNotification);
+    }
+    else
+    {
+        auto ms = proc.getLastTuningChangeMs();
+        timestampLabel.setText (ms > 0 ? juce::Time (ms).toString (false, true, true, true)
+                                       : utf8 ("\xe2\x80\x94"),   // em-dash
+                                juce::dontSendNotification);
+    }
+
+    // --- frequency read-out: penultimate (left) and last (right) note-on ---
+    int pen  = proc.getPenultimateNoteOn();
+    int last = proc.getLastNoteOn();
+    auto hz  = [] (double f) { return juce::String (f, 2) + " Hz"; };
+    penultimateHzLabel.setText (pen  >= 0 ? hz (proc.getDisplayFrequency (pen))  : "? Hz",
+                                juce::dontSendNotification);
+    lastHzLabel.setText        (last >= 0 ? hz (proc.getDisplayFrequency (last)) : "? Hz",
+                                juce::dontSendNotification);
+
+    if (pen >= 0 && last >= 0)
+    {
+        double fp = proc.getDisplayFrequency (pen);
+        double fl = proc.getDisplayFrequency (last);
+        double cents = (fp > 0.0 && fl > 0.0) ? 1200.0 * std::log2 (fl / fp) : 0.0;
+        centsLabel.setText ((cents >= 0.0 ? "+" : "") + juce::String (cents, 1) + " c",
+                            juce::dontSendNotification);
+    }
+    else
+    {
+        centsLabel.setText ("? c", juce::dontSendNotification);
+    }
+
+    // --- file loaders: show the loaded filename, else the SCALE / MAP label ---
     auto scl = proc.getLocalSclName();
     auto kbm = proc.getLocalKbmName();
-    loadSclBtn.setButtonText (scl.isNotEmpty() ? scl.toUpperCase() : utf8 ("LOAD .SCL\xe2\x80\xa6"));
-    loadKbmBtn.setButtonText (kbm.isNotEmpty() ? kbm.toUpperCase() : utf8 ("LOAD .KBM\xe2\x80\xa6"));
+    loadSclBtn.setButtonText (scl.isNotEmpty() ? scl.toUpperCase() : "SCALE");
+    loadKbmBtn.setButtonText (kbm.isNotEmpty() ? kbm.toUpperCase() : "MAP");
 }
 
 // ============================================================================

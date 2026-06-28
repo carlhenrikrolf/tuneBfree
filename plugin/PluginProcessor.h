@@ -89,6 +89,17 @@ public:
     bool         isMTSConnected()  const noexcept;
     juce::String getMTSScaleName() const;
 
+    // --- Tuning-panel telemetry (read-only display; safe from the message thread) ---
+    // Last two note-on MIDI notes, for the panel's frequency / interval read-out.
+    // -1 means nothing has played yet.
+    int getLastNoteOn()        const noexcept { return lastNoteOn.load(); }
+    int getPenultimateNoteOn() const noexcept { return penultimateNoteOn.load(); }
+
+    // Wall-clock time (ms since epoch) of the last tuning change (file load, sysex,
+    // or MTS frequency change). 0 if tuning has never changed. For a live MTS master
+    // the panel shows the current time instead, since the master is queried every block.
+    juce::int64 getLastTuningChangeMs() const noexcept { return lastTuningChangeMs.load(); }
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -127,6 +138,11 @@ private:
     // Written on the audio thread after every tonegen init; read by the UI.
     std::atomic<float> inferredPeriod{2.0f};
     std::atomic<int>   inferredScaleSize{12};
+
+    // Tuning-panel telemetry: written on the audio thread, read by the UI.
+    std::atomic<int>         lastNoteOn{-1};
+    std::atomic<int>         penultimateNoteOn{-1};
+    std::atomic<juce::int64> lastTuningChangeMs{0};
 
     // Per-note filter state: true when a note-on was suppressed by MTS_ShouldFilterNote.
     // Prevents the matching note-off from calling oscKeyOff on a note never started.

@@ -348,6 +348,9 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
+    if (tuningChanged)
+        lastTuningChangeMs.store(juce::Time::currentTimeMillis());
+
     if (tuningChanged || ratioChanged || localTuningNeedsReinit.exchange(false, std::memory_order_acquire))
         reinitToneGen();
 
@@ -382,6 +385,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             // Forward raw sysex to MTS-ESP client. Handles all MTS tuning bulk-dump and
             // single-note retune formats, allowing tuning without an MTS-ESP master plug-in.
             MTS_ParseMIDIDataU(mtsClient, msg.getRawData(), msg.getRawDataSize());
+            lastTuningChangeMs.store(juce::Time::currentTimeMillis());
             reinitToneGen();
         }
         else {
@@ -396,6 +400,9 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                     oscKeyOn(synth, (short) noteNumber, (short) noteNumber);
                     activeNoteCount++;
                     samplesSinceLastNote = 0;
+                    // Record the last two note-ons for the tuning panel's read-out.
+                    penultimateNoteOn.store(lastNoteOn.load());
+                    lastNoteOn.store(noteNumber);
                 }
             } else if (msg.isNoteOff()) {
                 // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here.
@@ -484,6 +491,7 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
 
         hasLocalTuning.store(true, std::memory_order_release);
         localTuningNeedsReinit.store(true, std::memory_order_release);
+        lastTuningChangeMs.store(juce::Time::currentTimeMillis());
     } catch (const Tunings::TuningError& e) {
         localTuningError = juce::String(e.what());
     }

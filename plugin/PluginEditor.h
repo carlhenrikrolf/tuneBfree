@@ -35,6 +35,10 @@ public:
 
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
 
+    // Keep the encoding dropdown and its popup in the same UI font as everything else.
+    juce::Font getComboBoxFont  (juce::ComboBox&) override;
+    juce::Font getPopupMenuFont () override;
+
     // Drawbar cap colour by index (0 = 16', 8 = 1').
     static juce::Colour drawbarColour (int index);
 };
@@ -60,8 +64,13 @@ struct ManualState
 //  TuningSidePanelContent
 //  ---------------------------------------------------------------------------
 //  The grey panel that slides in from the right when TUNING is pressed.
-//  One vertical column: status info at the top, settings + file loaders in the
-//  middle, last-played frequency / interval read-outs anchored to the bottom.
+//  One vertical column laid out top-to-bottom in three blocks (see TUNING_PANEL.md):
+//    1. nameless frequency read-out : penultimate Hz | last Hz, then the interval
+//    2. STATUS                      : tuning name, scale period, last-update clock
+//    3. SETTINGS                    : encoding menu, then .scl/.kbm loaders + a
+//                                     note-on / continuous toggle
+//  The two section gaps (above STATUS and above SETTINGS) share the leftover
+//  height equally, so the block fills the panel to the bottom.
 // ============================================================================
 
 class TuningSidePanelContent : public juce::Component
@@ -75,21 +84,21 @@ public:
 private:
     TuneBfreeAudioProcessor& proc;
 
-    // --- status (read-only info, shown in bordered boxes) ---
-    juce::Label      scaleNameLabel;       // e.g. "13ED3" or em-dash when none
-    juce::Label      statusArea;           // "CONNECTED" / "NO MASTER"
-    juce::Label      periodLabel;          // scale period: inferred / MTS / aperiodic
+    // --- frequency read-out (nameless top block, bordered boxes) ---
+    // penultimate note-on (left) and last note-on (right), with the interval below.
+    juce::Label      penultimateHzLabel, lastHzLabel, centsLabel;
 
-    // --- settings ---
-    juce::TextButton monoBtn { "MONO" }, polyBtn { "POLY" };   // 2-way switch
-    juce::TextButton stdBtn  { "STD"  };
-    juce::TextButton onlyAtNoteOnBtn { "NOTE ON ONLY" };
+    // --- STATUS block ---
+    juce::Label      statusTitle;          // "STATUS" section header
+    juce::Label      scaleNameLabel;       // tuning name, e.g. "13ED3", or "UNNAMED"
+    juce::Label      periodLabel;          // "1200c · INFERRED" or "NONE (X c)"
+    juce::Label      timestampLabel;       // last-update clock (ticks while MTS is live)
 
-    // --- file loaders ---
-    juce::TextButton loadSclBtn, loadKbmBtn;
-
-    // --- read-outs (bordered boxes), anchored to the bottom ---
-    juce::Label      lastHzLabel, currentHzLabel, centsLabel;
+    // --- SETTINGS block ---
+    juce::Label      settingsTitle;        // "SETTINGS" section header
+    juce::ComboBox   encodingBox;          // microtuning encoding (UI-only for now)
+    juce::TextButton loadSclBtn, loadKbmBtn;                      // SCALE / MAP loaders
+    juce::TextButton noteOnBtn { "NOTE ON" }, alwaysBtn { "ALWAYS" }; // 2-way toggle
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
