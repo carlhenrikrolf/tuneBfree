@@ -611,7 +611,8 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     expressionKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     expressionKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     expressionKnob.setRange (0.0, 1.0);
-    expressionKnob.setValue (0.8, juce::dontSendNotification);
+    expressionKnob.setValue (1.0, juce::dontSendNotification);
+    expressionKnob.onValueChange = [this] { setParam ("expression", (float) expressionKnob.getValue()); };
     addAndMakeVisible (expressionKnob);
     styleCaption (expressionLabel, "EXPRESSION");
     addAndMakeVisible (expressionLabel);
@@ -645,7 +646,7 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     for (auto* b : { &upperBtn, &lowerBtn, &bitimbralBtn }) disable (*b);
     disable (splitKnob);     disable (splitLabel);   disable (splitNoteLabel);
     disable (crossfadeKnob); disable (crossfadeLabel);
-    disable (expressionKnob); disable (expressionLabel);
+    // EXPRESSION is now wired (swell pedal); leave it enabled.
 
     // Add the tuning overlay LAST so it paints on top of everything.
     addChildComponent (tuningContent);
@@ -764,8 +765,9 @@ void DefaultPage::syncFromParams()
     for (int i = 0; i < 9; ++i)
         drawbars[i].setValue (getParam ("drawbar" + juce::String (i)), juce::dontSendNotification);
 
-    reverbKnob.setValue (getParam ("reverb_mix"), juce::dontSendNotification);
-    driveKnob.setValue  (getParam ("character"),  juce::dontSendNotification);
+    reverbKnob.setValue     (getParam ("reverb_mix"), juce::dontSendNotification);
+    driveKnob.setValue      (getParam ("character"),  juce::dontSendNotification);
+    expressionKnob.setValue (getParam ("expression"), juce::dontSendNotification);
 
     // LFO: rebuild mode + depth from vibrato / vibrato_type.
     const bool vibOn = getParam ("vibrato") > 0.5f;

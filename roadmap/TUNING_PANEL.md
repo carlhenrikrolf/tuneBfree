@@ -54,8 +54,8 @@ These are all the encodings.
         </td>
     </tr>
     <tr>
-        <td colspan="2">
-            <select style="width: 5cm">
+        <td>
+            <select style="width: 2cm">
                 <option>MTS ESP</option>
                 <option>SYSEX</option>
                 <option>FILE</option>
@@ -63,6 +63,9 @@ These are all the encodings.
                 <option disabled>MIDI 2.0</option>
                 <option>STANDARD</option>
             </select>
+        </td>
+        <td>
+            <button>CHANNELS</button>
         </td>
     </tr>
     <tr>
@@ -97,10 +100,70 @@ Here follows comments on the layout, row by row:
 5. The scale period in cents. If no period, "None (x c)", where x is the interval between the lowest midi note and the highest midi note, i.e. the set of all specified notes is taken to be a period.[^PolyInferPeriod] It can be specified in MTS ESP or `.scl` files (the last specified pitch basically acts as a specification of the period). The second widget should say "inferred period" or "approximated period" or "specified period".
 6. Time stamp of when tuning was last updated. If using MTS ESP queries will happen continuously (maybe several times per second), so this will look like a ticking clock. That way you see that it's active. However, it can also geneeralise to other systems. For sysex it would be when the last mts sysex message was received. for mpe when the last pitchbend was received (or really last pitchbend or note on or cc or aftertouch, ...). For tuning files, it would be when the file was loaded into the plugin.
 7. Title marking the beginning of the microtuning settings section.
-8. Which of the microtuning encoding schemes used. For each the last state should be saved so that you can toggle back to it.
+8. Two columns.
+    - Left. Which of the microtuning encoding schemes used. For each the last state should be saved so that you can toggle back to it.
+    - Right. A popup window to select channels, see below.
 9. Two columns.
     - Left. Upper is uploading the scale file, e.g. `.scl`. Should probably say SCALE somewhere. Lower is the mapping file. Should probably say "MAPPING" or "MAP". Can select directory of .kbm files or multi-selection of .kbm files. if so they will be loaded in alphabetical order into midi channels, i.e. a generalisation of the `_<i>.kbm` convention.
     - Right. Here represented as radio buttons but really a toggle. If note on is checked, then pitches should only be updated on note on events. This is probably preferable for tuneBfree considering the building of the wavetable. If continuously is checked than a note that is already sounded can have its pitch changed. This is based after the MTS ESP convention but can be applied to mpe and midi 2.0 as well. Wrt sysex it's less clear that you need to specify this as the sysex messages themselves can specify which one it is, maybe let the note on option override continuous sysex messages? Not really applicable to tuning files.
+
+
+Let us return to the popup window.
+You can choose what channels should be active.
+Note that the more channels you choose the more computational resources are required.
+POLY means whether one or more channels are chosen.
+Default is on.
+If POLY is off, then the checkboxes are radios buttons instead.
+POLY on and POLY off each keeps track of their state and the last state is returned when toggled back.
+OMNI says whether channels are merged.
+If OMNI is on then they are meged into one channel, namely the mts esp default channel.
+(I think this is channel 1 rather than a separate unspecified channel but check this! Better with unspecified channel than channel one.)
+Default is off.
+OMNI doesnt really have a state.
+If POLY is on then all checked channels are merged and others are ignored.
+OMNI on/POLY off is [perhaps not very useful](http://midi.teragonaudio.com/tech/midispec/modes.htm).
+
+
+<table>
+    <tr>
+        <td>
+            MODE
+        </td>
+        <td>
+            CHANNELS
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <button>POLY</bitton>
+        </td>
+        <td>
+            <input type="checkbox" name="ch"> 1</input>
+            <input type="checkbox" name="ch"> 2</input>
+            <input type="checkbox" name="ch"> 3</input>
+            <input type="checkbox" name="ch"> 4</input>
+            <input type="checkbox" name="ch"> 5</input>
+            <input type="checkbox" name="ch"> 6</input>
+            <input type="checkbox" name="ch"> 7</input>
+            <input type="checkbox" name="ch"> 8</input>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <button>OMNI</bitton>
+        </td>
+        <td>
+            <input type="checkbox" name="ch"> 9</input>
+            <input type="checkbox" name="ch">10</input>
+            <input type="checkbox" name="ch">11</input>
+            <input type="checkbox" name="ch">12</input>
+            <input type="checkbox" name="ch">13</input>
+            <input type="checkbox" name="ch">14</input>
+            <input type="checkbox" name="ch">15</input>
+            <input type="checkbox" name="ch">16</input>
+        </td>
+    </tr>
+</table>
 
 
 

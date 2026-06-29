@@ -29,7 +29,8 @@
 #define P_RATIO_TOP_MAX   28
 #define P_RATIO_BOT_MIN   29
 #define P_RATIO_BOT_MAX   37
-#define P_COUNT           38
+#define P_EXPRESSION      38
+#define P_COUNT           39
 
 // Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)

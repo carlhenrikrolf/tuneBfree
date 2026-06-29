@@ -73,6 +73,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
             juce::NormalisableRange<float>(0.0f, 1000.0f), defaultRatioBot[i]));
     }
 
+    // Expression / swell pedal (the Hammond expression pedal — a volume control).
+    // Default 1.0 = full, matching setBfree's out-of-box swell level.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "expression", 1 }, "Expression",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+
     return { params.begin(), params.end() };
 }
 
@@ -105,6 +111,8 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
         paramPtrs[P_RATIO_TOP_MIN + i] = apvts.getRawParameterValue("ratio_top_" + juce::String(i));
         paramPtrs[P_RATIO_BOT_MIN + i] = apvts.getRawParameterValue("ratio_bot_" + juce::String(i));
     }
+
+    paramPtrs[P_EXPRESSION] = apvts.getRawParameterValue("expression");
 }
 
 TuneBfreeAudioProcessor::~TuneBfreeAudioProcessor()
@@ -184,8 +192,9 @@ void TuneBfreeAudioProcessor::updateScalePeriod()
 
 void TuneBfreeAudioProcessor::reinitToneGen()
 {
-    // Preserve routing state across reinit
+    // Preserve routing + swell-pedal level across reinit (allocTonegen resets them).
     unsigned int savedRouting = synth->newRouting;
+    float        savedSwell   = synth->swellPedalGain;
 
     freeToneGenerator(synth);
     synth = allocTonegen();
@@ -221,7 +230,8 @@ void TuneBfreeAudioProcessor::reinitToneGen()
     applyParam(P_VIBRATO_TYPE, cachedParams[P_VIBRATO_TYPE]);
     applyParam(P_PERCUSSION,   cachedParams[P_PERCUSSION]);
 
-    synth->newRouting = savedRouting;
+    synth->newRouting     = savedRouting;
+    synth->swellPedalGain = savedSwell;
 
     // The tonegen is rebuilt with no active notes. Reset tracking state so that
     // silence detection and note-off bookkeeping are consistent with the new tonegen.
@@ -275,6 +285,10 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
     }
     else if (index == P_PERCUSSION_HAR) {
         setPercussionFirst(synth, (int) std::lround(value));
+    }
+    else if (index == P_EXPRESSION) {
+        // Hammond expression/swell pedal: a pure output gain (0..outputLevelTrim).
+        synth->swellPedalGain = value * (float) synth->outputLevelTrim;
     }
     // Ratio params are handled via reinitToneGen(), not here
 }
@@ -414,6 +428,15 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 lastTuningChangeMs.store(juce::Time::currentTimeMillis());
                 reinitToneGen();
             }
+        }
+        else if (msg.isController()) {
+            // Expression pedal: CC 7 (volume) and CC 11 (expression) BOTH drive the
+            // swell-pedal gain, as in setBfree. Sets the DSP directly; the GUI knob
+            // doesn't follow an incoming pedal (a later refinement).
+            const int cc = msg.getControllerNumber();
+            if (cc == 7 || cc == 11)
+                synth->swellPedalGain = (float) (synth->outputLevelTrim
+                                                 * msg.getControllerValue() / 127.0);
         }
         else {
             const int  noteNumber = msg.getNoteNumber();
