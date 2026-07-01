@@ -1,19 +1,22 @@
-! Automatically generated mapping, tuning note 69 to 440 Hz
-!
+! 14ed2 keyboard 2. Identical mapping to keyboard 1 but tuned one ~85.7c step lower
+! (note 69 -> 440 / 2^(1/14) = 418.7458673246726 Hz), so a second manual/channel fills
+! the degrees keyboard 1 skips at E-F and B-C. Together the two keyboards cover all 14
+! degrees of 14-EDO. (The earlier version shifted the middle note instead, which kept the
+! same degree set and left degrees 5 and 13 unreachable.)
 ! Size of map
 12
-! First and last MIDI notes to map - map the entire keyboard
+! First and last MIDI notes to map
 0
 127
-! Middle note where the first entry in the scale is mapped.
-61
+! Middle note where the first scale degree is mapped
+60
 ! Reference note where frequency is fixed
 69
-! Frequency for MIDI note 69
-440
-! Scale degree for formal octave. This is am empty mapping, so:
+! Frequency for MIDI note 69 (one ~85.7c step below 440)
+418.7458673246726
+! Scale degree for the formal octave = 14 (= scale size, so it tiles cleanly)
 14
-! Mapping. This is an empty mapping so list no keys
+! Mapping: same as keyboard 1
 0
 1
 2

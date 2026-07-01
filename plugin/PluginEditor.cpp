@@ -235,6 +235,114 @@ static void styleSectionTitle (juce::Label& l, const juce::String& text)
 }
 
 // ============================================================================
+//  CHANNELS popup (shown from the CHANNELS button via a CallOutBox).
+//  MODE column: POLY (multi- vs single-select) / OMNI (merge to the MTS
+//  unspecified channel). CHANNELS column: 16 channel toggles (see TUNING_PANEL.md).
+// ============================================================================
+
+class ChannelSelectorContent : public juce::Component
+{
+public:
+    explicit ChannelSelectorContent (TuneBfreeAudioProcessor& p) : proc (p)
+    {
+        styleSectionTitle (modeLabel, "MODE");
+        styleSectionTitle (chanLabel, "CHANNELS");
+        addAndMakeVisible (modeLabel);
+        addAndMakeVisible (chanLabel);
+
+        polyBtn.setClickingTogglesState (true);
+        polyBtn.setToggleState (proc.getPoly(), juce::dontSendNotification);
+        polyBtn.onClick = [this]
+        {
+            const bool poly = polyBtn.getToggleState();
+            proc.setPoly (poly);
+            if (! poly)                       // collapse to a single active channel
+            {
+                int sel = -1;
+                for (int c = 0; c < 16; ++c) if (proc.getChannelActive (c)) { sel = c; break; }
+                if (sel < 0) sel = 0;
+                for (int c = 0; c < 16; ++c) proc.setChannelActive (c, c == sel);
+            }
+            syncChannelButtons();
+        };
+        addAndMakeVisible (polyBtn);
+
+        omniBtn.setClickingTogglesState (true);
+        omniBtn.setToggleState (proc.getOmni(), juce::dontSendNotification);
+        omniBtn.onClick = [this] { proc.setOmni (omniBtn.getToggleState()); syncChannelButtons(); };
+        addAndMakeVisible (omniBtn);
+
+        for (int c = 0; c < 16; ++c)
+        {
+            auto* b = chanBtns.add (new juce::TextButton (juce::String (c + 1)));
+            b->setClickingTogglesState (true);
+            b->onClick = [this, c] { onChannelClick (c); };
+            addAndMakeVisible (b);
+        }
+        syncChannelButtons();
+        setSize (348, 116);
+    }
+
+    ~ChannelSelectorContent() override { setLookAndFeel (nullptr); }
+
+    void resized() override
+    {
+        const int gap = 6, rowH = 28, modeW = 64, labelH = 16;
+        auto r = getLocalBounds().reduced (8);
+
+        auto header = r.removeFromTop (labelH);
+        modeLabel.setBounds (header.removeFromLeft (modeW));
+        header.removeFromLeft (gap);
+        chanLabel.setBounds (header);
+        r.removeFromTop (gap);
+
+        auto modeCol = r.removeFromLeft (modeW);
+        polyBtn.setBounds (modeCol.removeFromTop (rowH));
+        modeCol.removeFromTop (gap);
+        omniBtn.setBounds (modeCol.removeFromTop (rowH));
+
+        r.removeFromLeft (gap);
+        auto row1 = r.removeFromTop (rowH);
+        r.removeFromTop (gap);
+        auto row2 = r.removeFromTop (rowH);
+        const int bw = row1.getWidth() / 8;
+        for (int c = 0; c < 8;  ++c) chanBtns[c]->setBounds (row1.removeFromLeft (bw).reduced (1));
+        for (int c = 8; c < 16; ++c) chanBtns[c]->setBounds (row2.removeFromLeft (bw).reduced (1));
+    }
+
+private:
+    void onChannelClick (int c)
+    {
+        if (proc.getPoly())
+        {
+            proc.setChannelActive (c, chanBtns[c]->getToggleState());
+        }
+        else                                  // radio: this channel only
+        {
+            for (int i = 0; i < 16; ++i) proc.setChannelActive (i, i == c);
+            syncChannelButtons();
+        }
+    }
+
+    void syncChannelButtons()
+    {
+        const bool omni = proc.getOmni();     // OMNI overrides the per-channel selection
+        for (int c = 0; c < 16; ++c)
+        {
+            chanBtns[c]->setToggleState (proc.getChannelActive (c), juce::dontSendNotification);
+            chanBtns[c]->setEnabled (! omni);
+        }
+    }
+
+    TuneBfreeAudioProcessor& proc;
+    juce::Label      modeLabel, chanLabel;
+    juce::TextButton polyBtn { "POLY" }, omniBtn { "OMNI" };
+    juce::OwnedArray<juce::TextButton> chanBtns;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelSelectorContent)
+};
+
+// ============================================================================
 //  TUNING SIDE PANEL
 // ============================================================================
 
@@ -281,6 +389,16 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     encodingBox.onChange = [this] { proc.setTuningSource (encodingBox.getSelectedId()); refresh(); };
     addAndMakeVisible (encodingBox);
 
+    // CHANNELS: opens the POLY/OMNI + channel-select popup (anchored to the button).
+    channelsBtn.onClick = [this]
+    {
+        auto content = std::make_unique<ChannelSelectorContent> (proc);
+        content->setLookAndFeel (&getLookAndFeel());   // match the plugin's look
+        juce::CallOutBox::launchAsynchronously (std::move (content),
+                                                channelsBtn.getScreenBounds(), nullptr);
+    };
+    addAndMakeVisible (channelsBtn);
+
     addAndMakeVisible (loadSclBtn);
     addAndMakeVisible (loadKbmBtn);
 
@@ -305,17 +423,20 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
 
     loadKbmBtn.onClick = [this]
     {
+        // Multi-select: several .kbm map to MIDI channels 1..N (per-channel multichannel
+        // tuning of one .scl). A single selection behaves as before (all channels).
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Load Keyboard Mapping (.kbm)", lastTuningDir, "*.kbm");
+            "Load Keyboard Mapping(s) (.kbm) — one per MIDI channel", lastTuningDir, "*.kbm");
         fileChooser->launchAsync (
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::canSelectMultipleItems,
             [this] (const juce::FileChooser& fc)
             {
                 auto r = fc.getResults();
                 if (! r.isEmpty())
                 {
                     lastTuningDir = r[0].getParentDirectory();
-                    proc.loadKBMFile (r[0]);
+                    proc.loadKBMFiles (r);
                     maybeOfferSwitchToFile();
                     refresh();
                 }
@@ -377,7 +498,10 @@ void TuningSidePanelContent::resized()
     r.removeFromTop (sectionGap);
     settingsTitle.setBounds (r.removeFromTop (titleH));
     r.removeFromTop (gap);
-    encodingBox.setBounds (r.removeFromTop (btnH));
+    // Encoding menu (left) | CHANNELS button (right), as in TUNING_PANEL.md row 8.
+    auto encRow = r.removeFromTop (btnH);
+    encodingBox.setBounds (encRow.removeFromLeft (encRow.getWidth() / 2).withTrimmedRight (gap / 2));
+    channelsBtn.setBounds (encRow.withTrimmedLeft (gap / 2));
     r.removeFromTop (gap);
 
     // Two columns: SCALE/MAP loaders (left) | NOTE ON / CONTINUOUS toggle (right).
@@ -458,19 +582,19 @@ void TuningSidePanelContent::refresh()
     }
 
     // --- frequency read-out: penultimate (left) and last (right) note-on ---
-    int pen  = proc.getPenultimateNoteOn();
-    int last = proc.getLastNoteOn();
-    auto hz  = [] (double f) { return juce::String (f, 2) + " Hz"; };
-    penultimateHzLabel.setText (pen  >= 0 ? hz (proc.getDisplayFrequency (pen))  : "? Hz",
-                                juce::dontSendNotification);
-    lastHzLabel.setText        (last >= 0 ? hz (proc.getDisplayFrequency (last)) : "? Hz",
-                                juce::dontSendNotification);
+    // Use the actual sounding frequency (channel-aware), so two manuals at different
+    // pitches read out differently. getLastNoteOn() is the "has anything played" check.
+    int    pen  = proc.getPenultimateNoteOn();
+    int    last = proc.getLastNoteOn();
+    double fp   = proc.getPenultimateNoteFreq();
+    double fl   = proc.getLastNoteFreq();
+    auto   hz   = [] (double f) { return juce::String (f, 2) + " Hz"; };
+    penultimateHzLabel.setText (pen  >= 0 ? hz (fp) : "? Hz", juce::dontSendNotification);
+    lastHzLabel.setText        (last >= 0 ? hz (fl) : "? Hz", juce::dontSendNotification);
 
-    if (pen >= 0 && last >= 0)
+    if (pen >= 0 && last >= 0 && fp > 0.0 && fl > 0.0)
     {
-        double fp = proc.getDisplayFrequency (pen);
-        double fl = proc.getDisplayFrequency (last);
-        double cents = (fp > 0.0 && fl > 0.0) ? 1200.0 * std::log2 (fl / fp) : 0.0;
+        double cents = 1200.0 * std::log2 (fl / fp);
         centsLabel.setText ((cents >= 0.0 ? "+" : "") + juce::String (cents, 1) + " c",
                             juce::dontSendNotification);
     }
@@ -955,7 +1079,7 @@ void DefaultPage::resized()
 // ============================================================================
 
 TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProcessor& p)
-    : AudioProcessorEditor (&p), defaultPage (p)
+    : AudioProcessorEditor (&p), proc (p), defaultPage (p)
 {
     setLookAndFeel (&laf);
 
@@ -977,6 +1101,13 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
         tuningBtn.setToggleState (defaultPage.isTuningPanelShowing(), juce::dontSendNotification);
     };
     addAndMakeVisible (tuningBtn);
+
+    // PANIC: release all notes (temporary, for debugging stuck notes). Sits left of TUNING.
+    panicBtn.setClickingTogglesState (false);
+    panicBtn.setColour (juce::TextButton::buttonColourId,  kBtn);
+    panicBtn.setColour (juce::TextButton::textColourOffId, kAmber);
+    panicBtn.onClick = [this] { proc.triggerPanic(); };
+    addAndMakeVisible (panicBtn);
 
     addAndMakeVisible (defaultPage);
 
@@ -1003,6 +1134,7 @@ void TuneBfreeAudioProcessorEditor::resized()
     auto header = r.removeFromTop (44);
     titleLabel.setBounds (header.removeFromLeft (180).reduced (12, 8));
     tuningBtn.setBounds  (header.removeFromRight (96).reduced (10, 8));
+    panicBtn.setBounds   (header.removeFromRight (96).reduced (10, 8));   // left of TUNING
     defaultPage.setBounds (r);
 }
 

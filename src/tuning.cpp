@@ -7,11 +7,13 @@
 #include "doctest.h"
 #endif
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 
 #include "libMTSClient.h"
+#include "tuning.h"
 
 /**
  * Pull all 128 MTS-ESP frequencies into an array.
@@ -39,7 +41,7 @@ static void getMTSESPFrequencies(double *frequency)
  *
  * If this function cannot find the period it sets the scale size and period to -1.
  */
-void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
+void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet, int scaleLen)
 {
     int scaleSize, i;
     float period;
@@ -50,10 +52,10 @@ void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
 
     for (period = 2.0; period < 10.0; period++)
     {
-        for (scaleSize = 1; scaleSize < 128; scaleSize++)
+        for (scaleSize = 1; scaleSize < scaleLen; scaleSize++)
         {
             mismatch = false;
-            for (i = 0; i < 128 - scaleSize; i++)
+            for (i = 0; i < scaleLen - scaleSize; i++)
             {
                 if (std::fabs(frequency[i + scaleSize] / frequency[i] - period) > 1e-6)
                 {
@@ -72,11 +74,11 @@ void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
 
     // Check for non-integer periods
 
-    for (scaleSize = 1; scaleSize < 128; scaleSize++)
+    for (scaleSize = 1; scaleSize < scaleLen; scaleSize++)
     {
         period = frequency[scaleSize] / frequency[0];
         mismatch = false;
-        for (i = 0; i < 128 - scaleSize; i++)
+        for (i = 0; i < scaleLen - scaleSize; i++)
         {
             if (std::fabs(frequency[i + scaleSize] / frequency[i] - period) > 1e-6)
             {
@@ -106,24 +108,24 @@ void inferScaleSize(double *frequency, int *scaleSizeRet, float *periodRet)
  * scale size and period cannot be inferred, the higher frequencies are all set
  * to the last available MTS-ESP frequency.
  */
-void extendFrequencies(double *frequency, int length)
+void extendFrequencies(double *frequency, int length, int scaleLen)
 {
     int scaleSize;
     float period;
-    inferScaleSize(frequency, &scaleSize, &period);
-    assert(scaleSize <= 128);
+    inferScaleSize(frequency, &scaleSize, &period, scaleLen);
+    assert(scaleSize <= scaleLen);
     if (scaleSize > 0)
     {
-        for (int i = 128; i < length; i++)
+        for (int i = scaleLen; i < length; i++)
         {
             frequency[i] = period * frequency[i - scaleSize];
         }
     }
     else
     {
-        for (int i = 128; i < length; i++)
+        for (int i = scaleLen; i < length; i++)
         {
-            frequency[i] = frequency[127];
+            frequency[i] = frequency[scaleLen - 1];
         }
     }
 }
@@ -138,6 +140,45 @@ void getFrequencies(double *frequency, int length)
     assert(length >= 128);
     getMTSESPFrequencies(frequency);
     extendFrequencies(frequency, length);
+}
+
+/**
+ * Merge the 16×128 grid of per-(channel, note) fundamentals into one ascending,
+ * de-duplicated gamut. See the header for the contract.
+ *
+ * The single-channel identity case (channel 0 active, all notes mapped, ascending
+ * frequencies) reduces to gamut == freqGrid[0] and slotIndex[0][n] == n — i.e. the
+ * pre-multichannel behaviour, so the rest of the engine is unaffected by default.
+ */
+int buildGamut(const double freqGrid[16][128], const bool channelActive[16],
+               const bool noteMapped[16][128], double gamutOut[],
+               int slotIndex[16][128], double centsTolerance)
+{
+    struct Entry { double f; int c; int n; };
+    Entry entries[16 * 128];
+    int   count = 0;
+
+    for (int c = 0; c < 16; ++c)
+        for (int n = 0; n < 128; ++n)
+        {
+            slotIndex[c][n] = -1;
+            if (channelActive[c] && noteMapped[c][n] && freqGrid[c][n] > 0.0)
+                entries[count++] = { freqGrid[c][n], c, n };
+        }
+
+    std::sort(entries, entries + count,
+              [](const Entry &a, const Entry &b) { return a.f < b.f; });
+
+    const double ratioTol = std::pow(2.0, centsTolerance / 1200.0);
+    int          gamutSize = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        // Open a new slot unless this pitch is within tolerance of the current one.
+        if (gamutSize == 0 || entries[i].f / gamutOut[gamutSize - 1] > ratioTol)
+            gamutOut[gamutSize++] = entries[i].f;
+        slotIndex[entries[i].c][entries[i].n] = gamutSize - 1;
+    }
+    return gamutSize;
 }
 
 /**
@@ -461,6 +502,142 @@ TEST_CASE("Testing getPairedWheel")
 }
 
 // ---------------------------------------------------------------------------
+// buildGamut — merging the 16×128 (channel, note) grid into one gamut.
+// ---------------------------------------------------------------------------
+
+namespace {
+// Fill a test grid/mask. mapAll = every note mapped; channels chosen by the caller.
+void initMasks(bool mapped[16][128]) {
+    for (int c = 0; c < 16; ++c)
+        for (int n = 0; n < 128; ++n)
+            mapped[c][n] = true;
+}
+double tet12(int n) { return 440.0 * std::pow(2.0, (n - 69) / 12.0); }
+}
+
+TEST_CASE("buildGamut: single channel reduces to identity")
+{
+    double grid[16][128] = {};
+    bool   chan[16]      = {};
+    bool   mapped[16][128];
+    initMasks(mapped);
+    chan[0] = true;
+    for (int n = 0; n < 128; ++n) grid[0][n] = tet12(n);
+
+    double gamut[16 * 128];
+    int    slot[16][128];
+    int    size = buildGamut(grid, chan, mapped, gamut, slot);
+
+    CHECK(size == 128);
+    for (int n = 0; n < 128; ++n) {
+        CHECK(gamut[n] == grid[0][n]);
+        CHECK(slot[0][n] == n);
+        CHECK(slot[1][n] == -1);        // inactive channels excluded
+    }
+}
+
+TEST_CASE("buildGamut: two channels interleave into 24-EDO")
+{
+    double grid[16][128] = {};
+    bool   chan[16]      = {};
+    bool   mapped[16][128];
+    initMasks(mapped);
+    chan[0] = chan[1] = true;
+    for (int n = 0; n < 128; ++n) {
+        grid[0][n] = tet12(n);
+        grid[1][n] = tet12(n) * std::pow(2.0, 50.0 / 1200.0);   // +50 cents (quarter tone)
+    }
+
+    double gamut[16 * 128];
+    int    slot[16][128];
+    int    size = buildGamut(grid, chan, mapped, gamut, slot);
+
+    CHECK(size == 256);
+    for (int n = 0; n < 128; ++n) {
+        CHECK(slot[0][n] == 2 * n);
+        CHECK(slot[1][n] == 2 * n + 1);
+    }
+    for (int i = 1; i < size; ++i) CHECK(gamut[i] > gamut[i - 1]);   // sorted ascending
+}
+
+TEST_CASE("buildGamut: coincident pitches across channels de-duplicate")
+{
+    double grid[16][128] = {};
+    bool   chan[16]      = {};
+    bool   mapped[16][128];
+    initMasks(mapped);
+    chan[0] = chan[1] = true;
+    for (int n = 0; n < 128; ++n) {
+        grid[0][n] = tet12(n);
+        grid[1][n] = tet12(n);          // identical second keyboard
+    }
+
+    double gamut[16 * 128];
+    int    slot[16][128];
+    int    size = buildGamut(grid, chan, mapped, gamut, slot);
+
+    CHECK(size == 128);                 // duplicates collapsed to shared slots
+    for (int n = 0; n < 128; ++n)
+        CHECK(slot[0][n] == slot[1][n]);
+}
+
+TEST_CASE("buildGamut: unmapped notes are excluded and slots close up")
+{
+    double grid[16][128] = {};
+    bool   chan[16]      = {};
+    bool   mapped[16][128];
+    initMasks(mapped);
+    chan[0] = true;
+    for (int n = 0; n < 128; ++n) grid[0][n] = tet12(n);
+    mapped[0][60] = false;              // silence middle C
+
+    double gamut[16 * 128];
+    int    slot[16][128];
+    int    size = buildGamut(grid, chan, mapped, gamut, slot);
+
+    CHECK(size == 127);
+    CHECK(slot[0][60] == -1);
+    CHECK(slot[0][59] == 59);
+    CHECK(slot[0][61] == 60);           // notes above the hole shift down one slot
+}
+
+TEST_CASE("buildGamut: nothing active yields an empty gamut")
+{
+    double grid[16][128] = {};
+    bool   chan[16]      = {};          // no channels active
+    bool   mapped[16][128];
+    initMasks(mapped);
+    for (int n = 0; n < 128; ++n) grid[0][n] = tet12(n);
+
+    double gamut[16 * 128];
+    int    slot[16][128];
+    int    size = buildGamut(grid, chan, mapped, gamut, slot);
+
+    CHECK(size == 0);
+    for (int c = 0; c < 16; ++c)
+        for (int n = 0; n < 128; ++n)
+            CHECK(slot[c][n] == -1);
+}
+
+TEST_CASE("inferScaleSize / extendFrequencies honour a custom scale region")
+{
+    // A 24-slot region of 12-TET (two octaves) — period 2, scale size 12 — but only
+    // the first 24 entries are valid (the rest is the gamut's unused tail).
+    double freq[256] = {};
+    for (int n = 0; n < 24; ++n) freq[n] = tet12(60 + n);
+
+    int   size; float period;
+    inferScaleSize(freq, &size, &period, /*scaleLen*/ 24);
+    CHECK(size == 12);
+    CHECK(period == 2.0);
+
+    // Extend from slot 24 (not 128): slot 24 must be one period above slot 12.
+    extendFrequencies(freq, 256, /*scaleLen*/ 24);
+    CHECK(std::fabs(freq[24] / freq[12] - 2.0) < 1e-9);
+    CHECK(std::fabs(freq[36] / freq[24] - 2.0) < 1e-9);
+}
+
+// ---------------------------------------------------------------------------
 // Example tunings from the repo's tunings/ directory (loaded via Surge's
 // tuning-library). These validate the values the tuning panel reports.
 // ---------------------------------------------------------------------------
@@ -527,6 +704,49 @@ TEST_CASE("Example tuning: 9ed3halves keyboards step 78c except E-F/B-C; kb2 one
     for (int n = 60; n <= 72; ++n)
         CHECK(std::fabs(1200.0 * std::log2(t2.frequencyForMidiNote(n)
                                            / t1.frequencyForMidiNote(n)) + 77.995) < 0.05);
+}
+
+TEST_CASE("Example tuning: 14ed2 keyboards — kb2 one step below fills kb1's gaps")
+{
+    auto scale = Tunings::readSCLFile(tuningFile("14ed2/14ed2.scl"));
+    auto k1    = Tunings::readKBMFile(tuningFile("14ed2/14ed2_1.kbm"));
+    auto k2    = Tunings::readKBMFile(tuningFile("14ed2/14ed2_2.kbm"));
+    CHECK(scale.count == 14);
+    CHECK(k1.octaveDegrees == 14);
+    Tunings::Tuning t1(scale, k1), t2(scale, k2);
+
+    const double stepC = 1200.0 / 14.0;     // ~85.714c per 14-EDO step
+    CHECK(std::fabs(t1.frequencyForMidiNote(69) - 440.0) < 0.01);
+
+    auto step = [&] (Tunings::Tuning& t, int n) {
+        return 1200.0 * std::log2(t.frequencyForMidiNote(n) / t.frequencyForMidiNote(n - 1)); };
+    // Adjacent keys are one step, except E-F (64->65) and B-C (71->72) which double.
+    for (int n : { 61, 62, 63, 64, 66, 67, 68, 69, 70, 71 })
+        CHECK(std::fabs(step(t1, n) - stepC) < 0.01);
+    CHECK(std::fabs(step(t1, 65) - 2 * stepC) < 0.01);
+    CHECK(std::fabs(step(t1, 72) - 2 * stepC) < 0.01);
+
+    // Keyboard 2 is a uniform one step below keyboard 1 — so playing the same key on kb2
+    // sounds the degree kb1 skipped just below it. The previously-broken file shifted the
+    // middle note instead, leaving kb2 on the SAME degree set (no fill).
+    for (int n = 60; n <= 72; ++n)
+        CHECK(std::fabs(1200.0 * std::log2(t2.frequencyForMidiNote(n)
+                                           / t1.frequencyForMidiNote(n)) + stepC) < 0.05);
+
+    // Together the two keyboards reach all 14 degrees (none missing). Degrees are taken
+    // relative to a common reference (kb1's note 60 = degree 0).
+    const double ref = t1.frequencyForMidiNote(60);
+    bool seen[14] = {};
+    auto markDeg = [&] (Tunings::Tuning& t, int lo, int hi) {
+        for (int n = lo; n <= hi; ++n) {
+            double cents = 1200.0 * std::log2(t.frequencyForMidiNote(n) / ref);
+            int deg = ((int) std::lround(cents / stepC)) % 14;
+            seen[(deg + 14) % 14] = true;
+        }
+    };
+    markDeg(t1, 48, 84);
+    markDeg(t2, 48, 84);
+    for (int d = 0; d < 14; ++d) CHECK(seen[d]);
 }
 
 TEST_CASE("Example tuning: 7edo .kbm leaves the black keys unmapped (x)")

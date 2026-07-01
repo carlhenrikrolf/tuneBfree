@@ -3,7 +3,9 @@
         "enabled": true,
         "filesystem": {
             "denyRead": [
-                "/Users",
+                "/Users"
+            ],
+            "allowRead": [
                 "."
             ],
             "denyWrite": [
@@ -13,12 +15,12 @@
     },
     "permissions": {
         "deny": [
-            "Read(/**/.ssh/*)",
-            "Write(/**/.ssh/*",
-            "Edit(/**/.ssh/*",
-            "Read(/**/.env*)",
-            "Write(/**/.env*",
-            "Edit(/**/.env*"
+            "Read(//**/.ssh/*)",
+            "Write(//**/.ssh/*)",
+            "Edit(//**/.ssh/*)",
+            "Read(//**/.env*)",
+            "Write(//**/.env*)",
+            "Edit(//**/.env*)"
         ]
     }
 }

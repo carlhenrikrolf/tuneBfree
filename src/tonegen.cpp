@@ -263,6 +263,11 @@ static void initValues(struct b_tonegen *t)
 
     t->upperKeyCount = 0;
 
+    /* Defaults for the single-channel / direct-call (test) paths; initToneGenerator
+     * overrides these from its parameters for the multichannel gamut. */
+    t->gamutSize = NOF_MIDI_NOTES;   /* 128 */
+    t->nofWheels = 256;
+
 #ifdef KEYCOMPRESSION
     t->keyDownCount = 0;
 #endif
@@ -748,7 +753,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 #endif
 
     double oscFrequency[NOF_WHEELS + 1];
-    for (int i = 1; i <= NOF_WHEELS; i++)
+    for (int i = 1; i <= t->nofWheels; i++)
     {
         oscFrequency[i] = getOscillatorFrequency(t, i);
     }
@@ -762,8 +767,8 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
 
     int terminalNumber, bestTerminalNumber;
     float ratio, centDiff, smallestCentDiff;
-    for (k = 0; k < NOF_MIDI_NOTES; k++)
-    {                                  /* Iterate over 128 keys */
+    for (k = 0; k < t->gamutSize; k++)
+    {                                  /* Iterate over the manual's slots (gamut size) */
         int keyNumber = k + keyOffset; /* Determine the key's number */
         if (t->keyTaper[keyNumber] == NULL)
         { /* If taper is unset */
@@ -772,7 +777,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
             { /* For each bus contact */
                 smallestCentDiff = std::numeric_limits<float>::infinity();
                 bestTerminalNumber = 0;
-                for (terminalNumber = 1; terminalNumber <= NOF_WHEELS; terminalNumber++)
+                for (terminalNumber = 1; terminalNumber <= t->nofWheels; terminalNumber++)
                 { /* For each possible terminal */
                     ratio = oscFrequency[terminalNumber] / t->frequency[k];
                     centDiff = 1200 * std::fabs(std::log2(t->targetRatio[b] / ratio));
@@ -783,9 +788,9 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                     }
                 }
                 assert(bestTerminalNumber != 0);
-                // If the best terminal is 1 or NOF_WHEELS then it's likely the search has just
+                // If the best terminal is 1 or nofWheels then it's likely the search has just
                 // hit the end of the range and we don't have a good approximation
-                if ((bestTerminalNumber != 1) && (bestTerminalNumber != NOF_WHEELS))
+                if ((bestTerminalNumber != 1) && (bestTerminalNumber != t->nofWheels))
                 {
                     lep = newConfigListElement(t);
                     LE_TERMINAL_OF(lep) = (short)bestTerminalNumber;
@@ -818,7 +823,7 @@ static void applyPedalDefaults(struct b_tonegen *t, int nofPedals)
 
     for (k = 0; k < nofPedals; k++)
     {
-        int keyNumber = k + 2 * NOF_MIDI_NOTES;
+        int keyNumber = k + 2 * t->gamutSize;
         if (t->keyTaper[keyNumber] == NULL)
         {
             int b;
@@ -851,7 +856,7 @@ static void applyDefaultCrosstalk(struct b_tonegen *t, int keyOffset, int busOff
     int k;
     int b;
 
-    for (k = 0; k < NOF_MIDI_NOTES; k++)
+    for (k = 0; k < t->gamutSize; k++)
     {
         int keyNumber = k + keyOffset;
         if (t->keyCrosstalk[keyNumber] == NULL)
@@ -938,7 +943,7 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
 
     /* Crosstalk at the terminals. Terminal mix. */
 
-    for (i = 1; i <= NOF_WHEELS; i++)
+    for (i = 1; i <= t->nofWheels; i++)
     {
         if (t->terminalMix[i] == NULL)
         {
@@ -970,7 +975,7 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
 
     if (0.0 < t->defaultTransformerCrosstalk)
     {
-        for (i = 44; i <= NOF_WHEELS; i++)
+        for (i = 44; i <= t->nofWheels; i++)
         {
             int east = 0;
             int west = 0;
@@ -998,7 +1003,7 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
 
     if (0.0 < t->defaultTerminalStripCrosstalk)
     {
-        for (i = 1; i <= NOF_WHEELS; i++)
+        for (i = 1; i <= t->nofWheels; i++)
         {
             int east = 0;
             int west = 0;
@@ -1022,15 +1027,15 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
         }
     } /* if defaultTerminalStripCrosstalk */
 
-    /* Key connections and taper */
-
+    /* Key connections and taper. Manual stride = gamutSize: upper [0,gamutSize),
+     * lower [gamutSize,2*gamutSize), pedal [2*gamutSize,...).
+     *
+     * Only the upper manual is wired — it's the only one the plugin currently plays
+     * (note routing sounds slots in [0,gamutSize)). Wiring is the dominant rebuild cost
+     * (O(gamutSize * 9 * nofWheels) per manual), so skipping the unused lower/pedal cuts
+     * it to a third. The keyboard split (step 2) will re-add the lower manual here. */
     applyManualDefaults(t, 0, 0);
-    applyManualDefaults(t, NOF_MIDI_NOTES, 9);
-    applyPedalDefaults(t, 32);
-
-    /* Key crosstalk */
     applyDefaultCrosstalk(t, 0, 0);
-    applyDefaultCrosstalk(t, NOF_MIDI_NOTES, 9);
 
     /*
      * As yet there is no default crosstalk model for pedals, but they will
@@ -1476,7 +1481,7 @@ static void initOscillators(struct b_tonegen *t, int variant, double precision)
     struct _oscillator *osp;
     double harmonicsList[MAX_PARTIALS];
 
-    nofOscillators = NOF_WHEELS;
+    nofOscillators = t->nofWheels;
 
     /*
      * Apply equalisation curve. This sets the attenuation field in the
@@ -2903,13 +2908,19 @@ static void setSwellPedal2FromMIDI(void *d, unsigned char u)
  * be set.
  */
 void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *targetRatio,
-                       const double *freqOverride)
+                       const double *freqOverride, int gamutSize, int nofWheels)
 {
     int i;
 
     t->SampleRateD = rate;
 
     t->midi_cfg_ptr = m;
+
+    /* Gamut size (slots / manual stride) and wheel count must be set before the
+     * configuration is applied — applyManualDefaults wires gamutSize keys per manual
+     * and searches nofWheels tonewheels. Clamp to the compile-time maxima. */
+    t->gamutSize = (gamutSize > 0 && gamutSize <= MAX_GAMUT) ? gamutSize : NOF_MIDI_NOTES;
+    t->nofWheels = (nofWheels > 0 && nofWheels <= NOF_WHEELS) ? nofWheels : 256;
 
     /* init global variables */
     t->percIsSoft = t->percIsFast = 0;
@@ -2959,6 +2970,12 @@ void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *target
         memcpy(t->frequency, freqOverride, NOF_FREQS * sizeof(double));
     else
         getFrequencies(t->frequency, NOF_FREQS);
+
+    /* Default routing: identity (slot == note on every channel). The host wrapper
+     * overwrites slotIndex for multichannel tuning. (gamutSize/nofWheels were set above.) */
+    for (int ch = 0; ch < 16; ch++)
+        for (int n = 0; n < NOF_MIDI_NOTES; n++)
+            t->slotIndex[ch][n] = n;
 
     double defaultTargetRatio[NOF_DRAWBARS] = {0.5, 1.5, 1, 2, 3, 4, 5, 6, 8};
     if (targetRatio == nullptr)
@@ -3110,8 +3127,8 @@ void oscKeyOff(struct b_tonegen *t, short keyNumber, short realKey)
         {
             t->_activeKeys[realKey / 32] &= ~(1 << (realKey % 32));
         }
-        /* Track upper manual keys for percussion trigger */
-        if (keyNumber < NOF_MIDI_NOTES)
+        /* Track upper manual keys for percussion trigger (upper = [0, gamutSize)) */
+        if (keyNumber < t->gamutSize)
         {
             t->upperKeyCount--;
         }
@@ -3150,8 +3167,8 @@ void oscKeyOn(struct b_tonegen *t, short keyNumber, short realKey)
     {
         t->_activeKeys[realKey / 32] |= (1 << (realKey % 32));
     }
-    /* Track upper manual for percussion trigger */
-    if (keyNumber < NOF_MIDI_NOTES)
+    /* Track upper manual for percussion trigger (upper = [0, gamutSize)) */
+    if (keyNumber < t->gamutSize)
     {
         t->upperKeyCount++;
     }
@@ -4142,8 +4159,43 @@ TEST_CASE("Testing applyDefaultConfiguration")
     CHECK(t->terminalMix[1]->u.ssf.fc == 0.9900000095367432);
     CHECK(t->terminalMix[91]->u.ssf.sa == 91);
     CHECK(t->terminalMix[91]->u.ssf.fc == 0.9900000095367432);
-    CHECK(t->terminalMix[NOF_WHEELS]->u.ssf.sa == NOF_WHEELS);
-    CHECK(t->terminalMix[NOF_WHEELS]->u.ssf.fc == 0.9900000095367432);
+    // The terminal mix is built for the runtime wheel count (default 256), not the
+    // compile-time NOF_WHEELS maximum.
+    CHECK(t->terminalMix[t->nofWheels]->u.ssf.sa == t->nofWheels);
+    CHECK(t->terminalMix[t->nofWheels]->u.ssf.fc == 0.9900000095367432);
+    freeToneGenerator(t);
+}
+
+TEST_CASE("initToneGenerator wires a gamut larger than 128 (step 1b keyspace)")
+{
+    struct b_tonegen *t = allocTonegen();
+
+    // 24-EDO frequency table: distinct slots + extension filling NOF_FREQS.
+    double freq[NOF_FREQS];
+    for (int i = 0; i < NOF_FREQS; ++i)
+        freq[i] = 20.0 * std::pow(2.0, i / 24.0);
+
+    const int gamut  = 160;   // > 128 (the old per-manual cap)
+    const int wheels = 256;   // >= gamut, <= NOF_WHEELS
+
+    initToneGenerator(t, nullptr, TEST_RATE, nullptr, freq, gamut, wheels);
+
+    CHECK(t->gamutSize == gamut);
+    CHECK(t->nofWheels == wheels);
+
+    // Upper-manual slots beyond the old 128 cap are wired...
+    CHECK(t->keyTaper[60]  != nullptr);
+    CHECK(t->keyTaper[140] != nullptr);          // slot 140 > 128
+    // ...and the lower manual is NOT wired (applyDefaultConfiguration wires upper only
+    // until the keyboard split lands — see step 2). The stride is still the gamut size.
+    CHECK(t->keyTaper[gamut + 60] == nullptr);
+
+    // The engine stays usable: key a high slot on/off with no crash or stuck state.
+    oscKeyOn (t, (short) 140, (short) 60);
+    CHECK(t->activeKeys[140] == 1);
+    oscKeyOff(t, (short) 140, (short) 60);
+    CHECK(t->activeKeys[140] == 0);
+
     freeToneGenerator(t);
 }
 

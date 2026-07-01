@@ -97,6 +97,7 @@ private:
     // --- SETTINGS block ---
     juce::Label      settingsTitle;        // "SETTINGS" section header
     juce::ComboBox   encodingBox;          // microtuning encoding (UI-only for now)
+    juce::TextButton channelsBtn { "CHANNELS" };                 // opens the channel popup
     juce::TextButton loadSclBtn, loadKbmBtn;                      // SCALE / MAP loaders
     juce::TextButton noteOnBtn { "NOTE ON" }, alwaysBtn { "ALWAYS" }; // 2-way toggle
 
@@ -219,10 +220,12 @@ public:
     void timerCallback () override;
 
 private:
+    TuneBfreeAudioProcessor& proc;
     TuneBfreeLookAndFeel laf;
 
     juce::Label      titleLabel;
     juce::TextButton tuningBtn { "TUNING" };
+    juce::TextButton panicBtn  { "PANIC" };   // release all notes (debugging); temporary
     DefaultPage      defaultPage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuneBfreeAudioProcessorEditor)

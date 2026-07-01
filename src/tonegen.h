@@ -72,25 +72,37 @@ typedef struct deflist_element {
 } ListElement;
 
 /**
- * Wheels refer to number of signal sources in the tonegenerator.
- * Note that the first one is numbered 1 and the last 91, so allocations
- * must add one.
+ * Wheels refer to number of signal sources in the tonegenerator. The first is
+ * numbered 1, so allocations add one. This is the COMPILE-TIME maximum; the actual
+ * number in use is the runtime b_tonegen::nofWheels, sized to the gamut (Solution B,
+ * see roadmap/MULTICHANNEL.md) so a simple scale builds far fewer wavetables. Set to
+ * the hard ceiling so any tuning fits; the CHANNELS selection is the runtime throttle.
  */
-#define NOF_WHEELS 256
+#define NOF_WHEELS 2048
 
 /**
- * Number of frequencies stored in the frequency array which
- * oscillator frequencies are chosen from.
+ * Number of frequencies stored in the frequency array which oscillator frequencies
+ * are chosen from. Must be >= NOF_WHEELS (wheels read frequency[i-1]).
  */
-#define NOF_FREQS 300
+#define NOF_FREQS 2048
 
 /**
- * Keys are numbered thus:
- *   0-- 63, upper manual (  0-- 60 in use)
- *  64--127, lower manual ( 64--124 in use)
- * 128--160, pedal        (128--159 in use)
+ * Maximum distinct pitches ("slots") per manual — the cap on the merged multichannel
+ * gamut. Set to the hard ceiling 16*128 = 2048 (every MIDI channel × note unique), so
+ * the gamut can never silently drop pitches. Rebuild cost scales with the *runtime*
+ * gamut, which the user bounds via the CHANNELS selection. Each manual holds up to
+ * MAX_GAMUT keys; the runtime b_tonegen::gamutSize is the number actually wired.
  */
-#define MAX_KEYS 384
+#define MAX_GAMUT 2048
+
+/**
+ * Key numbering (stride = b_tonegen::gamutSize, default 128):
+ *   [0, gamutSize)            upper manual
+ *   [gamutSize, 2*gamutSize)  lower manual
+ *   [2*gamutSize, 3*gamutSize) pedal
+ * Sized for the max: 3 * MAX_GAMUT.
+ */
+#define MAX_KEYS (3 * MAX_GAMUT)
 
 /**
  * Active oscillator table element.
@@ -550,9 +562,21 @@ struct b_tonegen {
 	void* midi_cfg_ptr;
 
 /*
- * Frequencies pulled with MTS-ESP
+ * Frequencies pulled with MTS-ESP. For multichannel tuning this is the merged
+ * "gamut": frequency[0 .. gamutSize) are the distinct sounding pitches, ascending;
+ * the rest is period-extension used as higher tonewheels for harmonics.
  */
     double frequency[NOF_FREQS];
+
+/*
+ * Multichannel routing: slotIndex[channel][note] is the frequency[] slot that
+ * (channel, note) plays, or -1 to silence it. Filled by the host wrapper, not by
+ * the DSP core. Defaults to the identity map (slot == note, every channel), which
+ * reproduces the single-channel behaviour. gamutSize is the number of valid slots.
+ */
+    int slotIndex[16][128];
+    int gamutSize;   /**< distinct pitches / slots per manual; also the manual stride */
+    int nofWheels;   /**< tonewheels actually built (<= NOF_WHEELS); sized to the gamut */
 
 /*
  * Target ratios for each drawbar
@@ -586,7 +610,8 @@ extern int oscConfig (struct b_tonegen* t, ConfigContext* cfg);
 extern const ConfigDoc* oscDoc ();
 #endif
 extern void initToneGenerator (struct b_tonegen* t, void* m, double rate, double *targetRatio,
-                               const double *freqOverride = nullptr);
+                               const double *freqOverride = nullptr,
+                               int gamutSize = 128, int nofWheels = 256);
 extern void freeToneGenerator (struct b_tonegen* t);
 
 extern void oscKeyOff (struct b_tonegen* t, short midiNote, short realKey);

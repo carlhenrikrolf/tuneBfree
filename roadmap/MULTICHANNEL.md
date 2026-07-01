@@ -90,8 +90,11 @@ mostly already done; the split just needs reimplementing at the JUCE/tonegen lay
    engine lacks).
 3. **16 channels desired** → recommend **Solution B** (size the wheel pool to the
    actual gamut). See tradeoffs below.
-4. **Per-split vibrato + percussion**, including **independent vibrato type** — but
-   staged: on/off-per-manual first (free), independent type as a fast follow.
+4. **Per-split vibrato + percussion — keep it B3-like** (user, 2026-06-30, change of
+   heart, superseding the earlier "independent" idea): **percussion = upper manual only**;
+   vibrato/chorus **type shared** across manuals but **on/off per manual** (engine already
+   does this via `RT_UPPRVIB`/`RT_LOWRVIB`). No 2nd `b_vibrato`, no 2nd percussion
+   envelope. GUI tweaks here may come later (not urgent).
 
 ## Section-by-section feasibility
 
@@ -201,15 +204,91 @@ early-return (a separate latent bug noted in FIELD_NOTES).
 
 0. **Move reinit off the audio thread** (background build + atomic swap). Prereq for
    everything below; also fixes an existing latent xrun risk.
+   **DONE (2026-06-29):** `reinitToneGen()` replaced by an async rebuild in
+   [PluginProcessor.cpp](../plugin/PluginProcessor.cpp) — a `RebuildThread` builds a
+   fresh `b_tonegen` (`performBackgroundRebuild`), the audio thread swaps it in
+   (`applyPendingRebuild`, a pointer swap at the top of `processBlock`) and hands the
+   old engine back to the worker to free. Tuning/ratio/file changes now call
+   `requestRebuild()` (flag + wake) instead of building inline; the old engine keeps
+   playing until the swap. First build (`initDSP`) stays synchronous (message thread,
+   pre-playback). *Caveat for later:* teardown joins the worker with a 2 s timeout —
+   fine at today's 256-wheel pool, revisit when Solution B grows the pool.
 1. **Per-channel tuning playback.** Un-hardcode channel 0; map `(channel, note)` →
    fundamental; grow `MAX_KEYS`/table bounds. Solution **B** wheel-pool sizing.
+   **In progress (2026-06-29):**
+   - ✅ `buildGamut()` ([tuning.cpp](../src/tuning.cpp), declared in
+     [tuning.h](../src/tuning.h)) — merges the 16×128 (channel, note) grid into one
+     ascending, de-duplicated gamut + a `slotIndex[16][128]` map; honours the active-channel
+     mask and per-note filtering; single-channel case reduces to identity. Unit-tested
+     (5 doctest cases: identity, 24-EDO interleave, dedup, unmapped-note exclusion, empty).
+   - ✅ Generalized `inferScaleSize`/`extendFrequencies` with a `scaleLen` arg (default
+     128, so existing callers are untouched) so the wheel pool extends from the gamut
+     size. Unit-tested.
+   - ✅ `slotIndex[16][128]` + `gamutSize` added to `b_tonegen` (rides with the engine,
+     swaps atomically); `initToneGenerator` identity-inits them so non-multichannel
+     sources are unchanged.
+   - ✅ Worker rebuild: `buildMTSGamut()` ([PluginProcessor.cpp](../plugin/PluginProcessor.cpp))
+     queries MTS over the active channels → `buildGamut` → fills the tonewheel table +
+     `slotIndex`; runs on the rebuild worker.
+   - ✅ Note routing in `processBlock`: `(channel, note)` → `synth->slotIndex` →
+     `oscKeyOn(slot)`; per-`(channel,note)` `soundingSlot[16][128]` tracks the held slot so
+     note-off releases the exact key, reset on engine swap. (Replaces channel-agnostic
+     `filteredNotes[]`.)
+   - ✅ `channelActive[16]` state (default all-active = current behaviour).
+   - ✅ **Gamut cap lifted to MAX_GAMUT = 2048 (step 1b, 2026-06-30).** See below.
+   - ✅ Per-channel `.kbm` (FILE multichannel): load N `.kbm` files (multi-select).
+     `buildFileGamut()` merges them like the MTS path. Editor `.kbm` chooser multi-selects.
+     This makes multichannel testable on Mac without a multichannel MTS master.
+   - ✅ **`.kbm` assignment (revised 2026-06-30, no alphabetical order):** `*_i.kbm`
+     (i in 1..16) → channel i (last selected wins for the same i); a file with no valid
+     `_i` suffix is a **default** filling every unassigned channel. `.scl` only = base
+     scale on all channels. (`kbmChannelSuffix` + `loadKBMFiles`.)
+   - ✅ **Test-C fixes (2026-06-30):** (a) **slot reference counting** — coincident
+     pitches across channels de-dup to one gamut slot, so the slot is now ref-counted:
+     `oscKeyOn` on the first key, `oscKeyOff` only on the last release (fixes "release one
+     key → both stop" and the retrigger click). (b) **Channel-aware Hz/cents read-out** —
+     the panel shows each note's *actual* sounding frequency (`synth->frequency[slot]`),
+     so two manuals at different pitches read out differently.
+   - ✅ **Panic** — PANIC button (left of TUNING) + MIDI CC 120/123 release all notes
+     (`allNotesOff`, via an atomic `panicRequested`). Temporary, for debugging.
+   - ✅ **CHANNELS popup UI (2026-06-30):** the CHANNELS button (right of the encoding
+     menu) opens a CallOutBox with **POLY** (multi- vs single-select), **OMNI**, and 16
+     channel toggles (`ChannelSelectorContent`). Wired to `setChannelActive/setOmni/setPoly`;
+     each change triggers a rebuild. OMNI merges to the MTS **unspecified channel (-1)** —
+     applies to MTS/SYSEX; FILE keeps its per-channel `.kbm` mapping. Channel config
+     (active mask + omni + poly) is **persisted** in plugin state (`channelConfig` node).
+     Deferred nicety: POLY does not yet remember the *other* mode's last selection.
+   - ✅ **step 1b (2026-06-30): keyspace widened + Solution B wheel-pool sizing.**
+     The per-manual slot count and the tonewheel count are now **runtime** (`b_tonegen::
+     gamutSize`, `nofWheels`), passed into `initToneGenerator`; the manual stride is
+     `gamutSize` (upper [0,gs), lower [gs,2gs), pedal [2gs,3gs)). Compile-time maxima
+     set to the hard ceiling: `MAX_GAMUT 2048` (= 16×128, every channel/note unique — the
+     most distinct pitches MTS can address), `MAX_KEYS 3*2048`, `NOF_WHEELS`/`NOF_FREQS`
+     → 2048. `computeNofWheels` sizes the pool to the gamut + ~8× the top pitch (so 12-EDO
+     builds ~160 wheels, not 2048). Defaults (128/256) keep the single-channel path
+     byte-identical — all prior doctests pass; a new doctest wires a 160-slot gamut.
+     The cap **can never silently drop pitches** now; rebuild cost scales with the
+     *runtime* gamut, which the user bounds via the CHANNELS selection (the design intent).
+     A maxed-out gamut (~2048) takes ~1–2 s to rebuild (async — no glitch); the worker
+     stack is 4 MB and teardown waits 8 s to accommodate it. *Future:* the wheel-matching
+     is a linear scan — a binary search (frequencies are sorted) would make large gamuts
+     rebuild near-instantly.
+   - ✅ **Wire upper-manual only (2026-06-30):** `applyDefaultConfiguration` no longer wires
+     the unused lower/pedal manuals — cuts rebuild work to ⅓. The keyboard split (step 2)
+     re-adds the lower manual.
+   - ⬜ `.kbm` directory selection (multi-file select works; directory scan is a nicety).
+
+   **Status: builds clean (Standalone), unit tests 47/47. Needs DAW validation — see
+   [MULTICHANNEL_TESTING.md](MULTICHANNEL_TESTING.md).**
 2. **Bitimbral split, abrupt first.** Split-by-sounding-pitch → route region to
    upper/lower manual keys. Independent drawbars + vibrato on/off come free.
+   Percussion stays upper-only; vibrato/chorus type shared (B3-like, per the 2026-06-30
+   change of heart — no per-split percussion, no independent vibrato type).
 3. **Baked crossfade.** Complementary `keyTaper` gains across the overlap zone;
    split point/width as config (reinit on change).
-4. **Independent percussion on lower split.** Second percussion envelope/trigger.
-5. **Independent vibrato type.** Second `b_vibrato` + core-interpreter changes
-   (highest test-risk; do last, gate behind tests).
+
+   (Dropped: the earlier steps 4 "independent percussion on lower split" and 5
+   "independent vibrato type" — superseded by the B3-like decision above.)
 6. **Extras:** panic (CC 120/123 + button); swell-pedal contour (#92) separately.
 
 ## Update (2026-06-29 #2) — channel selection, idle cost, GUI units

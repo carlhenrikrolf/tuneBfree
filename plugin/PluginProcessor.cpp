@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <algorithm>
 #include <cstring>
 #include <cmath>
 
@@ -113,6 +114,10 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     }
 
     paramPtrs[P_EXPRESSION] = apvts.getRawParameterValue("expression");
+
+    // All channels active by default: every incoming note plays, single-table tuning
+    // for a non-multichannel master — i.e. the pre-multichannel behaviour.
+    for (int ch = 0; ch < 16; ch++) channelActive[ch] = true;
 }
 
 TuneBfreeAudioProcessor::~TuneBfreeAudioProcessor()
@@ -132,9 +137,6 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     // Plain 12-TET table for the STANDARD source ("Gear60 (~12edo)").
     for (int i = 0; i < NOF_FREQS; ++i)
         standardFrequencies[i] = 440.0 * std::pow(2.0, (i - 69) / 12.0);
-
-    // No local tuning yet: every note is mapped (nothing silenced).
-    for (int i = 0; i < 128; ++i) localMapped[i] = currentNoteMapped[i] = true;
 
     // Build targetRatio from current parameter values
     double targetRatio[NOF_DRAWBARS] = {};
@@ -160,6 +162,8 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
 
     mtsClient = MTS_RegisterClient();
     memset(previousFrequency, 0, sizeof(previousFrequency));
+    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1: nothing sounding
+    memset(slotRefCount, 0, sizeof(slotRefCount));
     activeNoteCount = 0;
     samplesSinceLastNote = 0;
 
@@ -171,10 +175,15 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     }
 
     updateScalePeriod();
+
+    // Start the worker that performs all later rebuilds off the audio thread.
+    startRebuildThread();
 }
 
 void TuneBfreeAudioProcessor::tearDownDSP()
 {
+    // Stop the rebuild worker first so nothing is mid-build when we free the engine.
+    stopRebuildThread();
     if (mtsClient)    { MTS_DeregisterClient(mtsClient); mtsClient = nullptr; }
     if (whirlModule)  { freeWhirl(whirlModule);  whirlModule  = nullptr; }
     if (reverbModule) { freeReverb(reverbModule); reverbModule = nullptr; }
@@ -185,60 +194,269 @@ void TuneBfreeAudioProcessor::tearDownDSP()
 void TuneBfreeAudioProcessor::updateScalePeriod()
 {
     int size; float period;
-    inferScaleSize(synth->frequency, &size, &period);
+    inferScaleSize(synth->frequency, &size, &period, synth->gamutSize);
     inferredPeriod.store(period);
     inferredScaleSize.store(size);
 }
 
-void TuneBfreeAudioProcessor::reinitToneGen()
-{
-    // Preserve routing + swell-pedal level across reinit (allocTonegen resets them).
-    unsigned int savedRouting = synth->newRouting;
-    float        savedSwell   = synth->swellPedalGain;
+// ----------------------------------------------------------------------------
+// Async tonegen rebuild
+//
+// A rebuild frees and rebuilds all wavetables and re-runs the wheel-matching loop
+// — milliseconds of work with mallocs, never safe on the audio thread. So:
+//
+//   audio thread:  requestRebuild()           sets a flag, wakes the worker
+//   worker thread: performBackgroundRebuild()  builds a fresh tonegen, publishes it
+//   audio thread:  applyPendingRebuild()       cheap pointer swap; retires the old one
+//   worker thread:                             frees the retired engine (off-audio)
+//
+// While a rebuild is in flight the old engine keeps playing, so a tuning/ratio
+// change no longer risks an xrun. The first build (initDSP) is still synchronous,
+// but that runs on the message thread before playback starts.
+// ----------------------------------------------------------------------------
 
-    freeToneGenerator(synth);
-    synth = allocTonegen();
+void TuneBfreeAudioProcessor::startRebuildThread()
+{
+    if (! rebuildThread) {
+        rebuildThread = std::make_unique<RebuildThread>(*this);
+        rebuildThread->startThread();
+    }
+}
+
+void TuneBfreeAudioProcessor::stopRebuildThread()
+{
+    if (rebuildThread) {
+        rebuildThread->signalThreadShouldExit();
+        rebuildThread->notify();
+        // Generous timeout: a maxed-out gamut (2048 slots) can take ~1–2 s to build, and
+        // the exit flag isn't checked inside performBackgroundRebuild — wait it out.
+        rebuildThread->waitForThreadToExit(8000);
+        rebuildThread.reset();
+    }
+    // Free anything that was built-but-never-swapped or retired-but-never-freed.
+    if (auto* p = pendingSynth.exchange(nullptr)) freeToneGenerator(p);
+    if (auto* r = retiredSynth.exchange(nullptr)) freeToneGenerator(r);
+    rebuildRequested.store(false);
+}
+
+void TuneBfreeAudioProcessor::rebuildThreadLoop(juce::Thread& thread)
+{
+    while (! thread.threadShouldExit()) {
+        thread.wait(-1.0);   // sleep until requestRebuild() / applyPendingRebuild() wakes us
+
+        // Free the engine the audio thread retired on its last swap.
+        if (auto* old = retiredSynth.exchange(nullptr))
+            freeToneGenerator(old);
+
+        if (thread.threadShouldExit())
+            break;
+
+        // Coalesce rapid requests: a single build picks up the latest parameters.
+        if (rebuildRequested.exchange(false))
+            performBackgroundRebuild();
+    }
+}
+
+void TuneBfreeAudioProcessor::performBackgroundRebuild()
+{
+    b_tonegen* fresh = allocTonegen();
 
     double targetRatio[NOF_DRAWBARS] = {};
     for (int i = 0; i < NOF_DRAWBARS; i++) {
         float top = paramPtrs[P_RATIO_TOP_MIN + i]->load();
         float bot = paramPtrs[P_RATIO_BOT_MIN + i]->load();
         targetRatio[i] = (bot > 0.0) ? (top / bot) : 1.0;
-        previousRatio[i] = targetRatio[i];
     }
 
-    // Pick the frequency table for the active tuning source. FILE uses the loaded
-    // .scl/.kbm; STANDARD uses plain 12-TET; MTS/SYSEX leave it null so the tonegen
-    // pulls from the MTS-ESP client.
-    const int src = tuningSource.load();
+    // Pick the frequency table for the active tuning source. STANDARD uses plain 12-TET;
+    // FILE builds the gamut from the per-channel .kbm grid; MTS/SYSEX from the MTS client.
+    // (The FILE grid is written by the message thread on file load; a concurrent reload at
+    // worst yields a transient table, corrected by the next rebuild — it cannot crash.)
+    const int     src     = tuningSource.load();
     const double* freqSrc = nullptr;
-    if (src == TS_FILE && hasLocalTuning.load())  freqSrc = localFrequencies;
-    else if (src == TS_STANDARD)                  freqSrc = standardFrequencies;
-    initToneGenerator(synth, nullptr, currentSampleRate, targetRatio, freqSrc);
+    double gamutTable[NOF_FREQS];
+    int    gamutSlot[16][128];
+    int    gamutSz   = 128;   // slots / manual stride
+    int    gamutNw   = 256;   // tonewheels to build
+    bool   useGamut  = false;
+    if (src == TS_STANDARD) {
+        freqSrc = standardFrequencies;   // identity slotIndex from initToneGenerator
+    }
+    else if (src == TS_FILE && hasLocalTuning.load(std::memory_order_acquire)) {
+        buildFileGamut(gamutTable, gamutSlot, gamutSz, gamutNw);
+        freqSrc = gamutTable; useGamut = true;
+    }
+    else {   // TS_MTS / TS_SYSEX (or FILE with nothing loaded yet)
+        buildMTSGamut(gamutTable, gamutSlot, gamutSz, gamutNw);
+        freqSrc = gamutTable; useGamut = true;
+    }
+    // gamutSize / nofWheels must be passed in: applyManualDefaults (inside
+    // initToneGenerator) wires gamutSize keys per manual and searches nofWheels wheels.
+    // An empty gamut (size 0) falls back to the default 128/256 with the standard table.
+    const int initGamut = (useGamut && gamutSz > 0) ? gamutSz : 128;
+    const int initWheels = (useGamut && gamutSz > 0) ? gamutNw : 256;
+    initToneGenerator(fresh, nullptr, currentSampleRate, targetRatio, freqSrc, initGamut, initWheels);
+    if (useGamut)
+        memcpy(fresh->slotIndex, gamutSlot, sizeof(gamutSlot));   // gamutSize set via the init arg
+    init_vibrato(&fresh->inst_vibrato, currentSampleRate);
 
-    // Snapshot the .kbm's note mapping for note-on filtering. Only FILE silences
-    // unmapped ("x") keys; every other source maps all notes.
-    const bool fileMapped = (src == TS_FILE && hasLocalTuning.load());
-    for (int i = 0; i < 128; ++i)
-        currentNoteMapped[i] = fileMapped ? localMapped[i] : true;
-    init_vibrato(&synth->inst_vibrato, currentSampleRate);
-
-    // Re-apply tonegen parameters
+    // Re-apply the tonegen-side parameters (the same set the old synchronous reinit did).
     for (int i = P_DRAWBAR_MIN; i <= P_DRAWBAR_MAX; i++)
-        applyParam(i, cachedParams[i]);
-    applyParam(P_VIBRATO,      cachedParams[P_VIBRATO]);
-    applyParam(P_VIBRATO_TYPE, cachedParams[P_VIBRATO_TYPE]);
-    applyParam(P_PERCUSSION,   cachedParams[P_PERCUSSION]);
+        setDrawBar(fresh, i, (unsigned int) std::lround(paramPtrs[i]->load()));
+    setVibratoUpper (fresh, (int) std::lround(paramPtrs[P_VIBRATO]->load()));
+    setVibratoFromInt(fresh, (int) std::floor (paramPtrs[P_VIBRATO_TYPE]->load()));
+    setPercussionEnabled(fresh, (int) std::lround(paramPtrs[P_PERCUSSION]->load()));
 
-    synth->newRouting     = savedRouting;
-    synth->swellPedalGain = savedSwell;
+    // Scale-period read-out for the UI (inferScaleSize is too heavy for the audio thread).
+    int size; float period;
+    inferScaleSize(fresh->frequency, &size, &period, fresh->gamutSize);
+    inferredPeriod.store(period);
+    inferredScaleSize.store(size);
 
-    // The tonegen is rebuilt with no active notes. Reset tracking state so that
-    // silence detection and note-off bookkeeping are consistent with the new tonegen.
+    // Publish. If the audio thread never consumed a previous build, free it here
+    // (on the worker) rather than leak it.
+    if (auto* stale = pendingSynth.exchange(fresh, std::memory_order_release))
+        freeToneGenerator(stale);
+}
+
+void TuneBfreeAudioProcessor::requestRebuild()
+{
+    rebuildRequested.store(true, std::memory_order_release);
+    if (rebuildThread) rebuildThread->notify();
+}
+
+void TuneBfreeAudioProcessor::applyPendingRebuild()
+{
+    b_tonegen* fresh = pendingSynth.exchange(nullptr, std::memory_order_acquire);
+    if (fresh == nullptr)
+        return;
+
+    // Carry over live state the worker couldn't know about: the swell-pedal gain
+    // (expression knob / CC 7 / CC 11) and the vibrato routing.
+    fresh->swellPedalGain = synth->swellPedalGain;
+    fresh->newRouting     = synth->newRouting;
+
+    b_tonegen* old = synth;
+    synth = fresh;
+
+    // The fresh engine has no sounding notes; reset the bookkeeping and drop the
+    // per-(channel,note) slot tracking so a later note-off can't release a slot on the
+    // new engine that was never started.
     activeNoteCount = 0;
-    memset(filteredNotes, 0, sizeof(filteredNotes));
+    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1
+    memset(slotRefCount, 0, sizeof(slotRefCount));
 
-    updateScalePeriod();
+    // Retire the old engine for the worker to free (never free on the audio thread).
+    // Only one retire is ever outstanding: a new build cannot be published until the
+    // previous one is consumed, so this store never clobbers a live pointer.
+    retiredSynth.store(old, std::memory_order_release);
+    if (rebuildThread) rebuildThread->notify();
+}
+
+// Release every sounding note. Runs on the audio thread (panic button via panicRequested,
+// or MIDI CC 120 "all sound off" / CC 123 "all notes off").
+void TuneBfreeAudioProcessor::allNotesOff()
+{
+    if (synth == nullptr) return;
+    for (int s = 0; s < 128; ++s)
+        oscKeyOff(synth, (short) s, (short) s);   // no-op for slots that aren't active
+    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1
+    memset(slotRefCount, 0, sizeof(slotRefCount));
+    activeNoteCount = 0;
+}
+
+// Size the tonewheel pool to the gamut (Solution B): enough wheels to cover the gamut
+// fundamentals plus ~8x the top pitch (the highest drawbar harmonic), capped at the
+// compile-time maximum. A simple scale therefore builds far fewer wavetables.
+static int computeNofWheels(const double* freqTable, int gamutSize)
+{
+    if (gamutSize <= 0) return 256;
+    const double top = freqTable[gamutSize - 1] * 8.5;
+    int nw = gamutSize;
+    while (nw < NOF_WHEELS && freqTable[nw - 1] < top) ++nw;
+    return nw;   // in [gamutSize, NOF_WHEELS]
+}
+
+// Build the merged multichannel gamut for the MTS/SYSEX source. Queries MTS over the
+// active channels into a 16×128 grid, collapses it to the distinct sounding pitches
+// (buildGamut), and produces the tonewheel frequency table + the (channel,note)->slot
+// map + the gamut size + the wheel count. A non-multichannel master returns the same
+// table on every channel, so this reduces to the single-table identity case. Runs on
+// the worker (its own MTS client). The gamut is capped at MAX_GAMUT slots per manual.
+void TuneBfreeAudioProcessor::buildMTSGamut(double freqTable[], int slotIndexOut[16][128],
+                                            int& gamutSizeOut, int& nofWheelsOut)
+{
+    MTSClient* c = MTS_RegisterClient();
+
+    // OMNI: query the MTS "unspecified" channel (-1) for every channel, all active, so
+    // any incoming channel plays that single table. Otherwise query per channel.
+    const bool omni = omniMode.load(std::memory_order_acquire);
+    static bool active[16];
+    static double grid[16][128];          // static: keep these ~40 KB off the worker stack
+    static bool   noteMapped[16][128];
+    for (int ch = 0; ch < 16; ++ch) {
+        active[ch] = omni ? true : channelActive[ch];
+        const char qch = omni ? (char) -1 : (char) ch;
+        for (int n = 0; n < 128; ++n) {
+            grid[ch][n]       = MTS_NoteToFrequency(c, (char) n, qch);
+            noteMapped[ch][n] = ! MTS_ShouldFilterNote(c, (char) n, qch);
+        }
+    }
+    MTS_DeregisterClient(c);
+
+    static double gamut[16 * 128];
+    static int    slot[16][128];
+    int size = buildGamut(grid, active, noteMapped, gamut, slot);
+
+    if (size > MAX_GAMUT) size = MAX_GAMUT;   // cap to the per-manual key count
+
+    for (int ch = 0; ch < 16; ++ch)
+        for (int n = 0; n < 128; ++n)
+            slotIndexOut[ch][n] = (slot[ch][n] >= 0 && slot[ch][n] < size) ? slot[ch][n] : -1;
+
+    if (size == 0) {
+        // No active channels / everything filtered: keep a valid (12-TET) wheel table
+        // so the engine stays well-formed; all notes route to -1 (silent).
+        for (int i = 0; i < NOF_FREQS; ++i) freqTable[i] = standardFrequencies[i];
+        gamutSizeOut = 0;
+        nofWheelsOut = 256;
+        return;
+    }
+
+    for (int i = 0; i < size; ++i) freqTable[i] = gamut[i];
+    extendFrequencies(freqTable, NOF_FREQS, size);   // higher tonewheels for harmonics
+    gamutSizeOut = size;
+    nofWheelsOut = computeNofWheels(freqTable, size);
+}
+
+// Build the merged gamut for the FILE source from the per-channel .kbm grid (filled by
+// rebuildLocalTuning on the message thread). Unmapped ("x") keys are excluded via the
+// mapping mask, so they route to slot -1 (silent). One mapping → identity gamut; many
+// → the channels merge into one scale. Capped at MAX_GAMUT slots per manual.
+void TuneBfreeAudioProcessor::buildFileGamut(double freqTable[], int slotIndexOut[16][128],
+                                             int& gamutSizeOut, int& nofWheelsOut)
+{
+    static double gamut[16 * 128];
+    static int    slot[16][128];
+    int size = buildGamut(localFreqGrid, fileChannelActive, localMappedGrid, gamut, slot);
+
+    if (size > MAX_GAMUT) size = MAX_GAMUT;
+
+    for (int ch = 0; ch < 16; ++ch)
+        for (int n = 0; n < 128; ++n)
+            slotIndexOut[ch][n] = (slot[ch][n] >= 0 && slot[ch][n] < size) ? slot[ch][n] : -1;
+
+    if (size == 0) {
+        for (int i = 0; i < NOF_FREQS; ++i) freqTable[i] = standardFrequencies[i];
+        gamutSizeOut = 0;
+        nofWheelsOut = 256;
+        return;
+    }
+
+    for (int i = 0; i < size; ++i) freqTable[i] = gamut[i];
+    extendFrequencies(freqTable, NOF_FREQS, size);
+    gamutSizeOut = size;
+    nofWheelsOut = computeNofWheels(freqTable, size);
 }
 
 // ============================================================================
@@ -290,7 +508,7 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
         // Hammond expression/swell pedal: a pure output gain (0..outputLevelTrim).
         synth->swellPedalGain = value * (float) synth->outputLevelTrim;
     }
-    // Ratio params are handled via reinitToneGen(), not here
+    // Ratio params trigger a rebuild (requestRebuild from processBlock), not here
 }
 
 // ============================================================================
@@ -353,6 +571,14 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (synth == nullptr)
         return;
 
+    // --- Swap in a finished rebuild, if the worker has one ready (cheap; runs every
+    //     block, including the silent early-return path, so idle tuning changes land) ---
+    applyPendingRebuild();
+
+    // --- Panic (GUI button): release everything before processing this block ---
+    if (panicRequested.exchange(false, std::memory_order_acquire))
+        allNotesOff();
+
     // --- Detect and apply parameter changes ---
     bool ratioChanged = false;
     for (int i = 0; i < P_COUNT; i++) {
@@ -391,7 +617,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // re-trigger; short-circuiting it inside the || would leave it stuck.
     const bool needReinit = localTuningNeedsReinit.exchange(false, std::memory_order_acquire);
     if ((tuningChanged && sourceUsesMTS) || ratioChanged || needReinit)
-        reinitToneGen();
+        requestRebuild();
 
     // --- Silence detection: skip DSP when no notes have sounded for > tail length ---
     // This avoids setBfree's known issue of burning CPU even when silent.
@@ -426,7 +652,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             MTS_ParseMIDIDataU(mtsClient, msg.getRawData(), msg.getRawDataSize());
             if (sourceUsesMTS) {
                 lastTuningChangeMs.store(juce::Time::currentTimeMillis());
-                reinitToneGen();
+                requestRebuild();
             }
         }
         else if (msg.isController()) {
@@ -437,37 +663,54 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             if (cc == 7 || cc == 11)
                 synth->swellPedalGain = (float) (synth->outputLevelTrim
                                                  * msg.getControllerValue() / 127.0);
+            else if (cc == 120 || cc == 123)   // all sound off / all notes off
+                allNotesOff();
         }
         else {
             const int  noteNumber = msg.getNoteNumber();
-            const char midiCh     = (char)(msg.getChannel() - 1); // JUCE 1-16 → MTS-ESP 0-15
+            const int  ch         = msg.getChannel() - 1;          // JUCE 1-16 → 0-15
+            const char midiCh     = (char) ch;
 
             if (msg.isNoteOn()) {
-                // Silence notes the active source marks as unplayed: MTS-ESP via its
-                // per-scale filter signal, FILE via the .kbm's "x" (unmapped) keys.
-                // SYSEX / STANDARD never filter.
-                const bool filter =
-                    (src == TS_MTS  && MTS_ShouldFilterNote(mtsClient, (char) noteNumber, midiCh)) ||
-                    (src == TS_FILE && ! currentNoteMapped[noteNumber]);
-                if (filter) {
-                    filteredNotes[noteNumber] = true;
-                } else {
-                    filteredNotes[noteNumber] = false;
-                    oscKeyOn(synth, (short) noteNumber, (short) noteNumber);
+                // MTS filtering stays live (always current). FILE bakes the .kbm's "x"
+                // (unmapped) keys into slotIndex (per channel); STANDARD never filters.
+                // OMNI queries the unspecified channel (-1), matching the gamut build.
+                const char filtCh = omniMode.load(std::memory_order_acquire) ? (char) -1 : midiCh;
+                const bool mtsFilter =
+                    (src == TS_MTS && MTS_ShouldFilterNote(mtsClient, (char) noteNumber, filtCh));
+                // Route (channel, note) to its gamut slot. -1 = silence (filtered,
+                // unmapped, inactive channel, or a pitch beyond the gamut cap).
+                const int slot = mtsFilter ? -1 : synth->slotIndex[ch][noteNumber];
+                if (slot >= 0) {
+                    // Reference-count the slot: coincident pitches across channels share
+                    // one slot, so only the first key on it sounds the note (and only the
+                    // last release stops it). Avoids the retrigger-click and the
+                    // "release one key, both stop" bug.
+                    if (slotRefCount[slot]++ == 0)
+                        oscKeyOn(synth, (short) slot, (short) noteNumber);
+                    soundingSlot[ch][noteNumber] = slot;
                     activeNoteCount++;
                     samplesSinceLastNote = 0;
-                    // Record the last two note-ons for the tuning panel's read-out.
+                    // Tuning-panel read-out: note number + the actual sounding frequency.
                     penultimateNoteOn.store(lastNoteOn.load());
                     lastNoteOn.store(noteNumber);
+                    penultimateNoteFreq.store(lastNoteFreq.load());
+                    lastNoteFreq.store(synth->frequency[slot]);
+                } else {
+                    soundingSlot[ch][noteNumber] = -1;
                 }
             } else if (msg.isNoteOff()) {
                 // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here.
-                // Skip oscKeyOff for notes that were filtered at note-on time.
-                if (!filteredNotes[noteNumber]) {
-                    oscKeyOff(synth, (short) noteNumber, (short) noteNumber);
+                // Release the exact slot this (channel, note) started on; -1 = was silent.
+                const int slot = soundingSlot[ch][noteNumber];
+                if (slot >= 0) {
+                    if (--slotRefCount[slot] <= 0) {
+                        slotRefCount[slot] = 0;
+                        oscKeyOff(synth, (short) slot, (short) noteNumber);
+                    }
                     activeNoteCount = std::max(0, activeNoteCount - 1);
                 }
-                filteredNotes[noteNumber] = false;
+                soundingSlot[ch][noteNumber] = -1;
             }
         }
     }
@@ -483,6 +726,14 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 void TuneBfreeAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+
+    // Persist the channel selection (not APVTS parameters) as a child node.
+    auto ch = state.getOrCreateChildWithName("channelConfig", nullptr);
+    ch.setProperty("omni", (bool) omniMode.load(), nullptr);
+    ch.setProperty("poly", polyMode, nullptr);
+    for (int c = 0; c < 16; ++c)
+        ch.setProperty("ch" + juce::String(c), channelActive[c], nullptr);
+
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -490,8 +741,19 @@ void TuneBfreeAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void TuneBfreeAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml && xml->hasTagName(apvts.state.getType()))
-        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    if (xml && xml->hasTagName(apvts.state.getType())) {
+        auto tree = juce::ValueTree::fromXml(*xml);
+        apvts.replaceState(tree);
+
+        auto ch = tree.getChildWithName("channelConfig");
+        if (ch.isValid()) {
+            omniMode.store((bool) ch.getProperty("omni", false), std::memory_order_release);
+            polyMode = (bool) ch.getProperty("poly", true);
+            for (int c = 0; c < 16; ++c)
+                channelActive[c] = (bool) ch.getProperty("ch" + juce::String(c), true);
+            localTuningNeedsReinit.store(true, std::memory_order_release);   // rebuild with restored config
+        }
+    }
 }
 
 // ============================================================================
@@ -514,10 +776,51 @@ void TuneBfreeAudioProcessor::loadSCLFile(const juce::File& file)
 
 void TuneBfreeAudioProcessor::loadKBMFile(const juce::File& file)
 {
+    loadKBMFiles({ file });
+}
+
+// Parse a .kbm basename for a trailing "_<i>" channel suffix. Returns the 1-based MIDI
+// channel (1..16), or -1 if there's no valid suffix (→ treated as a default mapping).
+static int kbmChannelSuffix(const juce::String& baseName)
+{
+    const int us = baseName.lastIndexOfChar('_');
+    if (us < 0 || us == baseName.length() - 1) return -1;
+    const juce::String digits = baseName.substring(us + 1);
+    if (! digits.containsOnly("0123456789")) return -1;
+    const int n = digits.getIntValue();
+    return (n >= 1 && n <= 16) ? n : -1;
+}
+
+void TuneBfreeAudioProcessor::loadKBMFiles(const juce::Array<juce::File>& files)
+{
+    if (files.isEmpty()) return;
+
     try {
-        localKBM      = Tunings::readKBMFile(std::filesystem::path(file.getFullPathName().toStdString()));
-        hasLocalKBM   = true;
-        localKbmName  = file.getFileName();
+        // Assignment rule: "*_i.kbm" → channel i (last selected wins for the same i);
+        // a file with no valid "_i" suffix is a default that fills every unassigned
+        // channel (last default wins). No alphabetical ordering.
+        Tunings::KeyboardMapping explicitKBM[16];
+        bool                     hasExplicit[16] = {};
+        Tunings::KeyboardMapping defaultKBM;
+        bool                     hasDefault = false;
+
+        for (const auto& f : files) {
+            auto km = Tunings::readKBMFile(std::filesystem::path(f.getFullPathName().toStdString()));
+            const int ch = kbmChannelSuffix(f.getFileNameWithoutExtension());
+            if (ch >= 1 && ch <= 16) { explicitKBM[ch - 1] = km; hasExplicit[ch - 1] = true; }
+            else                     { defaultKBM = km;          hasDefault = true; }
+        }
+
+        for (int c = 0; c < 16; ++c) {
+            if (hasExplicit[c])   { localKBMs[c] = explicitKBM[c]; hasKBMForChannel[c] = true; }
+            else if (hasDefault)  { localKBMs[c] = defaultKBM;     hasKBMForChannel[c] = true; }
+            else                  { hasKBMForChannel[c] = false; }
+        }
+
+        anyKBMLoaded = true;
+        hasLocalKBM  = true;
+        localKbmName = (files.size() == 1) ? files[0].getFileName()
+                                           : juce::String(files.size()) + " maps";
         localTuningError = {};
         rebuildLocalTuning();
     } catch (const Tunings::TuningError& e) {
@@ -531,6 +834,8 @@ void TuneBfreeAudioProcessor::clearLocalTuning()
     localKbmName  = {};
     localSclDescription = {};
     hasLocalKBM   = false;
+    anyKBMLoaded  = false;
+    for (int c = 0; c < 16; ++c) hasKBMForChannel[c] = false;
     hasLocalTuning.store(false, std::memory_order_release);
     localTuningNeedsReinit.store(true, std::memory_order_release);
 }
@@ -540,16 +845,30 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
     if (localSclName.isEmpty()) return;
 
     try {
-        localTuning = hasLocalKBM ? Tunings::Tuning(localScale, localKBM)
-                                  : Tunings::Tuning(localScale);
-
-        for (int i = 0; i < 128; ++i)
-        {
-            localFrequencies[i] = localTuning.frequencyForMidiNote(i);
-            localMapped[i]      = localTuning.isMidiNoteMapped(i);   // false = "x" key
+        int firstActive = -1;
+        for (int c = 0; c < 16; ++c) {
+            // .scl only (no .kbm): the base scale on every channel (single-channel).
+            // Otherwise a channel is active iff it was assigned a mapping above.
+            const bool active = anyKBMLoaded ? hasKBMForChannel[c] : true;
+            fileChannelActive[c] = active;
+            if (! active) {
+                for (int n = 0; n < 128; ++n) { localFreqGrid[c][n] = 0.0; localMappedGrid[c][n] = false; }
+                continue;
+            }
+            if (firstActive < 0) firstActive = c;
+            Tunings::Tuning t = (anyKBMLoaded && hasKBMForChannel[c])
+                ? Tunings::Tuning(localScale, localKBMs[c])
+                : Tunings::Tuning(localScale);
+            for (int n = 0; n < 128; ++n) {
+                localFreqGrid[c][n]   = t.frequencyForMidiNote(n);
+                localMappedGrid[c][n] = t.isMidiNoteMapped(n);   // false = "x" key
+            }
         }
 
-        extendFrequencies(localFrequencies, NOF_FREQS);
+        // Tuning used for the panel's display read-outs: first active channel's mapping.
+        localTuning = (anyKBMLoaded && firstActive >= 0 && hasKBMForChannel[firstActive])
+            ? Tunings::Tuning(localScale, localKBMs[firstActive])
+            : Tunings::Tuning(localScale);
 
         hasLocalTuning.store(true, std::memory_order_release);
         localTuningNeedsReinit.store(true, std::memory_order_release);
@@ -596,6 +915,19 @@ void TuneBfreeAudioProcessor::setTuningSource(int sourceId)
 {
     tuningSource.store(sourceId);
     // Force the audio thread to rebuild the tonewheel table from the new source.
+    localTuningNeedsReinit.store(true, std::memory_order_release);
+}
+
+void TuneBfreeAudioProcessor::setChannelActive(int ch, bool active)
+{
+    if (ch < 0 || ch >= 16) return;
+    channelActive[ch] = active;
+    localTuningNeedsReinit.store(true, std::memory_order_release);   // rebuild the gamut
+}
+
+void TuneBfreeAudioProcessor::setOmni(bool on)
+{
+    omniMode.store(on, std::memory_order_release);
     localTuningNeedsReinit.store(true, std::memory_order_release);
 }
 
