@@ -158,6 +158,7 @@ private:
     juce::TextButton upperBtn     { "UPPER"     };
     juce::TextButton lowerBtn     { "LOWER"     };
     juce::TextButton bitimbralBtn { "BITIMBRAL" };
+    juce::TextButton learnBtn     { "LEARN"     };   // set split from played notes
     juce::Slider     splitKnob;
     juce::Label      splitLabel;
     juce::Label      splitNoteLabel;   // shows the split note, e.g. "C4"

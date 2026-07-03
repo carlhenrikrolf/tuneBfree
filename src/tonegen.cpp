@@ -268,6 +268,11 @@ static void initValues(struct b_tonegen *t)
     t->gamutSize = NOF_MIDI_NOTES;   /* 128 */
     t->nofWheels = 256;
 
+    /* Keyboard split off by default (single upper manual = pre-split behaviour). */
+    t->splitEnabled    = 0;
+    t->splitPointHz    = 440.0;
+    t->splitWidthCents = 0.0;
+
 #ifdef KEYCOMPRESSION
     t->keyDownCount = 0;
 #endif
@@ -708,8 +713,11 @@ static double getOscillatorFrequency(struct b_tonegen *t, int i)
 
 /**
  * Applies the built-in default model to the manual tapering and crosstalk.
+ * slotGain (optional, length gamutSize) scales each slot's taper — used to bake the
+ * keyboard-split crossfade into the per-manual gains. nullptr means unity gain.
  */
-static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffset)
+static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffset,
+                                const double *slotGain = nullptr)
 {
     int k;
     /* Terminal number distances between buses. */
@@ -795,7 +803,7 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                     lep = newConfigListElement(t);
                     LE_TERMINAL_OF(lep) = (short)bestTerminalNumber;
                     LE_BUSNUMBER_OF(lep) = (short)(b + busOffset);
-                    LE_LEVEL_OF(lep) = (float)taperingModel(k, b);
+                    LE_LEVEL_OF(lep) = (float)(taperingModel(k, b) * (slotGain ? slotGain[k] : 1.0));
 
                     // printf("%d %d %d %f %f %f\n", k + 13, b, bestTerminalNumber,
                     // targetRatio[b], ratio, smallestCentDiff);
@@ -1028,14 +1036,29 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
     } /* if defaultTerminalStripCrosstalk */
 
     /* Key connections and taper. Manual stride = gamutSize: upper [0,gamutSize),
-     * lower [gamutSize,2*gamutSize), pedal [2*gamutSize,...).
+     * lower [gamutSize,2*gamutSize). Pedal is not wired (unused). Wiring is the dominant
+     * rebuild cost (O(gamutSize * 9 * nofWheels) per manual), so the lower manual is only
+     * wired when the keyboard split is enabled.
      *
-     * Only the upper manual is wired — it's the only one the plugin currently plays
-     * (note routing sounds slots in [0,gamutSize)). Wiring is the dominant rebuild cost
-     * (O(gamutSize * 9 * nofWheels) per manual), so skipping the unused lower/pedal cuts
-     * it to a third. The keyboard split (step 2) will re-add the lower manual here. */
-    applyManualDefaults(t, 0, 0);
-    applyDefaultCrosstalk(t, 0, 0);
+     * When split, each slot's taper is scaled by an equal-power crossfade around the
+     * split point: the upper manual fades in above it, the lower fades out below it. */
+    if (t->splitEnabled)
+    {
+        double upperGain[MAX_GAMUT];   // 16 KB each on the (worker) stack
+        double lowerGain[MAX_GAMUT];
+        for (int k = 0; k < t->gamutSize; k++)
+            splitCrossfade(t->frequency[k], t->splitPointHz, t->splitWidthCents,
+                           &lowerGain[k], &upperGain[k]);
+        applyManualDefaults(t, 0, 0, upperGain);
+        applyDefaultCrosstalk(t, 0, 0);
+        applyManualDefaults(t, t->gamutSize, 9, lowerGain);
+        applyDefaultCrosstalk(t, t->gamutSize, 9);
+    }
+    else
+    {
+        applyManualDefaults(t, 0, 0);
+        applyDefaultCrosstalk(t, 0, 0);
+    }
 
     /*
      * As yet there is no default crosstalk model for pedals, but they will
@@ -4195,6 +4218,33 @@ TEST_CASE("initToneGenerator wires a gamut larger than 128 (step 1b keyspace)")
     CHECK(t->activeKeys[140] == 1);
     oscKeyOff(t, (short) 140, (short) 60);
     CHECK(t->activeKeys[140] == 0);
+
+    freeToneGenerator(t);
+}
+
+TEST_CASE("keyboard split wires both manuals with baked crossfade gains (step 2)")
+{
+    struct b_tonegen *t = allocTonegen();
+    double freq[NOF_FREQS];
+    for (int i = 0; i < NOF_FREQS; ++i) freq[i] = 20.0 * std::pow(2.0, i / 12.0);  // 12-EDO
+    const int gamut = 128, wheels = 256;
+
+    // Hard split at slot 64's frequency — set before init so the lower manual is wired.
+    t->splitEnabled    = 1;
+    t->splitPointHz    = freq[64];
+    t->splitWidthCents = 0.0;
+    initToneGenerator(t, nullptr, TEST_RATE, nullptr, freq, gamut, wheels);
+
+    // Both manuals are now wired (upper [0,gamut), lower [gamut,2*gamut)).
+    CHECK(t->keyTaper[40]         != nullptr);
+    CHECK(t->keyTaper[gamut + 40] != nullptr);
+
+    // Below the split → the LOWER manual carries the note (upper taper gain 0).
+    CHECK(t->keyTaper[40]->u.ssf.fc == doctest::Approx(0.0));   // upper, slot 40
+    CHECK(t->keyTaper[gamut + 40]->u.ssf.fc > 0.0);             // lower, slot 40
+    // Above the split → the UPPER manual carries it (lower taper gain 0).
+    CHECK(t->keyTaper[100]->u.ssf.fc > 0.0);                    // upper, slot 100
+    CHECK(t->keyTaper[gamut + 100]->u.ssf.fc == doctest::Approx(0.0)); // lower, slot 100
 
     freeToneGenerator(t);
 }

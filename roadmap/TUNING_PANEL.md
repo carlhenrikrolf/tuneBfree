@@ -16,16 +16,16 @@ These are all the encodings.
 
 <table style="border: 0px">
     <tr>
-        <td>
-            <input type="text" value="440 Hz" style="width: 2cm" readonly />
+        <td rowspan="2">
+            <input type="textarea" value="-1200 c" style="width: 2cm" readonly />
         </td>
         <td>
             <input type="text" value="220 Hz" style="width: 2cm" readonly />
         </td>
     </tr>
     <tr>
-        <td colspan="2">
-            <input type="textarea" value="-1200 c" style="width: 5cm" readonly />
+        <td>
+            <input type="text" value="440 Hz" style="width: 2cm" readonly />
         </td>
     </tr>
     <tr>
@@ -39,8 +39,11 @@ These are all the encodings.
         </td>
     </tr>
     <tr>
-        <td colspan="2">
-            <input type="text" value="1200 c—inferred period" style="width: 5cm" readonly />
+        <td>
+            <input type="text" value="inferred period" style="width: 2cm" readonly />
+        </td>
+        <td>
+            <input type="text" value="1200 c" style="width: 2cm" readonly />
         </td>
     </tr>
     <tr>
@@ -93,55 +96,47 @@ It is not to be visible in other words.
 The design choices of the html elements are of no importance whatsoever—the design should follow the rest of the plugin, see e.g. [skill](../.claude/skills/gui.md), [spec](GUI_SPEC.md), and [roadmap](ROADMAP.md), as well as Claude's memory files.
 Here follows comments on the layout, row by row:
 
-1. The frequency of the last note on (right) and the penultimate note on (left) in Hz. If unknown "? Hz"
-2. The ratio between these two notes in cents, negative if descending.[^SurgeTuningEditor] If unknown "? c".
-3. Title marking the beginning of the microtuning status section. Note that the section just above is nameless.
-4. The name of the tuning. If unknown the name should be "Unnamed". An MTS ESP master can set a string as the name of the tuning. MTS SYSEX messages can set a 16 ASCII character name for some of the messages. `.scl` files can specify the name of a tuning at the top of the file. MPE and pitchbend do not provide a tuning name. MIDI 2.0 I don't know. STANDARD should be 12edo in general but maybe Gear60 or Gear50 for tuneBfree.
-5. The scale period in cents. If no period, "None (x c)", where x is the interval between the lowest midi note and the highest midi note, i.e. the set of all specified notes is taken to be a period.[^PolyInferPeriod] It can be specified in MTS ESP or `.scl` files (the last specified pitch basically acts as a specification of the period). The second widget should say "inferred period" or "approximated period" or "specified period".
-6. Time stamp of when tuning was last updated. If using MTS ESP queries will happen continuously (maybe several times per second), so this will look like a ticking clock. That way you see that it's active. However, it can also geneeralise to other systems. For sysex it would be when the last mts sysex message was received. for mpe when the last pitchbend was received (or really last pitchbend or note on or cc or aftertouch, ...). For tuning files, it would be when the file was loaded into the plugin.
-7. Title marking the beginning of the microtuning settings section.
-8. Two columns.
+1. Two columns:
+    - The ratio between these two notes in cents, negative if descending.[^SurgeTuningEditor] If unknown "? c". (Widget should fill out the cell.)
+    - Right. The frequency of the last note on (up) and the penultimate note on (down) in Hz. If unknown "? Hz"
+2. Title marking the beginning of the microtuning status section. Note that the section just above is nameless.
+3. The name of the tuning. If unknown the name should be "Unnamed". An MTS ESP master can set a string as the name of the tuning. MTS SYSEX messages can set a 16 ASCII character name for some of the messages. `.scl` files can specify the name of a tuning at the top of the file. MPE and pitchbend do not provide a tuning name. MIDI 2.0 I don't know. STANDARD should be 12edo in general but maybe Gear60 or Gear50 for tuneBfree.
+4. The scale period in cents. ~~If no period, "None (x c)", where x is the interval between the lowest midi note and the highest midi note, i.e. the set of all specified notes is taken to be a period.~~[^PolyInferPeriod] It can be specified in MTS ESP or `.scl` files (the last specified pitch basically acts as a specification of the period). The second widget should say "inferred period" or "approximated period" or "specified period" or "no period".
+5. Time stamp of when tuning was last updated. If using MTS ESP queries will happen continuously (maybe several times per second), so this will look like a ticking clock. That way you see that it's active. However, it can also geneeralise to other systems. For sysex it would be when the last mts sysex message was received. for mpe when the last pitchbend was received (or really last pitchbend or note on or cc or aftertouch, ...). For tuning files, it would be when the file was loaded into the plugin.
+6. Title marking the beginning of the microtuning settings section.
+7. Two columns.
     - Left. Which of the microtuning encoding schemes used. For each the last state should be saved so that you can toggle back to it.
     - Right. A popup window to select channels, see below.
-9. Two columns.
-    - Left. Upper is uploading the scale file, e.g. `.scl`. Should probably say SCALE somewhere. Lower is the mapping file. Should probably say "MAPPING" or "MAP". Can select directory of .kbm files or multi-selection of .kbm files. if so they will be loaded in alphabetical order into midi channels, i.e. a generalisation of the `_<i>.kbm` convention.
+8. Two columns.
+    - Left. Upper is uploading the scale file, e.g. `.scl`. Should probably say SCALE somewhere. Lower is the mapping file. Should probably say "MAPPING" or "MAP". Can select directory of .kbm files or multi-selection of .kbm files. if so `_<i>.kbm` files will be attached to midi channel `<i>`. If there are several different files with different names but the same `_<i>.kbm` suffix, then the most recently selected one is prioritised. If there is a `x.kbm` suffix where `x` does not indicate a midi channel, then it is taken as a "generic channel". The last selected file for a "generic channel" is the prioritised one. The "generic channel" is any channel that is not specifically assigned. `.scl` files can be used without any `.kbm` file, if the `.kbm` files are underspecified, you can fall back to this, e.g. if there are channel files but no generic file, then you can fall back on that option for the "generic channel".[^PopUpWarning]
     - Right. Here represented as radio buttons but really a toggle. If note on is checked, then pitches should only be updated on note on events. This is probably preferable for tuneBfree considering the building of the wavetable. If continuously is checked than a note that is already sounded can have its pitch changed. This is based after the MTS ESP convention but can be applied to mpe and midi 2.0 as well. Wrt sysex it's less clear that you need to specify this as the sysex messages themselves can specify which one it is, maybe let the note on option override continuous sysex messages? Not really applicable to tuning files.
 
 
-Let us return to the popup window.
-You can choose what channels should be active.
-Note that the more channels you choose the more computational resources are required.
-POLY means whether one or more channels are chosen.
-Default is on.
-If POLY is off, then the checkboxes are radios buttons instead.
-POLY on and POLY off each keeps track of their state and the last state is returned when toggled back.
-OMNI says whether channels are merged.
-If OMNI is on then they are meged into one channel, namely the mts esp default channel.
-(I think this is channel 1 rather than a separate unspecified channel but check this! Better with unspecified channel than channel one.)
-Default is off.
-OMNI doesnt really have a state.
-If POLY is on then all checked channels are merged and others are ignored.
-OMNI on/POLY off is [perhaps not very useful](http://midi.teragonaudio.com/tech/midispec/modes.htm).
-
+Let us return to the popup window.[^PopUpChannels]
+There are a number of checkbox buttons to select one or more channels. (Technically it's possible to select no channels but this is unadvisable.)
+OMNI OFF is default. It means that each channel is handled separately according to it's corresponding `_<i>.kbm` file or corresponding MTS ESP channel.
+All other channels that are not specified are taken to be the "generic channel".
+If OMNI ON, then all channels are mapped to the "generic channel". This is `-1` in MTS ESP code—although I suspect that in the shared library, `-1` is really the same as `0` (MIDI channel 1).
+SELECT ALL selects all the channels
+DESELECT ALL removes all the selections.
 
 <table>
     <tr>
         <td>
-            MODE
-        </td>
-        <td>
-            CHANNELS
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <button>POLY</bitton>
+            <input type="radio" name="omni">OMNI ON</bitton>
         </td>
         <td>
             <input type="checkbox" name="ch"> 1</input>
             <input type="checkbox" name="ch"> 2</input>
             <input type="checkbox" name="ch"> 3</input>
             <input type="checkbox" name="ch"> 4</input>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <input type="radio" name="omni">OMNI OFF</bitton>
+        </td>
+        <td>
             <input type="checkbox" name="ch"> 5</input>
             <input type="checkbox" name="ch"> 6</input>
             <input type="checkbox" name="ch"> 7</input>
@@ -150,13 +145,20 @@ OMNI on/POLY off is [perhaps not very useful](http://midi.teragonaudio.com/tech/
     </tr>
     <tr>
         <td>
-            <button>OMNI</bitton>
+            <button>SELECT ALL</button>
         </td>
         <td>
             <input type="checkbox" name="ch"> 9</input>
             <input type="checkbox" name="ch">10</input>
             <input type="checkbox" name="ch">11</input>
             <input type="checkbox" name="ch">12</input>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <button>DESELECT ALL</button>
+        </td>
+        <td>
             <input type="checkbox" name="ch">13</input>
             <input type="checkbox" name="ch">14</input>
             <input type="checkbox" name="ch">15</input>
@@ -232,6 +234,8 @@ However, it would be good if you can look into both audio tools and psychophysic
 [^SurgeTuningEditor]: Surge XT has a tuning editor where you can see the frequency of each midi note. This has a use as Surge can act as an MTS ESP master. However, this tuning panel is only meant to be used as a client (or equivalent for other microtuning coding schemes). Therefore, a live update on frequencies and cents ratios is a more lightweight approach that is more suitible here.
 [^TuningFiles]: For a complete list of tuning file formats, see https://scaleworkshop.plainsound.org/
 [^PolyInferPeriod]: tuneBfree is built for inferring period for one midi channel, we probably have to specify how this should work for multiple midi channels. For that I would probably need a better understanding for how the inference process actually works.
+[^PopUpWarning]: So far, we have implemented a popup warning if files are chosen when FILE is not selected. I think a better solution is that file selection is simply greyed out unless FILE is selected. If so, we can also rename FILE into SCALA. SImilarly, NOTE ON/ALWAYS can be greyed out unless MTS ESP is selected. (Maybe NOTE ON/ALWAYS could also be used for MPE—it would make sense. For MIDI 2.0 I simply don't know. For sysex I think it should be greyed out, but depending on what kind of sysex message is received it may change choice as an indicator. I think it's called real time versus bulk dump, but worth double-checking the spec.)
+[^PopUpChannels]: This has changed. Previously there was a POLY on/off option, but this is gone. It is POLY on all the time.
 
 
 

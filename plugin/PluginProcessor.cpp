@@ -80,6 +80,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
         juce::ParameterID{ "expression", 1 }, "Expression",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
+    // --- Keyboard split (step 2). Default off = single (upper) manual, as before. ---
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ "split_enable", 1 }, "Split", false));
+    // Split point as a frequency (Hz). Default ~middle C.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "split_point", 1 }, "Split Point (Hz)",
+        juce::NormalisableRange<float>(20.0f, 4000.0f, 0.0f, 0.3f), 261.63f));
+    // Crossfade width in cents (0 = hard split).
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "split_width", 1 }, "Split Crossfade (cents)",
+        juce::NormalisableRange<float>(0.0f, 1200.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ "lower_vibrato", 1 }, "Lower Vibrato", false));
+
+    // Lower-manual drawbars 0-8 (integer steps 0-8). Default: a mellow 16'/8' setting.
+    static const float defaultLowerDrawbars[9] = { 8.0f, 0.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    for (int i = 0; i < 9; i++)
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{ "lower_drawbar" + juce::String(i), 1 },
+            "Lower Drawbar " + juce::String(i + 1),
+            juce::NormalisableRange<float>(0.0f, 8.0f, 1.0f),
+            defaultLowerDrawbars[i]));
+
     return { params.begin(), params.end() };
 }
 
@@ -114,6 +137,13 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     }
 
     paramPtrs[P_EXPRESSION] = apvts.getRawParameterValue("expression");
+
+    paramPtrs[P_SPLIT_ENABLE]  = apvts.getRawParameterValue("split_enable");
+    paramPtrs[P_SPLIT_POINT]   = apvts.getRawParameterValue("split_point");
+    paramPtrs[P_SPLIT_WIDTH]   = apvts.getRawParameterValue("split_width");
+    paramPtrs[P_LOWER_VIBRATO] = apvts.getRawParameterValue("lower_vibrato");
+    for (int i = 0; i < 9; i++)
+        paramPtrs[P_LOWER_DRAWBAR_MIN + i] = apvts.getRawParameterValue("lower_drawbar" + juce::String(i));
 
     // All channels active by default: every incoming note plays, single-table tuning
     // for a non-multichannel master — i.e. the pre-multichannel behaviour.
@@ -162,8 +192,9 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
 
     mtsClient = MTS_RegisterClient();
     memset(previousFrequency, 0, sizeof(previousFrequency));
-    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1: nothing sounding
-    memset(slotRefCount, 0, sizeof(slotRefCount));
+    memset(soundingUpper, 0xFF, sizeof(soundingUpper));   // all -1: nothing sounding
+    memset(soundingLower, 0xFF, sizeof(soundingLower));
+    memset(keyRefCount, 0, sizeof(keyRefCount));
     activeNoteCount = 0;
     samplesSinceLastNote = 0;
 
@@ -295,6 +326,13 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     // An empty gamut (size 0) falls back to the default 128/256 with the standard table.
     const int initGamut = (useGamut && gamutSz > 0) ? gamutSz : 128;
     const int initWheels = (useGamut && gamutSz > 0) ? gamutNw : 256;
+
+    // Keyboard split: set on the engine BEFORE init so applyDefaultConfiguration wires
+    // (and crossfade-scales) the lower manual. Read from the params.
+    fresh->splitEnabled    = (paramPtrs[P_SPLIT_ENABLE]->load() > 0.5f) ? 1 : 0;
+    fresh->splitPointHz    = (double) paramPtrs[P_SPLIT_POINT]->load();
+    fresh->splitWidthCents = (double) paramPtrs[P_SPLIT_WIDTH]->load();
+
     initToneGenerator(fresh, nullptr, currentSampleRate, targetRatio, freqSrc, initGamut, initWheels);
     if (useGamut)
         memcpy(fresh->slotIndex, gamutSlot, sizeof(gamutSlot));   // gamutSize set via the init arg
@@ -306,6 +344,11 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     setVibratoUpper (fresh, (int) std::lround(paramPtrs[P_VIBRATO]->load()));
     setVibratoFromInt(fresh, (int) std::floor (paramPtrs[P_VIBRATO_TYPE]->load()));
     setPercussionEnabled(fresh, (int) std::lround(paramPtrs[P_PERCUSSION]->load()));
+    // Lower manual (buses 9-17): drawbars + vibrato on/off. Harmless when split is off
+    // (the lower manual isn't wired, so these have no audible effect).
+    setVibratoLower(fresh, (int) std::lround(paramPtrs[P_LOWER_VIBRATO]->load()));
+    for (int i = 0; i < 9; i++)
+        setDrawBar(fresh, 9 + i, (unsigned int) std::lround(paramPtrs[P_LOWER_DRAWBAR_MIN + i]->load()));
 
     // Scale-period read-out for the UI (inferScaleSize is too heavy for the audio thread).
     int size; float period;
@@ -340,11 +383,12 @@ void TuneBfreeAudioProcessor::applyPendingRebuild()
     synth = fresh;
 
     // The fresh engine has no sounding notes; reset the bookkeeping and drop the
-    // per-(channel,note) slot tracking so a later note-off can't release a slot on the
+    // per-(channel,note) key tracking so a later note-off can't release a key on the
     // new engine that was never started.
     activeNoteCount = 0;
-    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1
-    memset(slotRefCount, 0, sizeof(slotRefCount));
+    memset(soundingUpper, 0xFF, sizeof(soundingUpper));   // all -1
+    memset(soundingLower, 0xFF, sizeof(soundingLower));
+    memset(keyRefCount, 0, sizeof(keyRefCount));
 
     // Retire the old engine for the worker to free (never free on the audio thread).
     // Only one retire is ever outstanding: a new build cannot be published until the
@@ -358,10 +402,12 @@ void TuneBfreeAudioProcessor::applyPendingRebuild()
 void TuneBfreeAudioProcessor::allNotesOff()
 {
     if (synth == nullptr) return;
-    for (int s = 0; s < 128; ++s)
-        oscKeyOff(synth, (short) s, (short) s);   // no-op for slots that aren't active
-    memset(soundingSlot, 0xFF, sizeof(soundingSlot));   // all -1
-    memset(slotRefCount, 0, sizeof(slotRefCount));
+    // Release every engine key across both manuals (no-op for keys that aren't active).
+    for (int k = 0; k < 2 * synth->gamutSize && k < MAX_KEYS; ++k)
+        oscKeyOff(synth, (short) k, (short) k);
+    memset(soundingUpper, 0xFF, sizeof(soundingUpper));   // all -1
+    memset(soundingLower, 0xFF, sizeof(soundingLower));
+    memset(keyRefCount, 0, sizeof(keyRefCount));
     activeNoteCount = 0;
 }
 
@@ -388,14 +434,14 @@ void TuneBfreeAudioProcessor::buildMTSGamut(double freqTable[], int slotIndexOut
 {
     MTSClient* c = MTS_RegisterClient();
 
-    // OMNI: query the MTS "unspecified" channel (-1) for every channel, all active, so
-    // any incoming channel plays that single table. Otherwise query per channel.
+    // The popup selection always gates sounding (deselected channels are silent). OMNI
+    // ON queries the "unspecified" channel (-1) for every selected channel; OMNI OFF
+    // queries each selected channel's own number (no fallback — MTS can't report which
+    // channels are "specified", and a plain master returns the same table for all).
     const bool omni = omniMode.load(std::memory_order_acquire);
-    static bool active[16];
     static double grid[16][128];          // static: keep these ~40 KB off the worker stack
     static bool   noteMapped[16][128];
     for (int ch = 0; ch < 16; ++ch) {
-        active[ch] = omni ? true : channelActive[ch];
         const char qch = omni ? (char) -1 : (char) ch;
         for (int n = 0; n < 128; ++n) {
             grid[ch][n]       = MTS_NoteToFrequency(c, (char) n, qch);
@@ -406,7 +452,7 @@ void TuneBfreeAudioProcessor::buildMTSGamut(double freqTable[], int slotIndexOut
 
     static double gamut[16 * 128];
     static int    slot[16][128];
-    int size = buildGamut(grid, active, noteMapped, gamut, slot);
+    int size = buildGamut(grid, channelActive, noteMapped, gamut, slot);
 
     if (size > MAX_GAMUT) size = MAX_GAMUT;   // cap to the per-manual key count
 
@@ -429,16 +475,26 @@ void TuneBfreeAudioProcessor::buildMTSGamut(double freqTable[], int slotIndexOut
     nofWheelsOut = computeNofWheels(freqTable, size);
 }
 
-// Build the merged gamut for the FILE source from the per-channel .kbm grid (filled by
-// rebuildLocalTuning on the message thread). Unmapped ("x") keys are excluded via the
-// mapping mask, so they route to slot -1 (silent). One mapping → identity gamut; many
-// → the channels merge into one scale. Capped at MAX_GAMUT slots per manual.
+// Build the merged gamut for the FILE source. The popup's channelActive mask selects
+// which channels sound (deselected → silent → fewer wheels). OMNI ON collapses every
+// selected channel onto the generic mapping; OMNI OFF gives each its own _i.kbm (or the
+// generic fallback). Unmapped ("x") keys route to slot -1. Capped at MAX_GAMUT slots.
 void TuneBfreeAudioProcessor::buildFileGamut(double freqTable[], int slotIndexOut[16][128],
                                              int& gamutSizeOut, int& nofWheelsOut)
 {
+    const bool omni = omniMode.load(std::memory_order_acquire);
+
+    static double grid[16][128];
+    static bool   mask[16][128];
+    for (int ch = 0; ch < 16; ++ch)
+        for (int n = 0; n < 128; ++n) {
+            grid[ch][n] = omni ? genericFreqGrid[n]   : localFreqGrid[ch][n];
+            mask[ch][n] = omni ? genericMappedGrid[n] : localMappedGrid[ch][n];
+        }
+
     static double gamut[16 * 128];
     static int    slot[16][128];
-    int size = buildGamut(localFreqGrid, fileChannelActive, localMappedGrid, gamut, slot);
+    int size = buildGamut(grid, channelActive, mask, gamut, slot);
 
     if (size > MAX_GAMUT) size = MAX_GAMUT;
 
@@ -508,7 +564,14 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
         // Hammond expression/swell pedal: a pure output gain (0..outputLevelTrim).
         synth->swellPedalGain = value * (float) synth->outputLevelTrim;
     }
-    // Ratio params trigger a rebuild (requestRebuild from processBlock), not here
+    else if (index == P_LOWER_VIBRATO) {
+        setVibratoLower(synth, (int) std::lround(value));
+    }
+    else if (index >= P_LOWER_DRAWBAR_MIN && index <= P_LOWER_DRAWBAR_MAX) {
+        // Lower manual = tonegen buses 9-17.
+        setDrawBar(synth, 9 + (index - P_LOWER_DRAWBAR_MIN), (unsigned int) std::lround(value));
+    }
+    // Ratio and split enable/point/width params trigger a rebuild (from processBlock), not here
 }
 
 // ============================================================================
@@ -580,14 +643,17 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         allNotesOff();
 
     // --- Detect and apply parameter changes ---
-    bool ratioChanged = false;
+    // Ratio and split enable/point/width changes need a tonegen rebuild (they change the
+    // wiring / baked crossfade gains); everything else applies live in applyParam.
+    bool needParamRebuild = false;
     for (int i = 0; i < P_COUNT; i++) {
         float val = paramPtrs[i]->load();
         if (val != cachedParams[i]) {
             cachedParams[i] = val;
             applyParam(i, val);
-            if (i >= P_RATIO_TOP_MIN && i <= P_RATIO_BOT_MAX)
-                ratioChanged = true;
+            if ((i >= P_RATIO_TOP_MIN && i <= P_RATIO_BOT_MAX) ||
+                i == P_SPLIT_ENABLE || i == P_SPLIT_POINT || i == P_SPLIT_WIDTH)
+                needParamRebuild = true;
         }
     }
 
@@ -616,7 +682,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Always consume the reinit flag (set by file load or source change) so it can't
     // re-trigger; short-circuiting it inside the || would leave it stuck.
     const bool needReinit = localTuningNeedsReinit.exchange(false, std::memory_order_acquire);
-    if ((tuningChanged && sourceUsesMTS) || ratioChanged || needReinit)
+    if ((tuningChanged && sourceUsesMTS) || needParamRebuild || needReinit)
         requestRebuild();
 
     // --- Silence detection: skip DSP when no notes have sounded for > tail length ---
@@ -681,36 +747,82 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 // Route (channel, note) to its gamut slot. -1 = silence (filtered,
                 // unmapped, inactive channel, or a pitch beyond the gamut cap).
                 const int slot = mtsFilter ? -1 : synth->slotIndex[ch][noteNumber];
+
+                // Decide which manual(s) the note sounds on. Without the split it's the
+                // upper manual (engine key == slot). With the split, the note's pitch is
+                // crossfaded between the lower manual (key gamutSize+slot) and the upper
+                // (key slot); the per-slot gains are already baked into the tapers, so
+                // here we only choose which key(s) to press (skip a manual at ~zero gain).
+                int keyUpper = -1, keyLower = -1;
                 if (slot >= 0) {
-                    // Reference-count the slot: coincident pitches across channels share
-                    // one slot, so only the first key on it sounds the note (and only the
-                    // last release stops it). Avoids the retrigger-click and the
-                    // "release one key, both stop" bug.
-                    if (slotRefCount[slot]++ == 0)
-                        oscKeyOn(synth, (short) slot, (short) noteNumber);
-                    soundingSlot[ch][noteNumber] = slot;
+                    if (synth->splitEnabled) {
+                        double wl, wu;
+                        splitCrossfade(synth->frequency[slot], synth->splitPointHz,
+                                       synth->splitWidthCents, &wl, &wu);
+                        if (wu > 1.0e-4) keyUpper = slot;
+                        if (wl > 1.0e-4) keyLower = synth->gamutSize + slot;
+                    } else {
+                        keyUpper = slot;
+                    }
+                }
+
+                // Reference-count each engine key: coincident pitches (across channels,
+                // or a shared slot) collapse to one key, sounded by the first holder and
+                // released by the last — avoids the retrigger click and the stuck/cut bugs.
+                bool sounded = false;
+                for (int key : { keyUpper, keyLower }) {
+                    if (key < 0) continue;
+                    if (keyRefCount[key]++ == 0)
+                        oscKeyOn(synth, (short) key, (short) noteNumber);
+                    sounded = true;
+                }
+                soundingUpper[ch][noteNumber] = keyUpper;
+                soundingLower[ch][noteNumber] = keyLower;
+                if (sounded) {
                     activeNoteCount++;
                     samplesSinceLastNote = 0;
+                    const double pitch = synth->frequency[slot];
                     // Tuning-panel read-out: note number + the actual sounding frequency.
                     penultimateNoteOn.store(lastNoteOn.load());
                     lastNoteOn.store(noteNumber);
                     penultimateNoteFreq.store(lastNoteFreq.load());
-                    lastNoteFreq.store(synth->frequency[slot]);
-                } else {
-                    soundingSlot[ch][noteNumber] = -1;
+                    lastNoteFreq.store(pitch);
+
+                    // Split "learn": grow the session's pitch range and publish the split.
+                    if (learnSplitActive.load(std::memory_order_acquire)) {
+                        if (! learnSessionActive) { learnSessionActive = true; learnMinPitch = learnMaxPitch = pitch; }
+                        else { learnMinPitch = std::min(learnMinPitch, pitch); learnMaxPitch = std::max(learnMaxPitch, pitch); }
+                        if (learnMaxPitch > learnMinPitch) {
+                            learnedSplitPoint.store(std::sqrt(learnMinPitch * learnMaxPitch));      // geometric centre
+                            learnedSplitWidth.store(1200.0 * std::log2(learnMaxPitch / learnMinPitch));
+                        } else {
+                            learnedSplitPoint.store(learnMinPitch);   // single note → hard split
+                            learnedSplitWidth.store(0.0);
+                        }
+                    }
                 }
             } else if (msg.isNoteOff()) {
                 // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here.
-                // Release the exact slot this (channel, note) started on; -1 = was silent.
-                const int slot = soundingSlot[ch][noteNumber];
-                if (slot >= 0) {
-                    if (--slotRefCount[slot] <= 0) {
-                        slotRefCount[slot] = 0;
-                        oscKeyOff(synth, (short) slot, (short) noteNumber);
+                // Release exactly the keys this (channel, note) started, on both manuals.
+                bool released = false;
+                for (int key : { soundingUpper[ch][noteNumber], soundingLower[ch][noteNumber] }) {
+                    if (key < 0) continue;
+                    if (--keyRefCount[key] <= 0) {
+                        keyRefCount[key] = 0;
+                        oscKeyOff(synth, (short) key, (short) noteNumber);
                     }
-                    activeNoteCount = std::max(0, activeNoteCount - 1);
+                    released = true;
                 }
-                soundingSlot[ch][noteNumber] = -1;
+                if (released)
+                    activeNoteCount = std::max(0, activeNoteCount - 1);
+                soundingUpper[ch][noteNumber] = -1;
+                soundingLower[ch][noteNumber] = -1;
+
+                // End a split-learn session (and disarm) once every note is released.
+                if (learnSessionActive && activeNoteCount == 0) {
+                    learnSessionActive = false;
+                    learnSplitActive.store(false, std::memory_order_release);
+                }
             }
         }
     }
@@ -796,28 +908,18 @@ void TuneBfreeAudioProcessor::loadKBMFiles(const juce::Array<juce::File>& files)
     if (files.isEmpty()) return;
 
     try {
-        // Assignment rule: "*_i.kbm" → channel i (last selected wins for the same i);
-        // a file with no valid "_i" suffix is a default that fills every unassigned
-        // channel (last default wins). No alphabetical ordering.
-        Tunings::KeyboardMapping explicitKBM[16];
-        bool                     hasExplicit[16] = {};
-        Tunings::KeyboardMapping defaultKBM;
-        bool                     hasDefault = false;
+        // Assignment: "*_i.kbm" → explicit mapping for channel i (last selected wins for
+        // the same i); a file with no valid "_i" suffix → the generic mapping (last wins).
+        for (int c = 0; c < 16; ++c) hasExplicitKBM[c] = false;
+        hasGenericKBM = false;
 
         for (const auto& f : files) {
             auto km = Tunings::readKBMFile(std::filesystem::path(f.getFullPathName().toStdString()));
             const int ch = kbmChannelSuffix(f.getFileNameWithoutExtension());
-            if (ch >= 1 && ch <= 16) { explicitKBM[ch - 1] = km; hasExplicit[ch - 1] = true; }
-            else                     { defaultKBM = km;          hasDefault = true; }
+            if (ch >= 1 && ch <= 16) { explicitKBM[ch - 1] = km; hasExplicitKBM[ch - 1] = true; }
+            else                     { genericKBM = km;           hasGenericKBM = true; }
         }
 
-        for (int c = 0; c < 16; ++c) {
-            if (hasExplicit[c])   { localKBMs[c] = explicitKBM[c]; hasKBMForChannel[c] = true; }
-            else if (hasDefault)  { localKBMs[c] = defaultKBM;     hasKBMForChannel[c] = true; }
-            else                  { hasKBMForChannel[c] = false; }
-        }
-
-        anyKBMLoaded = true;
         hasLocalKBM  = true;
         localKbmName = (files.size() == 1) ? files[0].getFileName()
                                            : juce::String(files.size()) + " maps";
@@ -834,8 +936,8 @@ void TuneBfreeAudioProcessor::clearLocalTuning()
     localKbmName  = {};
     localSclDescription = {};
     hasLocalKBM   = false;
-    anyKBMLoaded  = false;
-    for (int c = 0; c < 16; ++c) hasKBMForChannel[c] = false;
+    hasGenericKBM = false;
+    for (int c = 0; c < 16; ++c) hasExplicitKBM[c] = false;
     hasLocalTuning.store(false, std::memory_order_release);
     localTuningNeedsReinit.store(true, std::memory_order_release);
 }
@@ -845,30 +947,33 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
     if (localSclName.isEmpty()) return;
 
     try {
-        int firstActive = -1;
+        // The generic mapping: the no-"_i" .kbm if loaded, else the bare .scl (default
+        // linear mapping). Used under OMNI and as the fallback for unassigned channels.
+        Tunings::Tuning generic = hasGenericKBM ? Tunings::Tuning(localScale, genericKBM)
+                                                : Tunings::Tuning(localScale);
+        for (int n = 0; n < 128; ++n) {
+            genericFreqGrid[n]   = generic.frequencyForMidiNote(n);
+            genericMappedGrid[n] = generic.isMidiNoteMapped(n);
+        }
+
+        // Every channel gets a valid tuning: its explicit _i.kbm if assigned, else generic.
+        // (Which channels actually sound is the popup's channelActive mask, applied later.)
         for (int c = 0; c < 16; ++c) {
-            // .scl only (no .kbm): the base scale on every channel (single-channel).
-            // Otherwise a channel is active iff it was assigned a mapping above.
-            const bool active = anyKBMLoaded ? hasKBMForChannel[c] : true;
-            fileChannelActive[c] = active;
-            if (! active) {
-                for (int n = 0; n < 128; ++n) { localFreqGrid[c][n] = 0.0; localMappedGrid[c][n] = false; }
-                continue;
-            }
-            if (firstActive < 0) firstActive = c;
-            Tunings::Tuning t = (anyKBMLoaded && hasKBMForChannel[c])
-                ? Tunings::Tuning(localScale, localKBMs[c])
-                : Tunings::Tuning(localScale);
-            for (int n = 0; n < 128; ++n) {
-                localFreqGrid[c][n]   = t.frequencyForMidiNote(n);
-                localMappedGrid[c][n] = t.isMidiNoteMapped(n);   // false = "x" key
+            if (hasExplicitKBM[c]) {
+                Tunings::Tuning t(localScale, explicitKBM[c]);
+                for (int n = 0; n < 128; ++n) {
+                    localFreqGrid[c][n]   = t.frequencyForMidiNote(n);
+                    localMappedGrid[c][n] = t.isMidiNoteMapped(n);
+                }
+            } else {
+                for (int n = 0; n < 128; ++n) {
+                    localFreqGrid[c][n]   = genericFreqGrid[n];
+                    localMappedGrid[c][n] = genericMappedGrid[n];
+                }
             }
         }
 
-        // Tuning used for the panel's display read-outs: first active channel's mapping.
-        localTuning = (anyKBMLoaded && firstActive >= 0 && hasKBMForChannel[firstActive])
-            ? Tunings::Tuning(localScale, localKBMs[firstActive])
-            : Tunings::Tuning(localScale);
+        localTuning = generic;   // panel display read-outs use the generic/base tuning
 
         hasLocalTuning.store(true, std::memory_order_release);
         localTuningNeedsReinit.store(true, std::memory_order_release);

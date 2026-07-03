@@ -579,6 +579,16 @@ struct b_tonegen {
     int nofWheels;   /**< tonewheels actually built (<= NOF_WHEELS); sized to the gamut */
 
 /*
+ * Keyboard split (step 2). When splitEnabled, the lower manual is wired too and each
+ * slot's per-manual key taper is scaled by an equal-power crossfade around splitPointHz
+ * (splitWidthCents wide). Set by the host wrapper before initToneGenerator; the note
+ * router reads them to decide which manual(s) a note plays on. See roadmap/MULTICHANNEL.md.
+ */
+    int    splitEnabled;
+    double splitPointHz;
+    double splitWidthCents;
+
+/*
  * Target ratios for each drawbar
  */
     double targetRatio[NOF_DRAWBARS];

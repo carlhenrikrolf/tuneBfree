@@ -251,13 +251,18 @@ early-return (a separate latent bug noted in FIELD_NOTES).
      so two manuals at different pitches read out differently.
    - ✅ **Panic** — PANIC button (left of TUNING) + MIDI CC 120/123 release all notes
      (`allNotesOff`, via an atomic `panicRequested`). Temporary, for debugging.
-   - ✅ **CHANNELS popup UI (2026-06-30):** the CHANNELS button (right of the encoding
-     menu) opens a CallOutBox with **POLY** (multi- vs single-select), **OMNI**, and 16
-     channel toggles (`ChannelSelectorContent`). Wired to `setChannelActive/setOmni/setPoly`;
-     each change triggers a rebuild. OMNI merges to the MTS **unspecified channel (-1)** —
-     applies to MTS/SYSEX; FILE keeps its per-channel `.kbm` mapping. Channel config
-     (active mask + omni + poly) is **persisted** in plugin state (`channelConfig` node).
-     Deferred nicety: POLY does not yet remember the *other* mode's last selection.
+   - ✅ **CHANNELS popup UI + unified channel model (2026-06-30, reconciled to
+     TUNING_PANEL.md).** The CHANNELS button opens a CallOutBox: **OMNI ON/OFF** (radio),
+     **SELECT ALL** / **DESELECT ALL**, and 16 channel checkboxes (no POLY — always
+     multi-select). The popup's `channelActive` mask now **governs both MTS and FILE**
+     (deselected channel → silent → fewer wheels; this is the compute throttle):
+       - **OMNI OFF:** each selected channel plays its own — MTS queries channel `i`
+         (no fallback; can't introspect what's "specified"); FILE uses its `_i.kbm`,
+         else the **generic** mapping (a no-`_i` `.kbm`, else the base `.scl`).
+       - **OMNI ON:** every selected channel → the generic channel — MTS queries `-1`,
+         FILE uses the generic/base mapping.
+     Channel config (active mask + omni) persisted in `channelConfig`. (`polyMode` left in
+     the backend, now unused.) Resolves the earlier flagged inconsistencies.
    - ✅ **step 1b (2026-06-30): keyspace widened + Solution B wheel-pool sizing.**
      The per-manual slot count and the tonewheel count are now **runtime** (`b_tonegen::
      gamutSize`, `nofWheels`), passed into `initToneGenerator`; the manual stride is
@@ -280,12 +285,40 @@ early-return (a separate latent bug noted in FIELD_NOTES).
 
    **Status: builds clean (Standalone), unit tests 47/47. Needs DAW validation — see
    [MULTICHANNEL_TESTING.md](MULTICHANNEL_TESTING.md).**
-2. **Bitimbral split, abrupt first.** Split-by-sounding-pitch → route region to
+2. **Bitimbral split (in progress, 2026-06-30).** Split-by-sounding-pitch → route region to
    upper/lower manual keys. Independent drawbars + vibrato on/off come free.
    Percussion stays upper-only; vibrato/chorus type shared (B3-like, per the 2026-06-30
    change of heart — no per-split percussion, no independent vibrato type).
-3. **Baked crossfade.** Complementary `keyTaper` gains across the overlap zone;
-   split point/width as config (reinit on change).
+   - ✅ **Foundation:** `splitCrossfade()` ([tuning.cpp](../src/tuning.cpp)) — equal-power
+     crossfade weights (wLower²+wUpper²=1) for a note's pitch vs the split point over a
+     cents-wide zone (0 = hard split). Unit-tested (hard split, centre = equal power,
+     below/above → one manual, monotonic, equal power across the zone).
+   - ✅ **Params (2026-06-30):** `split_enable` (default off = single upper manual),
+     `split_point` (Hz), `split_width` (cents), `lower_vibrato`, 9 `lower_drawbar*`
+     (indices 39–51, past the CLAP-compatible range). Split enable/point/width trigger a
+     rebuild; lower drawbars + lower vibrato apply live (buses 9–17, `setVibratoLower`).
+   - ✅ **Engine (2026-06-30):** `b_tonegen` gains `splitEnabled/splitPointHz/splitWidthCents`
+     (set before init). `applyDefaultConfiguration` wires the lower manual only when split
+     is on, and bakes the `splitCrossfade` weights into each slot's per-manual `keyTaper`
+     via a new `slotGain` arg to `applyManualDefaults`. Unit-tested (below split → lower
+     carries it, above → upper). Split off = upper-only (unchanged, all prior tests pass).
+   - ✅ **Routing (2026-06-30):** a note's slot → pitch → upper key `slot` and/or lower key
+     `gamutSize+slot` (skips a manual at ~0 gain); per-engine-key ref-count (`keyRefCount`)
+     + `soundingUpper/Lower[16][128]` so each manual releases independently. Panic + swap
+     reset both.
+   - ✅ **GUI (2026-06-30, functional — expect to iterate on look after testing):** the
+     mockup's timbrality controls are now wired. **BITIMBRAL** → `split_enable`; **SPLIT**
+     knob → `split_point` (Hz, label shows nearest note); **CROSSFADE** knob → `split_width`
+     (cents); **UPPER/LOWER** toggle re-points the single drawbar bank to the upper
+     (`drawbar*`) or lower (`lower_drawbar*`) params; **LEARN** button arms set-from-notes.
+   - ✅ **LEARN (set-from-notes):** processor tracks the held notes' pitch range and
+     publishes split point (geometric centre) + width (interval, cents); editor pushes
+     them to the params live (knobs move) while armed; auto-disarms on all-released. 1 note
+     = hard split there, ≥2 = centre between lowest/highest with the interval as crossfade.
+   - Notes: no second drawbar bank (per user — the UPPER/LOWER toggle swaps the one bank);
+     percussion stays upper-only; lower vibrato on/off exists as a param (no dedicated
+     GUI toggle yet). Dead `ManualState`/`captureStateFromControls` left unused (cleanup).
+3. **Baked crossfade.** (Folded into step 2 above.)
 
    (Dropped: the earlier steps 4 "independent percussion on lower split" and 5
    "independent vibrato type" — superseded by the B3-like decision above.)

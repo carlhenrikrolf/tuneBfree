@@ -33,3 +33,17 @@ int buildGamut(const double freqGrid[16][128],
                double       gamutOut[],
                int          slotIndex[16][128],
                double       centsTolerance = 0.5);
+
+/**
+ * Equal-power crossfade weights for the keyboard split (step 2). A note at pitchHz is
+ * routed to the lower manual below the split, the upper manual above it, and blended
+ * across a crossfade zone of widthCents total, centred on splitHz. Equal-power means
+ * wLower^2 + wUpper^2 == 1 (constant perceived loudness through the zone).
+ *
+ *   pitchHz    the note's sounding frequency
+ *   splitHz    the split point (a frequency in the merged gamut)
+ *   widthCents total width of the crossfade zone in cents (0 = hard split)
+ *   wLower/wUpper receive the two gains in [0, 1]
+ */
+void splitCrossfade(double pitchHz, double splitHz, double widthCents,
+                    double *wLower, double *wUpper);

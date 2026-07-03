@@ -182,6 +182,38 @@ int buildGamut(const double freqGrid[16][128], const bool channelActive[16],
 }
 
 /**
+ * Equal-power crossfade weights for the keyboard split. See the header for the contract.
+ */
+void splitCrossfade(double pitchHz, double splitHz, double widthCents,
+                    double *wLower, double *wUpper)
+{
+    if (pitchHz <= 0.0 || splitHz <= 0.0)   // degenerate; treat as lower manual
+    {
+        *wLower = 1.0; *wUpper = 0.0;
+        return;
+    }
+
+    // Position of the pitch relative to the split, in cents.
+    const double deltaCents = 1200.0 * std::log2(pitchHz / splitHz);
+
+    if (widthCents <= 0.0)                   // hard split
+    {
+        const bool upper = (deltaCents >= 0.0);
+        *wUpper = upper ? 1.0 : 0.0;
+        *wLower = upper ? 0.0 : 1.0;
+        return;
+    }
+
+    // x in [0,1]: 0 = fully lower (bottom of zone), 1 = fully upper (top of zone).
+    double x = (deltaCents + widthCents * 0.5) / widthCents;
+    x = std::fmin(std::fmax(x, 0.0), 1.0);
+
+    const double angle = x * 1.5707963267948966;   // x * pi/2; equal-power (sin/cos) crossfade
+    *wUpper = std::sin(angle);
+    *wLower = std::cos(angle);
+}
+
+/**
  * This table is indexed by frequency number, i.e. the tone generator number
  * on the 91 oscillator generator. The first frequency/generator is numbered 1.
  */
@@ -617,6 +649,45 @@ TEST_CASE("buildGamut: nothing active yields an empty gamut")
     for (int c = 0; c < 16; ++c)
         for (int n = 0; n < 128; ++n)
             CHECK(slot[c][n] == -1);
+}
+
+TEST_CASE("splitCrossfade: hard split (width 0) routes to one manual")
+{
+    double lo, up;
+    // Below the split → all lower; above → all upper; exactly at → upper (>= boundary).
+    splitCrossfade(200.0, 440.0, 0.0, &lo, &up);  CHECK(lo == 1.0); CHECK(up == 0.0);
+    splitCrossfade(880.0, 440.0, 0.0, &lo, &up);  CHECK(lo == 0.0); CHECK(up == 1.0);
+    splitCrossfade(440.0, 440.0, 0.0, &lo, &up);  CHECK(lo == 0.0); CHECK(up == 1.0);
+}
+
+TEST_CASE("splitCrossfade: equal-power blend across the zone")
+{
+    double lo, up;
+    const double split = 440.0, width = 200.0;   // ±100 cents around 440 Hz
+
+    // At the split centre: equal power, both ~0.707.
+    splitCrossfade(split, split, width, &lo, &up);
+    CHECK(std::fabs(lo - up) < 1e-9);
+    CHECK(std::fabs(lo * lo + up * up - 1.0) < 1e-9);
+
+    // Below the zone (−150 c) → fully lower; above (+150 c) → fully upper.
+    splitCrossfade(split * std::pow(2.0, -150.0 / 1200.0), split, width, &lo, &up);
+    CHECK(lo == doctest::Approx(1.0)); CHECK(up == doctest::Approx(0.0));
+    splitCrossfade(split * std::pow(2.0,  150.0 / 1200.0), split, width, &lo, &up);
+    CHECK(lo == doctest::Approx(0.0)); CHECK(up == doctest::Approx(1.0));
+
+    // Equal power holds everywhere inside the zone.
+    for (double c = -100.0; c <= 100.0; c += 25.0) {
+        splitCrossfade(split * std::pow(2.0, c / 1200.0), split, width, &lo, &up);
+        CHECK(std::fabs(lo * lo + up * up - 1.0) < 1e-9);
+        CHECK(up >= 0.0); CHECK(up <= 1.0); CHECK(lo >= 0.0); CHECK(lo <= 1.0);
+    }
+    // Monotonic: higher pitch → more upper.
+    double loA, upA, loB, upB;
+    splitCrossfade(split * std::pow(2.0, -40.0 / 1200.0), split, width, &loA, &upA);
+    splitCrossfade(split * std::pow(2.0,  40.0 / 1200.0), split, width, &loB, &upB);
+    CHECK(upB > upA);
+    CHECK(loB < loA);
 }
 
 TEST_CASE("inferScaleSize / extendFrequencies honour a custom scale region")

@@ -30,7 +30,14 @@
 #define P_RATIO_BOT_MIN   29
 #define P_RATIO_BOT_MAX   37
 #define P_EXPRESSION      38
-#define P_COUNT           39
+// Keyboard split (step 2). Indices past the CLAP-compatible range (0..38).
+#define P_SPLIT_ENABLE     39
+#define P_SPLIT_POINT      40   // split point, Hz
+#define P_SPLIT_WIDTH      41   // crossfade width, cents (0 = hard split)
+#define P_LOWER_VIBRATO    42   // lower-manual vibrato/chorus on/off
+#define P_LOWER_DRAWBAR_MIN 43
+#define P_LOWER_DRAWBAR_MAX 51  // 9 lower-manual drawbars
+#define P_COUNT           52
 
 // Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
@@ -131,6 +138,13 @@ public:
     // the audio thread performs the release on the next block.
     void triggerPanic() noexcept { panicRequested.store(true, std::memory_order_release); }
 
+    // --- Split "learn" (set-from-notes). GUI arms it; the audio thread tracks the held
+    // notes and computes the split point/width, then disarms itself when all are released.
+    void   setLearnSplit(bool on) noexcept { learnSplitActive.store(on, std::memory_order_release); }
+    bool   isLearnSplitActive() const noexcept { return learnSplitActive.load(); }
+    double getLearnedSplitPoint() const noexcept { return learnedSplitPoint.load(); }  // Hz
+    double getLearnedSplitWidth() const noexcept { return learnedSplitWidth.load(); }  // cents
+
     // Wall-clock time (ms since epoch) of the last tuning change (file load, sysex,
     // or MTS frequency change). 0 if tuning has never changed. For a live MTS master
     // the panel shows the current time instead, since the master is queried every block.
@@ -201,19 +215,29 @@ private:
     std::atomic<double>      penultimateNoteFreq{0.0};  // ...and the one before
     std::atomic<juce::int64> lastTuningChangeMs{0};
 
-    // Per-(channel, note) routing state: the gamut slot a held note is sounding on,
-    // or -1 if it was silenced (filtered / unmapped / inactive channel) or not held.
-    // Replaces the old channel-agnostic filteredNotes[] and lets note-off release the
-    // exact slot the note-on started (the slot can differ per channel under multichannel).
-    int soundingSlot[16][128];
+    // Per-(channel, note) routing state: the engine key a held note is sounding on for
+    // the upper and lower manuals, or -1 if not sounding there. Under the keyboard split
+    // a note can sound on both manuals (crossfade zone); each is released independently.
+    int soundingUpper[16][128];
+    int soundingLower[16][128];
 
-    // Per-slot reference count: how many held (channel, note) keys share each gamut slot.
-    // Coincident pitches across channels de-duplicate to one slot, so the slot must stay
-    // sounding until the LAST key on it is released (oscKeyOn on 0→1, oscKeyOff on 1→0).
-    int slotRefCount[NOF_FREQS] = {};
+    // Per-engine-key reference count: how many held notes share each tonegen key.
+    // Coincident pitches (across channels, or the same slot on one manual) de-duplicate
+    // to one key, which must stay sounding until the LAST holder releases (oscKeyOn on
+    // 0→1, oscKeyOff on 1→0). Indexed by engine key (upper = slot, lower = gamutSize+slot).
+    int keyRefCount[MAX_KEYS] = {};
 
     // Panic: set by triggerPanic()/CC 120/123, consumed on the audio thread to release all.
     std::atomic<bool> panicRequested{ false };
+
+    // Split "learn": armed by the GUI, driven by the audio thread. While a note session
+    // is active (>=1 held) it tracks the lowest/highest sounding pitch and publishes the
+    // split point (geometric centre) + width (interval, cents). Disarms on all-released.
+    std::atomic<bool>   learnSplitActive{ false };
+    std::atomic<double> learnedSplitPoint{ 261.63 };
+    std::atomic<double> learnedSplitWidth{ 0.0 };
+    bool                learnSessionActive = false;   // audio thread only
+    double              learnMinPitch = 0.0, learnMaxPitch = 0.0;   // audio thread only
 
     // Which MIDI channels contribute to the merged tuning gamut (CHANNELS selection).
     // Default: all active — reproduces the pre-multichannel behaviour (every channel
@@ -226,7 +250,6 @@ private:
     // Written on the message thread; the per-channel grid below is read on the worker
     // thread during a rebuild (after the reinit flag is set).
     Tunings::Scale           localScale;
-    Tunings::KeyboardMapping localKBM;       // the single-file mapping (1-kbm case)
     Tunings::Tuning          localTuning;    // tuning used for the panel's display read-outs
     std::atomic<bool>        hasLocalTuning{false};
     std::atomic<bool>        localTuningNeedsReinit{false};
@@ -236,21 +259,23 @@ private:
     juce::String             localSclDescription;  // the .scl's name/description line
     juce::String             localTuningError;  // set if last load failed
 
-    // Per-channel .kbm mappings of the one .scl. Assignment (see loadKBMFiles): a file
-    // named "*_i.kbm" (i in 1..16) maps to channel i; a file with no valid "_i" suffix is
-    // a default that fills every channel not explicitly assigned. localKBMs/hasKBMForChannel
-    // hold the composed result; channels with no mapping are inactive. anyKBMLoaded is false
-    // when only a .scl is loaded (then all channels use the base scale = single-channel).
-    Tunings::KeyboardMapping localKBMs[16];
-    bool                     hasKBMForChannel[16] = {};
-    bool                     anyKBMLoaded = false;
+    // Per-channel .kbm assignment (see loadKBMFiles): "*_i.kbm" (i in 1..16) → explicit
+    // mapping for channel i; a file with no valid "_i" suffix → the generic mapping. A
+    // channel with no explicit mapping falls back to the generic mapping, and that to the
+    // base .scl (no .kbm). MTS has no such fallback — it always queries channel i / -1.
+    Tunings::KeyboardMapping explicitKBM[16];
+    bool                     hasExplicitKBM[16] = {};
+    Tunings::KeyboardMapping genericKBM;
+    bool                     hasGenericKBM = false;
 
-    // Per-channel frequency + mapping grid for the FILE source, written on the message
-    // thread (rebuildLocalTuning), read on the worker (buildFileGamut). fileChannelActive
-    // marks which channels contribute to the FILE gamut.
+    // Frequency + mapping grids for the FILE source, written by rebuildLocalTuning
+    // (message thread), read by buildFileGamut (worker). localFreqGrid[c] is channel c's
+    // tuning (explicit → generic → base); the generic* row is used under OMNI. Which
+    // channels actually sound is the popup's channelActive mask, not these.
     double                   localFreqGrid[16][128]   = {};
     bool                     localMappedGrid[16][128] = {};
-    bool                     fileChannelActive[16]    = {};
+    double                   genericFreqGrid[128]     = {};
+    bool                     genericMappedGrid[128]   = {};
 
     // Which encoding feeds the engine (TuningSourceId). Default: MTS-ESP.
     std::atomic<int>         tuningSource{ TS_MTS };

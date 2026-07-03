@@ -236,8 +236,10 @@ static void styleSectionTitle (juce::Label& l, const juce::String& text)
 
 // ============================================================================
 //  CHANNELS popup (shown from the CHANNELS button via a CallOutBox).
-//  MODE column: POLY (multi- vs single-select) / OMNI (merge to the MTS
-//  unspecified channel). CHANNELS column: 16 channel toggles (see TUNING_PANEL.md).
+//  MODE column: OMNI ON / OMNI OFF (radio) + SELECT ALL / DESELECT ALL.
+//  CHANNELS column: 16 channel checkboxes (4×4). See TUNING_PANEL.md.
+//  Selection gates which channels sound (for MTS *and* FILE); OMNI merges the
+//  selected channels onto the generic channel. Always multi-select (no POLY).
 // ============================================================================
 
 class ChannelSelectorContent : public juce::Component
@@ -245,98 +247,72 @@ class ChannelSelectorContent : public juce::Component
 public:
     explicit ChannelSelectorContent (TuneBfreeAudioProcessor& p) : proc (p)
     {
-        styleSectionTitle (modeLabel, "MODE");
-        styleSectionTitle (chanLabel, "CHANNELS");
-        addAndMakeVisible (modeLabel);
-        addAndMakeVisible (chanLabel);
-
-        polyBtn.setClickingTogglesState (true);
-        polyBtn.setToggleState (proc.getPoly(), juce::dontSendNotification);
-        polyBtn.onClick = [this]
+        for (auto* b : { &omniOnBtn, &omniOffBtn })
         {
-            const bool poly = polyBtn.getToggleState();
-            proc.setPoly (poly);
-            if (! poly)                       // collapse to a single active channel
-            {
-                int sel = -1;
-                for (int c = 0; c < 16; ++c) if (proc.getChannelActive (c)) { sel = c; break; }
-                if (sel < 0) sel = 0;
-                for (int c = 0; c < 16; ++c) proc.setChannelActive (c, c == sel);
-            }
-            syncChannelButtons();
-        };
-        addAndMakeVisible (polyBtn);
+            b->setClickingTogglesState (true);
+            addAndMakeVisible (*b);
+        }
+        omniOnBtn.onClick  = [this] { proc.setOmni (true);  syncOmni(); };
+        omniOffBtn.onClick = [this] { proc.setOmni (false); syncOmni(); };
 
-        omniBtn.setClickingTogglesState (true);
-        omniBtn.setToggleState (proc.getOmni(), juce::dontSendNotification);
-        omniBtn.onClick = [this] { proc.setOmni (omniBtn.getToggleState()); syncChannelButtons(); };
-        addAndMakeVisible (omniBtn);
+        selectAllBtn.onClick   = [this] { for (int c = 0; c < 16; ++c) proc.setChannelActive (c, true);  syncChannels(); };
+        deselectAllBtn.onClick = [this] { for (int c = 0; c < 16; ++c) proc.setChannelActive (c, false); syncChannels(); };
+        addAndMakeVisible (selectAllBtn);
+        addAndMakeVisible (deselectAllBtn);
 
         for (int c = 0; c < 16; ++c)
         {
             auto* b = chanBtns.add (new juce::TextButton (juce::String (c + 1)));
             b->setClickingTogglesState (true);
-            b->onClick = [this, c] { onChannelClick (c); };
+            b->onClick = [this, c] { proc.setChannelActive (c, chanBtns[c]->getToggleState()); };
             addAndMakeVisible (b);
         }
-        syncChannelButtons();
-        setSize (348, 116);
+        syncOmni();
+        syncChannels();
+        setSize (360, 8 + 4 * rowH_ + 3 * gap_ + 8);   // exactly 4 equal rows
     }
 
     ~ChannelSelectorContent() override { setLookAndFeel (nullptr); }
 
     void resized() override
     {
-        const int gap = 6, rowH = 28, modeW = 64, labelH = 16;
-        auto r = getLocalBounds().reduced (8);
+        const int modeW = 96;
+        auto area = getLocalBounds().reduced (8);
 
-        auto header = r.removeFromTop (labelH);
-        modeLabel.setBounds (header.removeFromLeft (modeW));
-        header.removeFromLeft (gap);
-        chanLabel.setBounds (header);
-        r.removeFromTop (gap);
-
-        auto modeCol = r.removeFromLeft (modeW);
-        polyBtn.setBounds (modeCol.removeFromTop (rowH));
-        modeCol.removeFromTop (gap);
-        omniBtn.setBounds (modeCol.removeFromTop (rowH));
-
-        r.removeFromLeft (gap);
-        auto row1 = r.removeFromTop (rowH);
-        r.removeFromTop (gap);
-        auto row2 = r.removeFromTop (rowH);
-        const int bw = row1.getWidth() / 8;
-        for (int c = 0; c < 8;  ++c) chanBtns[c]->setBounds (row1.removeFromLeft (bw).reduced (1));
-        for (int c = 8; c < 16; ++c) chanBtns[c]->setBounds (row2.removeFromLeft (bw).reduced (1));
+        // Four equal rows: [mode button | 4 channel checkboxes].
+        juce::TextButton* modeRows[4] = { &omniOnBtn, &omniOffBtn, &selectAllBtn, &deselectAllBtn };
+        for (int row = 0; row < 4; ++row)
+        {
+            auto rowArea = area.removeFromTop (rowH_);
+            if (row < 3) area.removeFromTop (gap_);
+            modeRows[row]->setBounds (rowArea.removeFromLeft (modeW));
+            rowArea.removeFromLeft (gap_);
+            const int bw = rowArea.getWidth() / 4;
+            for (int col = 0; col < 4; ++col)
+                chanBtns[row * 4 + col]->setBounds (rowArea.removeFromLeft (bw).reduced (1));
+        }
     }
 
 private:
-    void onChannelClick (int c)
+    void syncOmni()
     {
-        if (proc.getPoly())
-        {
-            proc.setChannelActive (c, chanBtns[c]->getToggleState());
-        }
-        else                                  // radio: this channel only
-        {
-            for (int i = 0; i < 16; ++i) proc.setChannelActive (i, i == c);
-            syncChannelButtons();
-        }
+        const bool omni = proc.getOmni();
+        omniOnBtn.setToggleState (omni,   juce::dontSendNotification);
+        omniOffBtn.setToggleState (! omni, juce::dontSendNotification);
     }
 
-    void syncChannelButtons()
+    void syncChannels()
     {
-        const bool omni = proc.getOmni();     // OMNI overrides the per-channel selection
         for (int c = 0; c < 16; ++c)
-        {
             chanBtns[c]->setToggleState (proc.getChannelActive (c), juce::dontSendNotification);
-            chanBtns[c]->setEnabled (! omni);
-        }
     }
+
+    static constexpr int rowH_ = 28;
+    static constexpr int gap_  = 6;
 
     TuneBfreeAudioProcessor& proc;
-    juce::Label      modeLabel, chanLabel;
-    juce::TextButton polyBtn { "POLY" }, omniBtn { "OMNI" };
+    juce::TextButton omniOnBtn { "OMNI ON" }, omniOffBtn { "OMNI OFF" };
+    juce::TextButton selectAllBtn { "SEL ALL" }, deselectAllBtn { "DESEL ALL" };
     juce::OwnedArray<juce::TextButton> chanBtns;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelSelectorContent)
@@ -678,7 +654,14 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     addAndMakeVisible (lowerBtn);
 
     bitimbralBtn.setClickingTogglesState (true);
+    bitimbralBtn.onClick = [this] { setParam ("split_enable", bitimbralBtn.getToggleState() ? 1.0f : 0.0f); };
     addAndMakeVisible (bitimbralBtn);
+
+    // LEARN: arm the "set split from played notes" mode. The processor disarms itself
+    // when all notes are released; the timer un-toggles the button then.
+    learnBtn.setClickingTogglesState (true);
+    learnBtn.onClick = [this] { proc.setLearnSplit (learnBtn.getToggleState()); };
+    addAndMakeVisible (learnBtn);
 
     for (auto* k : { &splitKnob, &crossfadeKnob })
     {
@@ -686,11 +669,16 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
         k->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         addAndMakeVisible (k);
     }
-    splitKnob.setRange (0.0, 127.0, 1.0);
-    splitKnob.setValue (60.0, juce::dontSendNotification);   // C4
-    splitKnob.onValueChange = [this] { updateSplitNoteLabel(); };
-    crossfadeKnob.setRange (0.0, 24.0, 1.0);
-    crossfadeKnob.setValue (6.0, juce::dontSendNotification);
+    // Split point is a frequency (Hz); the label shows the nearest note. Skewed so the
+    // musically useful low/mid range gets most of the travel.
+    splitKnob.setRange (20.0, 4000.0);
+    splitKnob.setSkewFactor (0.3);
+    splitKnob.setValue (261.63, juce::dontSendNotification);   // ~C4
+    splitKnob.onValueChange = [this] { setParam ("split_point", (float) splitKnob.getValue()); updateSplitNoteLabel(); };
+    // Crossfade width in cents (0 = hard split).
+    crossfadeKnob.setRange (0.0, 1200.0);
+    crossfadeKnob.setValue (0.0, juce::dontSendNotification);
+    crossfadeKnob.onValueChange = [this] { setParam ("split_width", (float) crossfadeKnob.getValue()); };
 
     styleCaption (splitLabel, "SPLIT");
     addAndMakeVisible (splitLabel);
@@ -719,7 +707,10 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
         db.setValue ((double) upperState.drawbars[i], juce::dontSendNotification);
         db.setColour (juce::Slider::thumbColourId, TuneBfreeLookAndFeel::drawbarColour (i));
         db.getProperties().set ("drawbar", true);
-        db.onValueChange = [this, i] { setParam ("drawbar" + juce::String (i), (float) drawbars[i].getValue()); };
+        // Route to the active manual's drawbar param (upper "drawbar" / lower "lower_drawbar").
+        db.onValueChange = [this, i] {
+            setParam ((isUpper ? "drawbar" : "lower_drawbar") + juce::String (i), (float) drawbars[i].getValue());
+        };
         addAndMakeVisible (db);
 
         styleCaption (footageLabels[i], utf8 (kFootage[i]));
@@ -762,15 +753,8 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     addAndMakeVisible (driveLabel);
     addAndMakeVisible (reverbLabel);
 
-    // ---- Disable controls with no engine backing yet (see roadmap/GUI_WIRING.md) ----
-    // Single manual only; bitimbral / split / crossfade and a dedicated expression
-    // (volume) parameter are not in the DSP yet, so grey them out rather than imply
-    // they work.
-    auto disable = [] (juce::Component& c) { c.setEnabled (false); c.setAlpha (0.4f); };
-    for (auto* b : { &upperBtn, &lowerBtn, &bitimbralBtn }) disable (*b);
-    disable (splitKnob);     disable (splitLabel);   disable (splitNoteLabel);
-    disable (crossfadeKnob); disable (crossfadeLabel);
-    // EXPRESSION is now wired (swell pedal); leave it enabled.
+    // Split / bitimbral controls are now wired to the engine (step 2), so they're
+    // enabled. (EXPRESSION was already wired to the swell pedal.)
 
     // Add the tuning overlay LAST so it paints on top of everything.
     addChildComponent (tuningContent);
@@ -802,7 +786,11 @@ void DefaultPage::setPercButtons (bool on, bool fast, bool soft, bool third)
 
 void DefaultPage::updateSplitNoteLabel()
 {
-    splitNoteLabel.setText (noteName ((int) splitKnob.getValue()), juce::dontSendNotification);
+    const double hz = splitKnob.getValue();
+    const int note = (hz > 0.0)
+        ? juce::jlimit (0, 127, (int) std::lround (69.0 + 12.0 * std::log2 (hz / 440.0)))
+        : 60;
+    splitNoteLabel.setText (noteName (note), juce::dontSendNotification);
 }
 
 ManualState DefaultPage::captureStateFromControls() const
@@ -830,9 +818,12 @@ void DefaultPage::updateControlsFromState (const ManualState& s)
 
 void DefaultPage::switchToManual (bool toUpper)
 {
-    (isUpper ? upperState : lowerState) = captureStateFromControls();
+    // Drawbars are engine-backed per manual (upper "drawbar" / lower "lower_drawbar"),
+    // so switching just reloads the bank from the newly-active manual's parameters.
     isUpper = toUpper;
-    updateControlsFromState (isUpper ? upperState : lowerState);
+    for (int i = 0; i < 9; ++i)
+        drawbars[i].setValue (getParam ((isUpper ? "drawbar" : "lower_drawbar") + juce::String (i)),
+                              juce::dontSendNotification);
 }
 
 // ---- Engine wiring (control -> parameter) ----
@@ -886,8 +877,27 @@ void DefaultPage::syncFromParams()
     if (juce::Component::isMouseButtonDownAnywhere())
         return;
 
+    // Split "learn": while armed, push the processor's learned values into the params so
+    // the knobs move live; the button reflects the armed state (processor auto-disarms
+    // when all notes are released).
+    const bool learning = proc.isLearnSplitActive();
+    if (learning)
+    {
+        setParam ("split_point", (float) proc.getLearnedSplitPoint());
+        setParam ("split_width", (float) proc.getLearnedSplitWidth());
+    }
+    learnBtn.setToggleState (learning, juce::dontSendNotification);
+
+    // Split controls reflect the parameters.
+    bitimbralBtn.setToggleState (getParam ("split_enable") > 0.5f, juce::dontSendNotification);
+    splitKnob.setValue     (getParam ("split_point"), juce::dontSendNotification);
+    crossfadeKnob.setValue (getParam ("split_width"), juce::dontSendNotification);
+    updateSplitNoteLabel();
+
+    // Drawbars reflect the ACTIVE manual's parameters.
     for (int i = 0; i < 9; ++i)
-        drawbars[i].setValue (getParam ("drawbar" + juce::String (i)), juce::dontSendNotification);
+        drawbars[i].setValue (getParam ((isUpper ? "drawbar" : "lower_drawbar") + juce::String (i)),
+                              juce::dontSendNotification);
 
     reverbKnob.setValue     (getParam ("reverb_mix"), juce::dontSendNotification);
     driveKnob.setValue      (getParam ("character"),  juce::dontSendNotification);
@@ -1054,12 +1064,14 @@ void DefaultPage::resized()
         expressionKnob.setBounds  (eC.withSizeKeepingCentre (knob, knob));
     }
 
-    // ---- Row B: middle, fills the remaining space (SPLIT knob | LESLIE) ----
+    // ---- Row B: middle, fills the remaining space (SPLIT knob + LEARN | LESLIE) ----
     {
-        auto splitBlock = timbral.withSizeKeepingCentre (timbral.getWidth(), capH + knob + capH);
+        auto splitBlock = timbral.withSizeKeepingCentre (timbral.getWidth(), capH + knob + capH + gap + btnH);
         splitLabel.setBounds     (splitBlock.removeFromTop (capH));
         splitKnob.setBounds      (splitBlock.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
         splitNoteLabel.setBounds (splitBlock.removeFromTop (capH));
+        splitBlock.removeFromTop (gap);
+        learnBtn.setBounds       (splitBlock.removeFromTop (btnH).withSizeKeepingCentre (switchW, btnH));
 
         auto leslie = effects.withSizeKeepingCentre (switchW, bandH);
         choraleBtn.setBounds (leslie.removeFromTop (btnH)); leslie.removeFromTop (gap);
