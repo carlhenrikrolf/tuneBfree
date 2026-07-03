@@ -66,17 +66,27 @@ mtsClient = nullptr;
 
 MTS-ESP calls are thread-safe and lock-free; safe to call from the audio thread.
 
-### Single manual and per-channel tuning (Phase 2 work)
+### Multichannel tuning — the gamut model (DONE, tuneBfree 2.0)
 
-tuneBfree uses a **single upper manual** (removing the 3-manual MIDI channel split). This creates a tension with per-channel MTS-ESP tuning: when notes arrive on different MIDI channels with different tunings, the tonegen currently uses one shared tonewheel bank.
+Per-channel tuning is implemented via a **merged gamut** (full detail in the `setbfree`
+skill and `roadmap/MULTICHANNEL.md`). Short version:
 
-Full per-channel tuning support requires one of:
-- Passing the MIDI channel into `oscKeyOn` and applying the correct `MTS_NoteToFrequency` for that note's channel (needs tonegen changes)
-- Reinitialising the tonegen when the "active channel" changes (causes audio gaps)
+- `buildGamut()` (`src/tuning.cpp`) merges the 16×128 `(channel, note)` frequency grid into
+  one ascending, de-duplicated list of the distinct pitches in use, plus a
+  `slotIndex[16][128]` map `(channel, note) → gamut slot`. Channels extend **one** scale
+  (more notes), not different scales.
+- `inferScaleSize`/`extendFrequencies` take a `scaleLen` arg (default 128) so the period is
+  inferred over the gamut and the wheel table extends from the gamut size.
+- The tonegen wires `gamutSize` slots per manual with a runtime `nofWheels` pool; the
+  rebuild is async (off the audio thread). `oscKeyOn` is called with the **gamut slot**, not
+  the raw MIDI note.
+- **CHANNELS selection** (`channelActive[16]` + OMNI) governs which channels sound, for MTS
+  *and* FILE. OMNI OFF: MTS queries channel `i`; FILE uses `_i.kbm` → generic → base `.scl`.
+  OMNI ON: MTS queries `-1`, FILE uses the generic mapping. Fewer channels = fewer wheels.
 
-For Phase 1, the change detection covers all channels (so any per-channel tuning update triggers a global reinit). Per-note-per-channel accuracy is Phase 2.
-
-**Vibrato**: Currently applied uniformly across all notes. Long-term option: implement as an MPE signal (per-note pitch expression), but this requires architectural changes to the vibrato scanner.
+**Vibrato**: shared type across manuals, per-manual on/off (B3-like). Long-term per-note
+MPE expression is still out of scope (the wavetable build step makes continuous pitchbend
+hard).
 
 ### Raspberry Pi note
 
@@ -115,7 +125,11 @@ For non-12-TET tunings, the "period" of the scale determines where octaves (and 
 Key concepts:
 - **Period**: the interval that maps to a frequency doubling (or other ratio). In 12-TET this is 2:1 (octave = 12 semitones). In 10-TET it might still be 2:1 but distributed across 10 steps.
 - The MTS-ESP spec includes a scale period API: when present, use it; otherwise fall back to the calculated value from `tuning.cpp`.
-- After changing ratios: call `reinitToneGen()` to rebuild the tonewheel oscillator bank.
+- After changing ratios or tuning: request an async rebuild (`requestRebuild()` in
+  `PluginProcessor`), which rebuilds the tonewheel bank on the worker thread and swaps it
+  in — NOT a synchronous `reinitToneGen()` on the audio thread. `inferScaleSize` only finds
+  **exact** periods (within 1e-6); `roadmap/MULTICHANNEL.md` notes the open question of
+  approximate-period inference (JND / cents tolerance) for the drawbar quantization.
 
 ---
 

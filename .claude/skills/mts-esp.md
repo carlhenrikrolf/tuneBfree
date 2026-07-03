@@ -34,11 +34,26 @@ All calls are lock-free and safe from the audio thread.
 
 - `prepareToPlay` registers the client; `releaseResources` deregisters it.
 - `processBlock` scans **16 channels × 128 notes** comparing `MTS_NoteToFrequency` against
-  `previousFrequency[16][128]`; any change (when an MTS source is active) triggers
-  `reinitToneGen()`, which rebuilds the tonewheel bank from the channel-0 table
-  (`getMTSESPFrequencies` queries channel 0) extended via `extendFrequencies`.
+  `previousFrequency[16][128]`; any change (when an MTS source is active) triggers an **async
+  rebuild** (`requestRebuild()` → worker → swap; NOT a synchronous `reinitToneGen` on the
+  audio thread anymore).
+- The worker's `buildMTSGamut` now queries **all active channels** (not just channel 0) and
+  merges them into the gamut (`buildGamut`) — see the `microtuning`/`setbfree` skills.
 - Scale name in the panel = `MTS_GetScaleName`; the last-update clock ticks while
   `MTS_HasMaster` is true.
+
+## Channel selection + OMNI (tuneBfree 2.0)
+
+The CHANNELS popup (`channelActive[16]` + OMNI) governs **both** MTS and FILE. For MTS:
+- **OMNI OFF**: each *selected* channel queries its own number, `MTS_NoteToFrequency(note, i)`.
+  There is **no "generic fallback" for MTS** — the client can't report which channels the
+  master actually specified, so you always query `i`. (A non-multichannel master returns the
+  same single table for every channel, so this reduces to single-channel automatically.)
+- **OMNI ON**: every selected channel queries **`-1`** (the "unspecified"/non-multichannel
+  table). Confirmed in `libMTSClient.cpp`: `-1` makes `supportsMultiChannelTuning` false, so
+  it reads `esp_retuning` (the single table). With a non-multichannel master `-1` == channel 0.
+- **Deselected channels are silent** regardless of OMNI (the generic-channel *fallback* is a
+  FILE-only concept — see the `scala` skill).
 
 ## Note filtering is MTS-ESP-ONLY
 

@@ -24,6 +24,24 @@ tuneBfree is a microtunable Hammond B3 tonewheel organ emulator, forked from set
 | JUCE submodule | libs/JUCE -- JUCE 8.0.14 |
 | Bluetooth MIDI (Standalone) | Fixed -- use BLUETOOTH_PERMISSION_ENABLED/TEXT in juce_add_plugin (PLIST_TO_MERGE is silently ignored) |
 
+### tuneBfree 2.0 — multichannel tuning + keyboard split (built 2026-06-30)
+
+The big Phase-2+ work is done and builds (Standalone; unit tests green). Full record:
+`roadmap/MULTICHANNEL.md`; durable how-it-works notes: the `setbfree` / `microtuning` /
+`scala` / `mts-esp` skills. In brief:
+- **Multichannel gamut**: 16×128 `(channel,note)` merged into one de-duplicated pitch gamut
+  (`buildGamut`); `b_tonegen::slotIndex[16][128]` routes to it; runtime `gamutSize`/`nofWheels`
+  (Solution B), compile ceiling `MAX_GAMUT=2048`.
+- **Async rebuild**: tonegen rebuilds on a `RebuildThread`, swapped in on the audio thread
+  (no more synchronous `reinitToneGen` on the audio thread).
+- **Keyboard split**: split by sounding pitch, equal-power crossfade baked into `keyTaper`;
+  LEARN (set-from-notes); UPPER/LOWER toggle re-points the one drawbar bank. B3-like
+  (percussion upper-only; shared vibrato type, per-manual on/off).
+- **CHANNELS popup** governs active channels for MTS *and* FILE (OMNI + generic fallback).
+- **Verified by the user (2026-06-30):** plays correctly, split + channel selection work.
+  GUI polish + the other TUNING_PANEL.md tweaks deferred to a later iteration. Known
+  limitation: percussion single-trigger vs the crossfade (see the `setbfree` skill).
+
 ### Phase 1 tested and working (Mac, June 2026)
 
 Standalone and AU both confirmed working:

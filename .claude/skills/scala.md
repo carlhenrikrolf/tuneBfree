@@ -111,11 +111,24 @@ bool   on   = t.isMidiNoteMapped(60);   // false for an "x" key
 
 ## How tuneBfree consumes it
 
-`PluginProcessor::loadSCLFile / loadKBMFile` (message thread) build `localTuning`, fill
-`localFrequencies[NOF_FREQS]` (extended past 128 via `extendFrequencies`), and `localMapped[]`
-(= `isMidiNoteMapped`). On reinit the audio thread snapshots `localMapped` into
-`currentNoteMapped[]` and **silences `x` keys at note-on** — but only when the source is FILE
-(`TuningSourceId`). Name shown = `Scale.description`; period shown = `tones.back().cents`.
+`PluginProcessor::loadSCLFile / loadKBMFiles` (message thread) build the per-channel FILE
+grids used by the multichannel gamut (`buildFileGamut`; see the `microtuning`/`setbfree`
+skills). Name shown = `Scale.description`; period shown = `tones.back().cents`. `x`
+(unmapped) keys are baked to slot −1 (silent) per channel.
+
+### Multi-`.kbm` assignment rule (per-channel tuning, tuneBfree 2.0)
+
+The `.kbm` chooser is multi-select. Assignment (`loadKBMFiles` / `kbmChannelSuffix`) — NOT
+alphabetical order:
+- A file named `*_i.kbm` (i = 1..16) → the mapping for **MIDI channel i** (last selected
+  wins for a repeated i). Generalises the Scala `_1.kbm … _16.kbm` convention.
+- A file with **no valid `_i` suffix** → the **generic** mapping (last wins).
+- A channel with no explicit `_i.kbm` falls back to the generic mapping, and that to the
+  bare `.scl` (default linear mapping). So `.scl`-only = base scale on every channel.
+- Which channels actually *sound* is the CHANNELS popup (`channelActive`), independent of
+  which files were loaded. OMNI ON → every selected channel uses the generic mapping.
+- This is tuneBfree's own layer — Surge's `Tunings.h` has **no** multichannel/multi-`.kbm`
+  concept (one `.scl` + one `.kbm` → one `Tuning`).
 
 ## Example tunings (in `tunings/`, all covered by the doctest suite — see TESTING.md)
 

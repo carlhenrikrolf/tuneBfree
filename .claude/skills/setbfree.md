@@ -58,9 +58,12 @@ All internal buffers are `float[BUFFER_SIZE_SAMPLES]` where `BUFFER_SIZE_SAMPLES
 ### Tone generator
 
 ```cpp
-// Lifecycle
+// Lifecycle. gamutSize/nofWheels are runtime-sized (tuneBfree 2.0, see below); the
+// defaults (128/256) reproduce the original single-manual, fixed-pool behaviour.
 struct b_tonegen* allocTonegen();
-void initToneGenerator(struct b_tonegen* t, void* cfg, double sampleRate, double* targetRatio);
+void initToneGenerator(struct b_tonegen* t, void* cfg, double sampleRate, double* targetRatio,
+                       const double* freqOverride = nullptr,
+                       int gamutSize = 128, int nofWheels = 256);
 void freeToneGenerator(struct b_tonegen* t);
 
 // MIDI
@@ -83,7 +86,9 @@ void setPercussionFirst(struct b_tonegen* t, int is2nd);             // 0=3rd ha
 `targetRatio` is a 9-element double array; ratio[i] = top/bottom for drawbar i.
 Default 12-tone equal temperament: `{0.5, 1.5, 1, 2, 3, 4, 5, 6, 8}`.
 
-After changing `targetRatio`, you must free and reinit the tone generator (see `reinitToneGen` in `src/clap.cpp`).
+After changing `targetRatio` (or the tuning), the tone generator must be freed and rebuilt.
+In the JUCE plugin this happens **off the audio thread** — see "tuneBfree 2.0" below.
+(The legacy `src/clap.cpp` still does a synchronous `reinitToneGen`.)
 
 ### Preamp / Overdrive
 
@@ -169,13 +174,52 @@ Parsed by `pgmParser.cpp`. Custom format with `[program]` blocks.
 
 ---
 
-## Reinit on Tuning Change
+## tuneBfree 2.0: multichannel tuning, async rebuild, keyboard split
 
-When MTS-ESP frequencies or ratio parameters change, the full tone generator must be freed and rebuilt. This is handled by `reinitToneGen()` in `src/clap.cpp` / `plugin/PluginProcessor.cpp`. It:
-1. Saves current `newRouting` state
-2. Frees the old `b_tonegen`
-3. Allocates and inits a new one with updated `targetRatio`
-4. Re-applies all drawbar/vibrato params
+The full architecture + rationale live in `roadmap/MULTICHANNEL.md`; this is the map. All
+of it is unit-tested where the math allows (`src/tuning.cpp`, `src/tonegen.cpp` doctests).
+
+**Gamut model (microtuning).** The 16×128 `(channel, note)` grid of frequencies is merged
+into one ascending, de-duplicated **gamut** of the distinct sounding pitches
+(`buildGamut()` in `src/tuning.cpp`). `b_tonegen::frequency[]` holds the gamut in
+`[0, gamutSize)` then a period-extension for higher tonewheels. `b_tonegen::slotIndex[16][128]`
+maps `(channel, note) → gamut slot` (−1 = silent); it's filled by the host wrapper, not the
+DSP. Default (single channel) is the identity map, so nothing changes for plain use.
+
+**Runtime sizing (Solution B).** `b_tonegen::gamutSize` (slots per manual, also the manual
+stride) and `b_tonegen::nofWheels` (tonewheels actually built) are runtime, passed into
+`initToneGenerator`. `MAX_GAMUT`/`NOF_WHEELS`/`NOF_FREQS` are the compile-time ceilings
+(2048). A 12-EDO patch builds ~160 wheels, not 2048. The **CHANNELS selection** (fewer
+active channels → smaller gamut → fewer wheels) is the user's compute throttle.
+
+**Async rebuild (replaces the old synchronous reinit).** Rebuilding is milliseconds of
+mallocs/wavetables — never on the audio thread. `PluginProcessor` runs a `RebuildThread`:
+`requestRebuild()` (audio) → `performBackgroundRebuild()` (worker builds a fresh `b_tonegen`)
+→ `applyPendingRebuild()` (audio swaps the pointer, retires the old one for the worker to
+free). The old engine keeps playing until the swap. Live state (swell gain, routing) is
+carried across at swap.
+
+**Keyboard split (bitimbral).** Split by **sounding pitch**. `b_tonegen::splitEnabled/
+splitPointHz/splitWidthCents`; when on, `applyDefaultConfiguration` also wires the lower
+manual and bakes an **equal-power crossfade** (`splitCrossfade()` in tuning.cpp) into each
+slot's per-manual `keyTaper` gains (via `applyManualDefaults`'s `slotGain` arg). Note
+routing presses the upper key `slot` and/or lower key `gamutSize+slot`; `keyRefCount[]`
+ref-counts engine keys so shared pitches don't cut each other. B3-like: percussion
+upper-only, one shared vibrato type with per-manual on/off.
+
+**Percussion is single-trigger — and it fights the crossfade (known limitation).**
+Percussion is ONE global envelope (`percEnvGain`) that decays once a note sounds and
+**re-arms only when `upperKeyCount == 0`** (all upper keys up — `oscGenerateFragment` end).
+The monophonic-staccato "gradient" (low→high = more percussion) works because each note
+re-arms *and* the crossfade scales its amplitude. But a held crossfade-zone note presses an
+upper key → `upperKeyCount` never hits 0 → the envelope never re-arms → subsequent staccato
+notes get no percussion, with a **sharp edge** at the zone's lower boundary. This is
+fundamental to single-trigger + one envelope + a continuous crossfade: you can't make it
+gradual without either (A) leaving it, or (B) per-voice percussion envelopes — which breaks
+single-trigger (every legato note would speak) and needs a percussion-path rewrite (the
+engine applies percussion to the summed bus, not per note). "Don't count mostly-lower held
+notes" backfires — their own percussion would then sustain instead of decaying. Left as (A);
+an option C without side-effects is an open question (user, 2026-06-30).
 
 ---
 
