@@ -148,6 +148,44 @@ if(TUNEBFREE_BUILD_TESTS)
 endif()
 
 # ---------------------------------------------------------------------------
+# Headless GUI snapshot tool (dev). Renders the editor to a PNG in software —
+# no window, no audio/MIDI device, no screen access — for the screenshot-review
+# workflow (safe to run sandboxed).
+#
+#   cmake --build build --target tuneBfree_snapshot
+#   build/tuneBfree_snapshot_artefacts/Release/tuneBfree_snapshot 1 tinker.png
+# ---------------------------------------------------------------------------
+option(TUNEBFREE_BUILD_SNAPSHOT_TOOL "Build the headless GUI snapshot tool" ON)
+if(TUNEBFREE_BUILD_SNAPSHOT_TOOL)
+    juce_add_console_app(tuneBfree_snapshot PRODUCT_NAME "tuneBfree_snapshot")
+    juce_generate_juce_header(tuneBfree_snapshot)
+    target_sources(tuneBfree_snapshot PRIVATE
+        plugin/SnapshotTool.cpp
+        plugin/PluginProcessor.cpp
+        plugin/PluginEditor.cpp
+        plugin/midi_stubs.cpp
+        ${DSP_SOURCES}
+    )
+    target_include_directories(tuneBfree_snapshot PRIVATE
+        src
+        libs/MTS-ESP/Client
+        libs/readerwriterqueue
+        libs/tuning-library/include
+    )
+    target_compile_definitions(tuneBfree_snapshot PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_STANDALONE_APPLICATION=0
+    )
+    target_link_libraries(tuneBfree_snapshot PRIVATE
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+    )
+endif()
+
+# ---------------------------------------------------------------------------
 # Legacy CLAP build (original implementation, kept for reference)
 # Build with: cmake -S src -B src/build
 # ---------------------------------------------------------------------------

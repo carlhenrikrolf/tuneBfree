@@ -163,6 +163,23 @@ void TuneBfreeLookAndFeel::drawButtonBackground (
     auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
     bool isOn   = button.getToggleState();
 
+    // Header page radio (PLAY / TINKER / ROTARY): sits on the amber header.
+    // Active page = black fill; inactive = just a black outline on the amber.
+    if (button.getProperties().contains ("headerRadio"))
+    {
+        if (isOn)
+        {
+            g.setColour (kBtn);
+            g.fillRoundedRectangle (bounds, 3.0f);
+        }
+        else
+        {
+            g.setColour (isHighlighted ? kBtn.withAlpha (0.75f) : kBtn);
+            g.drawRoundedRectangle (bounds.reduced (1.0f), 3.0f, 1.5f);
+        }
+        return;
+    }
+
     // Use the button's own colours so individually-themed buttons (e.g. the
     // red TUNING button) work without special-casing them here.
     auto fill = isOn ? button.findColour (juce::TextButton::buttonOnColourId)
@@ -182,6 +199,15 @@ juce::Font TuneBfreeLookAndFeel::getTextButtonFont (juce::TextButton&, int butto
 
 juce::Font TuneBfreeLookAndFeel::getComboBoxFont  (juce::ComboBox&) { return uiFont (12.0f); }
 juce::Font TuneBfreeLookAndFeel::getPopupMenuFont ()                { return uiFont (12.0f); }
+
+juce::Font TuneBfreeLookAndFeel::getLabelFont (juce::Label& l)
+{
+    // Slider value boxes (TINKER/ROTARY knobs) get the UI font; every other
+    // label keeps whatever font was set on it explicitly.
+    if (dynamic_cast<juce::Slider*> (l.getParentComponent()) != nullptr)
+        return uiFont (10.0f);
+    return l.getFont();
+}
 
 // ============================================================================
 //  SHARED HELPERS
@@ -1087,11 +1113,506 @@ void DefaultPage::resized()
 }
 
 // ============================================================================
+//  LABELLED KNOB (TINKER / ROTARY standard control)
+// ============================================================================
+
+// Style a group title ("SCANNER", "HORN MOTOR"): amber, bold, left-aligned.
+static void styleGroupTitle (juce::Label& l, const juce::String& text)
+{
+    l.setFont (uiFont (11.0f, true));
+    l.setJustificationType (juce::Justification::centredLeft);
+    l.setColour (juce::Label::textColourId, kAmber);
+    l.setText (text, juce::dontSendNotification);
+}
+
+LabelledKnob::LabelledKnob()
+{
+    addAndMakeVisible (caption);
+    addAndMakeVisible (knob);
+}
+
+void LabelledKnob::init (juce::AudioProcessorValueTreeState& state, const juce::String& paramID,
+                         const juce::String& captionText, const juce::String& valueSuffix,
+                         int decimalPlaces)
+{
+    styleCaption (caption, captionText);
+    knob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+    knob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 13);
+    knob.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    knob.setColour (juce::Slider::textBoxTextColourId,    kWhite);
+    attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        state, paramID, knob);
+    // AFTER the attachment: it installs the parameter's own text conversion
+    // (raw floats, 7 decimals) as textFromValueFunction, which takes precedence
+    // over setNumDecimalPlacesToDisplay — so replace it with our own precision.
+    knob.textFromValueFunction = [decimalPlaces] (double v)
+    {
+        return decimalPlaces > 0 ? juce::String (v, decimalPlaces)
+                                 : juce::String (juce::roundToInt (v));
+    };
+    knob.setTextValueSuffix (valueSuffix);
+    knob.updateText();
+}
+
+void LabelledKnob::resized()
+{
+    auto r = getLocalBounds();
+    caption.setBounds (r.removeFromTop (12));
+    knob.setBounds (r);        // the value box below is part of the slider
+}
+
+// Fill a combo box with the whirl filter types (eqcomp types 0-8, ids 1-9).
+static void fillFilterTypeBox (juce::ComboBox& box)
+{
+    static const char* types[9] = { "LOW PASS", "HIGH PASS", "BAND PASS 0", "BAND PASS 1",
+                                    "NOTCH", "ALL PASS", "PEAKING", "LOW SHELF", "HIGH SHELF" };
+    for (int i = 0; i < 9; ++i)
+        box.addItem (types[i], i + 1);
+}
+
+// ============================================================================
+//  TINKER PAGE
+// ============================================================================
+
+// Layout constants shared with DefaultPage::resized() — the HARMONICS columns
+// must land on the PLAY-page drawbar cells, so these MUST match its values.
+static constexpr int kPageMargin = 14;    // = DefaultPage `margin`
+static constexpr int kRightColW  = 280;   // = DefaultPage `rightW`
+
+TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
+{
+    auto& st = proc.apvts;
+
+    for (auto* t : { &scannerTitle, &percTitle, &preampTitle, &clickTitle,
+                     &xtalkTitle, &harmTitle, &toneTitle })
+        addAndMakeVisible (t);
+    styleGroupTitle (scannerTitle, "SCANNER");
+    styleGroupTitle (percTitle,    "PERCUSSION");
+    styleGroupTitle (preampTitle,  "PREAMP");
+    styleGroupTitle (clickTitle,   "KEY CLICK");
+    styleGroupTitle (xtalkTitle,   "CROSSTALK");
+    styleGroupTitle (harmTitle,    "HARMONICS");
+    styleGroupTitle (toneTitle,    "TONE");
+
+    // --- row 1: SCANNER | PERCUSSION | PREAMP ---
+    scanSpeed.init (st, "scanner_hz", "SPEED", " HZ", 2);
+    scanV1.init    (st, "scanner_v1", "V1", "", 1);
+    scanV2.init    (st, "scanner_v2", "V2", "", 1);
+    scanV3.init    (st, "scanner_v3", "V3", "", 1);
+
+    percFast.init (st, "perc_fast_s",    "FAST", " S", 2);
+    percSlow.init (st, "perc_slow_s",    "SLOW", " S", 2);
+    percGain.init (st, "perc_gain",      "GAIN", "", 2);
+    percSoft.init (st, "perc_soft_gain", "SOFT", "", 2);
+
+    preIn.init    (st, "preamp_in",        "IN", "", 2);
+    preOut.init   (st, "preamp_out",       "OUT", "", 2);
+    bassPre.init  (st, "preamp_bass_pre",  "BASS PRE", "", 2);
+    bassPost.init (st, "preamp_bass_post", "BASS POST", "", 2);
+    sag.init      (st, "preamp_sag",       "SAG", "", 3);
+
+    // --- row 2: KEY CLICK | CROSSTALK ---
+    styleCaption (atkModelCap, "ATTACK");
+    styleCaption (relModelCap, "RELEASE");
+    addAndMakeVisible (atkModelCap);
+    addAndMakeVisible (relModelCap);
+    for (auto* box : { &atkModelBox, &relModelBox })
+    {
+        box->addItem ("CLICK",  1);   // ENV_CLICK  = 0
+        box->addItem ("COSINE", 2);   // ENV_COSINE = 1
+        box->addItem ("LINEAR", 3);   // ENV_LINEAR = 2
+        box->addItem ("SHELF",  4);   // ENV_SHELF  = 3
+        addAndMakeVisible (box);
+    }
+    atkModelAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        st, "click_attack_model", atkModelBox);
+    relModelAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        st, "click_release_model", relModelBox);
+
+    clickAtkLevel.init (st, "click_attack_level",  "LEVEL", "", 2);
+    clickMin.init      (st, "click_min_length",    "MIN", "", 2);
+    clickMax.init      (st, "click_max_length",    "MAX", "", 2);
+    clickRelLevel.init (st, "click_release_level", "LEVEL", "", 2);
+
+    xtComp.init  (st, "xtalk_compartment", "COMPART", "", 3);
+    xtXfmr.init  (st, "xtalk_transformer", "XFORMER", "", 3);
+    xtTerm.init  (st, "xtalk_terminal",    "TERMINAL", "", 3);
+    xtWiring.init(st, "xtalk_wiring",      "WIRING", "", 3);
+
+    for (auto* k : { &scanSpeed, &scanV1, &scanV2, &scanV3,
+                     &percFast, &percSlow, &percGain, &percSoft,
+                     &preIn, &preOut, &bassPre, &bassPost, &sag,
+                     &clickAtkLevel, &clickMin, &clickMax, &clickRelLevel,
+                     &xtComp, &xtXfmr, &xtTerm, &xtWiring,
+                     &eqBass, &eqBassSlope, &eqTreble, &eqTrebleSlope })
+        addAndMakeVisible (k);
+
+    // --- row 3 left: HARMONICS (fractions at the PLAY drawbar positions) ---
+    for (int i = 0; i < 9; ++i)
+    {
+        const auto colour = TuneBfreeLookAndFeel::drawbarColour (i);
+
+        footage[i].setFont (uiFont (11.0f, true));
+        footage[i].setJustificationType (juce::Justification::centred);
+        footage[i].setColour (juce::Label::textColourId, colour);
+        footage[i].setText (utf8 (kFootage[i]), juce::dontSendNotification);
+        addAndMakeVisible (footage[i]);
+
+        for (auto* s : { &ratioTop[i], &ratioBot[i] })
+        {
+            s->setSliderStyle (juce::Slider::LinearBar);
+            s->setColour (juce::Slider::trackColourId, kBtn);
+            s->setColour (juce::Slider::textBoxTextColourId, kWhite);
+            s->setNumDecimalPlacesToDisplay (0);
+            s->setMouseDragSensitivity (400);   // 1000 steps: keep drags controllable
+            s->onValueChange = [this, i] { updateErrorLabel (i); };
+            addAndMakeVisible (s);
+        }
+        topAtt[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+            st, "ratio_top_" + juce::String (i), ratioTop[i]);
+        botAtt[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+            st, "ratio_bot_" + juce::String (i), ratioBot[i]);
+
+        ratioErr[i].setFont (uiFont (9.0f));
+        ratioErr[i].setJustificationType (juce::Justification::centred);
+        addAndMakeVisible (ratioErr[i]);
+        updateErrorLabel (i);
+    }
+
+    // --- row 3 right: TONE (EQ spline + wave preset + harmonics reset) ---
+    eqBass.init        (st, "eq_bass",         "BASS", "", 2);
+    eqBassSlope.init   (st, "eq_bass_slope",   "SLOPE", "", 2);
+    eqTreble.init      (st, "eq_treble",       "TREBLE", "", 2);
+    eqTrebleSlope.init (st, "eq_treble_slope", "SLOPE", "", 2);
+
+    styleCaption (waveCap, "WAVE");
+    addAndMakeVisible (waveCap);
+    waveBox.addItem ("SINE", 1);
+    waveBox.addItem ("SQUARE", 2);
+    waveBox.addItem ("TRIANGLE", 3);
+    addAndMakeVisible (waveBox);
+    waveAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        st, "wave", waveBox);
+
+    // RESET restores the stock (just-intonation) drawbar ratios.
+    resetBtn.onClick = [this]
+    {
+        static const float st_[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
+        static const float sb_[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
+        for (int i = 0; i < 9; ++i)
+        {
+            if (auto* pt = proc.apvts.getParameter ("ratio_top_" + juce::String (i)))
+                pt->setValueNotifyingHost (pt->getNormalisableRange().convertTo0to1 (st_[i]));
+            if (auto* pb = proc.apvts.getParameter ("ratio_bot_" + juce::String (i)))
+                pb->setValueNotifyingHost (pb->getNormalisableRange().convertTo0to1 (sb_[i]));
+        }
+    };
+    addAndMakeVisible (resetBtn);
+}
+
+void TinkerPage::paint (juce::Graphics& g)
+{
+    g.fillAll (kBg);
+
+    // Fraction bars between numerator and denominator, in the drawbar colours.
+    for (int i = 0; i < 9; ++i)
+    {
+        auto top = ratioTop[i].getBounds();
+        auto bot = ratioBot[i].getBounds();
+        const int y = (top.getBottom() + bot.getY()) / 2 - 1;
+        g.setColour (TuneBfreeLookAndFeel::drawbarColour (i));
+        g.fillRect (top.getX(), y, top.getWidth(), 3);
+    }
+}
+
+// Deviation of the current fraction from the stock just-intonation harmonic, in
+// cents. Reads "±0 C" (grey) at the stock ratio, a signed value (white) otherwise.
+void TinkerPage::updateErrorLabel (int i)
+{
+    static const double st_[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
+    static const double sb_[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
+    const double top = ratioTop[i].getValue();
+    const double bot = ratioBot[i].getValue();
+    if (top <= 0.0 || bot <= 0.0)
+    {
+        ratioErr[i].setText ("--", juce::dontSendNotification);
+        ratioErr[i].setColour (juce::Label::textColourId, kGrey);
+        return;
+    }
+    const double err  = 1200.0 * std::log2 ((top / bot) / (st_[i] / sb_[i]));
+    const bool   zero = std::abs (err) < 0.05;
+    ratioErr[i].setText (zero ? utf8 ("\xc2\xb1") + juce::String ("0 C")
+                              : juce::String (err > 0 ? "+" : "") + juce::String (err, 1) + " C",
+                         juce::dontSendNotification);
+    ratioErr[i].setColour (juce::Label::textColourId, zero ? kGrey : kWhite);
+}
+
+void TinkerPage::resized()
+{
+    auto area = getLocalBounds().reduced (kPageMargin);
+    const int rightX = area.getRight() - kRightColW;      // = PLAY right region x
+    const int titleH = 12, capComboH = 12, comboH = 22, knobH = 68, knobW = 50;
+    const int rowGap = 8;
+
+    // Lay a row of LabelledKnobs starting at x with the given cell width.
+    auto knobRow = [knobH] (std::initializer_list<LabelledKnob*> ks, int x, int y, int w)
+    {
+        for (auto* k : ks) { k->setBounds (x, y, w, knobH); x += w; }
+    };
+
+    // ---- row 1 ----
+    int y = area.getY();
+    scannerTitle.setBounds (area.getX(), y, 150, titleH);
+    percTitle.setBounds    (area.getX() + 216, y, 150, titleH);
+    preampTitle.setBounds  (rightX, y, 150, titleH);
+    knobRow ({ &scanSpeed, &scanV1, &scanV2, &scanV3 },       area.getX(),       y + titleH + 2, knobW);
+    knobRow ({ &percFast, &percSlow, &percGain, &percSoft },  area.getX() + 216, y + titleH + 2, knobW);
+    knobRow ({ &preIn, &preOut, &bassPre, &bassPost, &sag },  rightX,            y + titleH + 2, 56);
+
+    // ---- row 2 ----
+    y += titleH + 2 + knobH + rowGap;
+    clickTitle.setBounds (area.getX(), y, 150, titleH);
+    xtalkTitle.setBounds (rightX, y, 150, titleH);
+    {
+        const int cy = y + titleH + 2;                     // content top of this row
+        const int comboY = cy + capComboH + (knobH - capComboH - comboH - 13) / 2; // centre on knob body
+        atkModelCap.setBounds (area.getX(), cy, 86, capComboH);
+        atkModelBox.setBounds (area.getX(), comboY, 86, comboH);
+        knobRow ({ &clickAtkLevel, &clickMin, &clickMax }, area.getX() + 94, cy, knobW);
+        relModelCap.setBounds (area.getX() + 252, cy, 86, capComboH);
+        relModelBox.setBounds (area.getX() + 252, comboY, 86, comboH);
+        knobRow ({ &clickRelLevel }, area.getX() + 346, cy, knobW);
+        knobRow ({ &xtComp, &xtXfmr, &xtTerm, &xtWiring }, rightX, cy, 56);
+    }
+
+    // ---- row 3: HARMONICS (left, drawbar-aligned) + TONE (right) ----
+    y += titleH + 2 + knobH + rowGap;
+    harmTitle.setBounds (area.getX(), y, 150, titleH);
+    toneTitle.setBounds (rightX, y, 150, titleH);
+
+    // Same cell grid as the PLAY drawbars: left region = area minus right column
+    // minus the inter-column margin, split into 9 equal cells.
+    const int leftW = area.getWidth() - kRightColW - kPageMargin;
+    const int cellW = leftW / 9;
+    const int boxH = 34, errH = 11, footH = 12, barGap = 9;
+    // The stack (footage / numerator / bar / denominator / error) is centred in
+    // the space below the title, so the leftover splits above and below it.
+    const int stackH  = footH + 2 + boxH + barGap + boxH + 2 + errH;
+    const int stackY  = y + titleH + (area.getBottom() - y - titleH - stackH) / 2;
+    for (int i = 0; i < 9; ++i)
+    {
+        const int cx = area.getX() + i * cellW;
+        auto cell = juce::Rectangle<int> (cx, stackY, cellW, stackH);
+        footage[i].setBounds  (cell.removeFromTop (footH));
+        cell.removeFromTop (2);
+        ratioTop[i].setBounds (cell.removeFromTop (boxH).reduced (5, 0));
+        cell.removeFromTop (barGap);
+        ratioBot[i].setBounds (cell.removeFromTop (boxH).reduced (5, 0));
+        cell.removeFromTop (2);
+        ratioErr[i].setBounds (cell.removeFromTop (errH));
+    }
+
+    // TONE: two knob columns (level over slope) + a WAVE/RESET column.
+    const int tY = y + titleH + 2;
+    knobRow ({ &eqBass,      &eqTreble },      rightX, tY, 56);
+    knobRow ({ &eqBassSlope, &eqTrebleSlope }, rightX, tY + knobH + 6, 56);
+    const int wx = rightX + 132, ww = kRightColW - 132;
+    waveCap.setBounds  (wx, tY, ww, capComboH);
+    waveBox.setBounds  (wx, tY + capComboH + 8, ww, comboH);
+    resetBtn.setBounds (wx, tY + knobH + 6 + capComboH + 8, ww, comboH);
+}
+
+// ============================================================================
+//  ROTARY PAGE
+// ============================================================================
+
+RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
+{
+    auto& st = proc.apvts;
+
+    for (auto* t : { &hornMotorTitle, &drumMotorTitle, &micTitle, &speedTitle,
+                     &fATitle, &fBTitle, &dFTitle, &mixTitle })
+        addAndMakeVisible (t);
+    styleGroupTitle (hornMotorTitle, "HORN MOTOR");
+    styleGroupTitle (drumMotorTitle, "DRUM MOTOR");
+    styleGroupTitle (micTitle,       "MIC & CABINET");
+    styleGroupTitle (speedTitle,     "SPEED");
+    styleGroupTitle (fATitle,        "HORN FILTER A");
+    styleGroupTitle (fBTitle,        "HORN FILTER B");
+    styleGroupTitle (dFTitle,        "DRUM FILTER");
+    styleGroupTitle (mixTitle,       "MIX");
+
+    hornSlow.init  (st, "horn_slow_rpm", "SLOW", " RPM", 1);
+    hornFast.init  (st, "horn_fast_rpm", "FAST", " RPM", 0);
+    hornAccel.init (st, "horn_accel",    "ACCEL", " S", 2);
+    hornDecel.init (st, "horn_decel",    "DECEL", " S", 2);
+    hornBrake.init (st, "horn_brake",    "BRAKE", "", 2);
+    drumSlow.init  (st, "drum_slow_rpm", "SLOW", " RPM", 1);
+    drumFast.init  (st, "drum_fast_rpm", "FAST", " RPM", 0);
+    drumAccel.init (st, "drum_accel",    "ACCEL", " S", 2);
+    drumDecel.init (st, "drum_decel",    "DECEL", " S", 2);
+    drumBrake.init (st, "drum_brake",    "BRAKE", "", 2);
+
+    micAngle.init  (st, "mic_angle",  "ANGLE", utf8 ("\xc2\xb0"), 0);
+    micDist.init   (st, "mic_dist",   "DIST", " CM", 0);
+    hornWidth.init (st, "horn_width", "H WIDTH", "", 2);
+    drumWidth.init (st, "drum_width", "D WIDTH", "", 2);
+    hornLevel.init (st, "horn_level", "LEVEL", "", 2);
+    hornLeak.init  (st, "horn_leak",  "LEAK", "", 2);
+
+    for (auto* box : { &fAType, &fBType, &dFType })
+    {
+        fillFilterTypeBox (*box);
+        addAndMakeVisible (box);
+    }
+    fAAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, "horn_filter_a_type", fAType);
+    fBAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, "horn_filter_b_type", fBType);
+    dFAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, "drum_filter_type",   dFType);
+    for (auto* c : { &fACap, &fBCap, &dFCap }) { styleCaption (*c, "TYPE"); addAndMakeVisible (c); }
+
+    fAFreq.init (st, "horn_filter_a_freq", "FREQ", " HZ", 0);
+    fAQ.init    (st, "horn_filter_a_q",    "Q", "", 2);
+    fAGain.init (st, "horn_filter_a_gain", "GAIN", " DB", 1);
+    fBFreq.init (st, "horn_filter_b_freq", "FREQ", " HZ", 0);
+    fBQ.init    (st, "horn_filter_b_q",    "Q", "", 2);
+    fBGain.init (st, "horn_filter_b_gain", "GAIN", " DB", 1);
+    dFFreq.init (st, "drum_filter_freq",   "FREQ", " HZ", 0);
+    dFQ.init    (st, "drum_filter_q",      "Q", "", 2);
+    dFGain.init (st, "drum_filter_gain",   "GAIN", " DB", 1);
+
+    for (auto* k : { &hornSlow, &hornFast, &hornAccel, &hornDecel, &hornBrake,
+                     &drumSlow, &drumFast, &drumAccel, &drumDecel, &drumBrake,
+                     &micAngle, &micDist, &hornWidth, &drumWidth,
+                     &hornLevel, &hornLeak,
+                     &fAFreq, &fAQ, &fAGain, &fBFreq, &fBQ, &fBGain,
+                     &dFFreq, &dFQ, &dFGain })
+        addAndMakeVisible (k);
+
+    // SPEED: independent 3-ways. CHORALE = 1 (slow), STOP = 0, TREMOLO = 2 —
+    // the `horn` / `drum` parameter encoding used by the engine (useRevOption).
+    styleCaption (hornSwCap, "HORN");
+    styleCaption (drumSwCap, "DRUM");
+    addAndMakeVisible (hornSwCap);
+    addAndMakeVisible (drumSwCap);
+    makeRadioGroup ({ &hornChorale, &hornStop, &hornTremolo }, [this]
+    {
+        setSpeedParam ("horn", hornChorale.getToggleState() ? 1.0f
+                             : hornTremolo.getToggleState() ? 2.0f : 0.0f);
+    });
+    makeRadioGroup ({ &drumChorale, &drumStop, &drumTremolo }, [this]
+    {
+        setSpeedParam ("drum", drumChorale.getToggleState() ? 1.0f
+                             : drumTremolo.getToggleState() ? 2.0f : 0.0f);
+    });
+    for (auto* b : { &hornChorale, &hornStop, &hornTremolo,
+                     &drumChorale, &drumStop, &drumTremolo })
+        addAndMakeVisible (b);
+    syncFromParams();
+
+    // BYPASS: red when engaged (the organ plays dry).
+    bypassBtn.setClickingTogglesState (true);
+    bypassBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
+    bypassBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
+    addAndMakeVisible (bypassBtn);
+    bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        st, "whirl_bypass", bypassBtn);
+}
+
+void RotaryPage::paint (juce::Graphics& g) { g.fillAll (kBg); }
+
+void RotaryPage::setSpeedParam (const char* paramID, float v)
+{
+    if (auto* p = proc.apvts.getParameter (paramID))
+        p->setValueNotifyingHost (p->getNormalisableRange().convertTo0to1 (v));
+}
+
+void RotaryPage::syncFromParams()
+{
+    auto set3way = [] (juce::TextButton& chorale, juce::TextButton& stop,
+                       juce::TextButton& tremolo, int v)
+    {
+        chorale.setToggleState (v == 1, juce::dontSendNotification);
+        stop.setToggleState    (v == 0, juce::dontSendNotification);
+        tremolo.setToggleState (v == 2, juce::dontSendNotification);
+    };
+    set3way (hornChorale, hornStop, hornTremolo,
+             (int) std::lround (proc.apvts.getRawParameterValue ("horn")->load()));
+    set3way (drumChorale, drumStop, drumTremolo,
+             (int) std::lround (proc.apvts.getRawParameterValue ("drum")->load()));
+}
+
+void RotaryPage::resized()
+{
+    auto area = getLocalBounds().reduced (kPageMargin);
+    const int rightX = area.getRight() - kRightColW;      // same column split as TINKER
+    const int titleH = 12, knobH = 68, comboH = 22;
+    const int rowH = titleH + 2 + knobH, rowGap = 8;
+
+    auto knobRow = [knobH] (std::initializer_list<LabelledKnob*> ks, int x, int y, int w)
+    {
+        for (auto* k : ks) { k->setBounds (x, y, w, knobH); x += w; }
+    };
+    // A filter block: TYPE caption + combo on the left, FREQ/Q/GAIN right-aligned.
+    auto filterRow = [&] (juce::Label& cap, juce::ComboBox& box,
+                          LabelledKnob& fr, LabelledKnob& q, LabelledKnob& gn, int y)
+    {
+        cap.setBounds (rightX, y, 100, 12);
+        box.setBounds (rightX, y + 12 + (knobH - 12 - comboH - 13) / 2, 100, comboH);
+        knobRow ({ &fr, &q, &gn }, area.getRight() - 3 * 56, y, 56);
+    };
+
+    // ---- rows 1-2: motors | horn filters ----
+    int y = area.getY();
+    hornMotorTitle.setBounds (area.getX(), y, 150, titleH);
+    fATitle.setBounds        (rightX, y, 150, titleH);
+    knobRow ({ &hornSlow, &hornFast, &hornAccel, &hornDecel, &hornBrake },
+             area.getX(), y + titleH + 2, 54);
+    filterRow (fACap, fAType, fAFreq, fAQ, fAGain, y + titleH + 2);
+
+    y += rowH + rowGap;
+    drumMotorTitle.setBounds (area.getX(), y, 150, titleH);
+    fBTitle.setBounds        (rightX, y, 150, titleH);
+    knobRow ({ &drumSlow, &drumFast, &drumAccel, &drumDecel, &drumBrake },
+             area.getX(), y + titleH + 2, 54);
+    filterRow (fBCap, fBType, fBFreq, fBQ, fBGain, y + titleH + 2);
+
+    // ---- row 3: mic & cabinet | drum filter ----
+    y += rowH + rowGap;
+    micTitle.setBounds (area.getX(), y, 150, titleH);
+    dFTitle.setBounds  (rightX, y, 150, titleH);
+    knobRow ({ &micAngle, &micDist, &hornWidth, &drumWidth },
+             area.getX(), y + titleH + 2, 54);
+    filterRow (dFCap, dFType, dFFreq, dFQ, dFGain, y + titleH + 2);
+
+    // ---- row 4: speed switches + bypass | mix ----
+    y += rowH + rowGap;
+    speedTitle.setBounds (area.getX(), y, 150, titleH);
+    mixTitle.setBounds   (rightX, y, 150, titleH);
+    {
+        const int cy = y + titleH + 2;
+        const int bw = 80, bh = 20, bgap = 2;
+        hornSwCap.setBounds (area.getX(), cy, bw, 12);
+        drumSwCap.setBounds (area.getX() + bw + 10, cy, bw, 12);
+        juce::TextButton* horns[3] = { &hornChorale, &hornStop, &hornTremolo };
+        juce::TextButton* drums[3] = { &drumChorale, &drumStop, &drumTremolo };
+        for (int i = 0; i < 3; ++i)
+        {
+            horns[i]->setBounds (area.getX(),           cy + 14 + i * (bh + bgap), bw, bh);
+            drums[i]->setBounds (area.getX() + bw + 10, cy + 14 + i * (bh + bgap), bw, bh);
+        }
+        // Bypass: centred on the stacks' middle row.
+        bypassBtn.setBounds (area.getX() + 2 * (bw + 10), cy + 14 + (bh + bgap), bw, bh);
+
+        knobRow ({ &hornLevel, &hornLeak }, rightX, cy, 56);
+    }
+}
+
+// ============================================================================
 //  TOP-LEVEL EDITOR
 // ============================================================================
 
 TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), defaultPage (p)
+    : AudioProcessorEditor (&p), proc (p), defaultPage (p), tinkerPage (p), rotaryPage (p)
 {
     setLookAndFeel (&laf);
 
@@ -1101,7 +1622,22 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     titleLabel.setColour (juce::Label::textColourId, kBtn);
     addAndMakeVisible (titleLabel);
 
-    // TUNING button: dark normally, RED when the panel is open.
+    // Page radio (header centre): PLAY / TINKER / ROTARY.
+    juce::TextButton* pages[3] = { &playBtn, &tinkerBtn, &rotaryBtn };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto* b = pages[i];
+        b->getProperties().set ("headerRadio", true);          // header-specific drawing
+        b->setColour (juce::TextButton::textColourOffId, kBtn);   // black text on amber
+        b->setColour (juce::TextButton::textColourOnId,  kAmber); // amber text on black
+        b->setClickingTogglesState (false);
+        b->onClick = [this, i] { setPage (i); };
+        addAndMakeVisible (b);
+    }
+    playBtn.setToggleState (true, juce::dontSendNotification);
+
+    // TUNING button: dark normally, RED when the panel is open. The panel lives on
+    // the PLAY page, so pressing it from another page switches to PLAY first.
     tuningBtn.setClickingTogglesState (false);
     tuningBtn.setColour (juce::TextButton::buttonColourId,   kBtn);
     tuningBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
@@ -1109,7 +1645,14 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     tuningBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
     tuningBtn.onClick = [this]
     {
-        defaultPage.toggleTuningPanel();
+        if (currentPage != 0)
+        {
+            setPage (0);
+            if (! defaultPage.isTuningPanelShowing())
+                defaultPage.toggleTuningPanel();
+        }
+        else
+            defaultPage.toggleTuningPanel();
         tuningBtn.setToggleState (defaultPage.isTuningPanelShowing(), juce::dontSendNotification);
     };
     addAndMakeVisible (tuningBtn);
@@ -1122,9 +1665,44 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     addAndMakeVisible (panicBtn);
 
     addAndMakeVisible (defaultPage);
+    addChildComponent (tinkerPage);   // hidden until selected
+    addChildComponent (rotaryPage);
 
     setSize (740, 430);
+
+    // Dev hooks (used for the mockup-review screenshot workflow):
+    //   TUNEBFREE_PAGE=1|2          start on TINKER / ROTARY
+    //   TUNEBFREE_SNAPSHOT=out.png  save a 2x snapshot of the editor and quit
+    if (auto* pg = std::getenv ("TUNEBFREE_PAGE"))
+        setPage (juce::jlimit (0, 2, juce::String (pg).getIntValue()));
+    if (auto* snap = std::getenv ("TUNEBFREE_SNAPSHOT"))
+    {
+        juce::String path (snap);
+        juce::Timer::callAfterDelay (1200, [this, path]
+        {
+            auto img = createComponentSnapshot (getLocalBounds(), true, 2.0f);
+            juce::File f (path);
+            f.deleteFile();
+            juce::FileOutputStream os (f);
+            juce::PNGImageFormat png;
+            if (os.openedOk()) png.writeImageToStream (img, os);
+            juce::JUCEApplicationBase::quit();
+        });
+    }
+
     startTimerHz (15);   // drives the tuning clock + control sync (host automation / presets)
+}
+
+void TuneBfreeAudioProcessorEditor::setPage (int page)
+{
+    currentPage = page;
+    playBtn.setToggleState   (page == 0, juce::dontSendNotification);
+    tinkerBtn.setToggleState (page == 1, juce::dontSendNotification);
+    rotaryBtn.setToggleState (page == 2, juce::dontSendNotification);
+    defaultPage.setVisible (page == 0);
+    tinkerPage.setVisible  (page == 1);
+    rotaryPage.setVisible  (page == 2);
+    playBtn.repaint(); tinkerBtn.repaint(); rotaryBtn.repaint();
 }
 
 TuneBfreeAudioProcessorEditor::~TuneBfreeAudioProcessorEditor()
@@ -1147,7 +1725,19 @@ void TuneBfreeAudioProcessorEditor::resized()
     titleLabel.setBounds (header.removeFromLeft (180).reduced (12, 8));
     tuningBtn.setBounds  (header.removeFromRight (96).reduced (10, 8));
     panicBtn.setBounds   (header.removeFromRight (96).reduced (10, 8));   // left of TUNING
+
+    // Page radio, centred in the window.
+    const int pw = 72, ph = 28, pgap = 6;
+    int px = (getWidth() - (3 * pw + 2 * pgap)) / 2;
+    for (auto* b : { &playBtn, &tinkerBtn, &rotaryBtn })
+    {
+        b->setBounds (px, (44 - ph) / 2, pw, ph);
+        px += pw + pgap;
+    }
+
     defaultPage.setBounds (r);
+    tinkerPage.setBounds  (r);
+    rotaryPage.setBounds  (r);
 }
 
 void TuneBfreeAudioProcessorEditor::timerCallback()
@@ -1155,4 +1745,6 @@ void TuneBfreeAudioProcessorEditor::timerCallback()
     defaultPage.syncFromParams();
     if (defaultPage.isTuningPanelShowing())
         defaultPage.refreshTuningPanel();
+    if (rotaryPage.isVisible())
+        rotaryPage.syncFromParams();   // follow PLAY-page 3-way / host automation
 }

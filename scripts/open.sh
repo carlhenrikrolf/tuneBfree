@@ -1,0 +1,1 @@
+open build/tuneBfree_artefacts/Release/Standalone/tuneBfree.app

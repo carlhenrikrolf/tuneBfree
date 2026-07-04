@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "eqcomp.h"   // EQC_* filter type constants
 
 #include <algorithm>
 #include <cstring>
@@ -64,14 +65,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
     static const float defaultRatioTop[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
     static const float defaultRatioBot[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
     for (int i = 0; i < 9; i++) {
+        // Integer steps: the ratios are integer fractions (n/d), and the TINKER
+        // HARMONICS boxes edit them as whole numbers.
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{ "ratio_top_" + juce::String(i), 1 },
             "Ratio Top " + juce::String(i),
-            juce::NormalisableRange<float>(0.0f, 1000.0f), defaultRatioTop[i]));
+            juce::NormalisableRange<float>(0.0f, 1000.0f, 1.0f), defaultRatioTop[i]));
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{ "ratio_bot_" + juce::String(i), 1 },
             "Ratio Bottom " + juce::String(i),
-            juce::NormalisableRange<float>(0.0f, 1000.0f), defaultRatioBot[i]));
+            juce::NormalisableRange<float>(1.0f, 1000.0f, 1.0f), defaultRatioBot[i]));
     }
 
     // Expression / swell pedal (the Hammond expression pedal — a volume control).
@@ -102,6 +105,103 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
             "Lower Drawbar " + juce::String(i + 1),
             juce::NormalisableRange<float>(0.0f, 8.0f, 1.0f),
             defaultLowerDrawbars[i]));
+
+    // ------------------------------------------------------------------
+    // TINKER page — engine physics (defaults = setBfree compile-time defaults)
+    // ------------------------------------------------------------------
+    auto addFloat = [&params](const char* id, const char* name,
+                              float lo, float hi, float def,
+                              float step = 0.0f, float skew = 1.0f)
+    {
+        auto range = juce::NormalisableRange<float>(lo, hi, step);
+        if (skew != 1.0f) range.setSkewForCentre(skew);   // skew = desired centre value
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{ id, 1 }, name, range, def));
+    };
+
+    addFloat("scanner_hz", "Scanner Speed (Hz)",       4.0f, 22.0f, 7.25f);
+    addFloat("scanner_v1", "Scanner Depth V1",         0.0f, 12.0f, 3.0f);
+    addFloat("scanner_v2", "Scanner Depth V2",         0.0f, 12.0f, 6.0f);
+    addFloat("scanner_v3", "Scanner Depth V3",         0.0f, 12.0f, 9.0f);
+
+    addFloat("perc_fast_s",   "Percussion Fast Decay (s)", 0.1f, 10.0f, 1.0f, 0.0f, 2.0f);
+    addFloat("perc_slow_s",   "Percussion Slow Decay (s)", 0.1f, 10.0f, 4.0f, 0.0f, 3.0f);
+    addFloat("perc_gain",     "Percussion Gain",           0.1f, 20.0f, 3.0f, 0.0f, 4.0f);
+    addFloat("perc_norm_gain","Percussion Normal Level",   0.0f,  2.0f, 1.0f);
+    addFloat("perc_soft_gain","Percussion Soft Level",     0.0f,  1.0f, 0.5012f);
+
+    addFloat("click_attack_model",  "Key Click Attack Model",  0.0f, 3.0f, 0.0f, 1.0f); // ENV_CLICK
+    addFloat("click_release_model", "Key Click Release Model", 0.0f, 3.0f, 2.0f, 1.0f); // ENV_LINEAR
+    addFloat("click_attack_level",  "Key Click Attack Level",  0.0f, 1.0f, 0.5f);
+    addFloat("click_min_length",    "Key Click Min Length",    0.0f, 1.0f, 0.1875f);
+    addFloat("click_max_length",    "Key Click Max Length",    0.0f, 1.0f, 0.625f);
+    addFloat("click_release_level", "Key Click Release Level", 0.0f, 1.0f, 0.25f);
+
+    addFloat("xtalk_compartment", "Crosstalk Compartment",    0.0f, 0.2f, 0.01f);
+    addFloat("xtalk_transformer", "Crosstalk Transformer",    0.0f, 0.2f, 0.0f);
+    addFloat("xtalk_terminal",    "Crosstalk Terminal Strip", 0.0f, 0.2f, 0.01f);
+    addFloat("xtalk_wiring",      "Crosstalk Wiring",         0.0f, 0.2f, 0.01f);
+
+    addFloat("eq_bass",         "Tone Bass Level",   0.0f, 1.0f, 1.0f);
+    addFloat("eq_bass_slope",   "Tone Bass Slope",  -2.0f, 2.0f, 0.0f);
+    addFloat("eq_treble",       "Tone Treble Level", 0.0f, 1.0f, 1.0f);
+    addFloat("eq_treble_slope", "Tone Treble Slope",-2.0f, 2.0f, 0.0f);
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ "wave", 1 }, "Tonewheel Wave",
+        juce::StringArray{ "Sine", "Square", "Triangle" }, 0));
+
+    addFloat("preamp_in",        "Preamp Input Gain",  0.001f, 10.0f, 3.5675f, 0.0f, 3.5675f);
+    addFloat("preamp_out",       "Preamp Output Gain", 0.1f,   10.0f, 0.8795f, 0.0f, 0.8795f);
+    addFloat("preamp_bass_pre",  "Preamp Bass Pre",    0.0f, 0.999f, 0.5821f);
+    addFloat("preamp_bass_post", "Preamp Bass Post",   0.0f, 0.999f, 0.999f);
+    addFloat("preamp_sag",       "Preamp Sag",         0.5f, 0.999f, 0.991f);
+
+    // ------------------------------------------------------------------
+    // ROTARY page — whirl physics (defaults = setBfree compile-time defaults)
+    // ------------------------------------------------------------------
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ "whirl_bypass", 1 }, "Rotary Bypass", false));
+
+    addFloat("horn_slow_rpm", "Horn Slow (RPM)",   5.0f, 200.0f,  40.32f);
+    addFloat("horn_fast_rpm", "Horn Fast (RPM)", 100.0f, 900.0f, 423.36f);
+    addFloat("horn_accel",    "Horn Acceleration (s)", 0.01f, 2.0f, 0.161f);
+    addFloat("horn_decel",    "Horn Deceleration (s)", 0.01f, 2.0f, 0.321f);
+    addFloat("horn_brake",    "Horn Brake Position",   0.0f,  1.0f, 0.0f);
+    addFloat("drum_slow_rpm", "Drum Slow (RPM)",   5.0f, 100.0f,  36.0f);
+    addFloat("drum_fast_rpm", "Drum Fast (RPM)",  60.0f, 600.0f, 357.3f);
+    addFloat("drum_accel",    "Drum Acceleration (s)", 0.01f, 10.0f, 4.127f);
+    addFloat("drum_decel",    "Drum Deceleration (s)", 0.01f, 10.0f, 1.371f);
+    addFloat("drum_brake",    "Drum Brake Position",   0.0f,  1.0f, 0.0f);
+
+    static const juce::StringArray filterTypes {
+        "Low Pass", "High Pass", "Band Pass 0", "Band Pass 1", "Notch",
+        "All Pass", "Peaking", "Low Shelf", "High Shelf" };   // eqcomp types 0-8
+    auto addFilter = [&params, &addFloat](const char* prefix, const char* name,
+                                          int defType, float defHz, float minHz,
+                                          float defQ, float defGain)
+    {
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{ juce::String(prefix) + "_type", 1 },
+            juce::String(name) + " Type", filterTypes, defType));
+        addFloat((juce::String(prefix) + "_freq").toRawUTF8(),
+                 (juce::String(name) + " Frequency").toRawUTF8(),
+                 minHz, 8000.0f, defHz, 0.0f, 1000.0f);
+        addFloat((juce::String(prefix) + "_q").toRawUTF8(),
+                 (juce::String(name) + " Q").toRawUTF8(), 0.01f, 6.0f, defQ, 0.0f, 1.0f);
+        addFloat((juce::String(prefix) + "_gain").toRawUTF8(),
+                 (juce::String(name) + " Gain").toRawUTF8(), -48.0f, 48.0f, defGain);
+    };
+    addFilter("horn_filter_a", "Horn Filter A", EQC_LPF, 4500.0f,   250.0f, 2.7456f, -30.0f);
+    addFilter("horn_filter_b", "Horn Filter B", EQC_LOW,  300.0f,   250.0f, 1.0f,    -30.0f);
+    addFilter("drum_filter",   "Drum Filter",   EQC_HIGH, 811.9695f, 20.0f, 1.6016f, -38.9291f);
+
+    addFloat("horn_level", "Horn Level",        0.0f, 1.0f, 0.7f);
+    addFloat("horn_leak",  "Horn Leak",         0.0f, 1.0f, 0.15f);
+    addFloat("horn_width", "Horn Mic Width",   -1.0f, 1.0f, 0.0f);
+    addFloat("drum_width", "Drum Mic Width",   -1.0f, 1.0f, 0.0f);
+    addFloat("mic_angle",  "Mic Angle (deg)",   0.0f, 180.0f, 180.0f);
+    addFloat("mic_dist",   "Mic Distance (cm)", 9.0f, 200.0f, 42.0f, 0.0f, 42.0f);
 
     return { params.begin(), params.end() };
 }
@@ -145,6 +245,27 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     for (int i = 0; i < 9; i++)
         paramPtrs[P_LOWER_DRAWBAR_MIN + i] = apvts.getRawParameterValue("lower_drawbar" + juce::String(i));
 
+    // TINKER + ROTARY parameters, in P_* index order (see PluginProcessor.h).
+    static const char* extraIds[P_COUNT - P_SCANNER_HZ] = {
+        "scanner_hz", "scanner_v1", "scanner_v2", "scanner_v3",
+        "perc_fast_s", "perc_slow_s", "perc_gain", "perc_norm_gain", "perc_soft_gain",
+        "click_attack_model", "click_release_model", "click_attack_level",
+        "click_min_length", "click_max_length", "click_release_level",
+        "xtalk_compartment", "xtalk_transformer", "xtalk_terminal", "xtalk_wiring",
+        "eq_bass", "eq_bass_slope", "eq_treble", "eq_treble_slope",
+        "wave",
+        "preamp_in", "preamp_out", "preamp_bass_pre", "preamp_bass_post", "preamp_sag",
+        "whirl_bypass",
+        "horn_slow_rpm", "horn_fast_rpm", "horn_accel", "horn_decel", "horn_brake",
+        "drum_slow_rpm", "drum_fast_rpm", "drum_accel", "drum_decel", "drum_brake",
+        "horn_filter_a_type", "horn_filter_a_freq", "horn_filter_a_q", "horn_filter_a_gain",
+        "horn_filter_b_type", "horn_filter_b_freq", "horn_filter_b_q", "horn_filter_b_gain",
+        "drum_filter_type", "drum_filter_freq", "drum_filter_q", "drum_filter_gain",
+        "horn_level", "horn_leak", "horn_width", "drum_width", "mic_angle", "mic_dist",
+    };
+    for (int i = P_SCANNER_HZ; i < P_COUNT; i++)
+        paramPtrs[i] = apvts.getRawParameterValue(extraIds[i - P_SCANNER_HZ]);
+
     // All channels active by default: every incoming note plays, single-table tuning
     // for a non-multichannel master — i.e. the pre-multichannel behaviour.
     for (int ch = 0; ch < 16; ch++) channelActive[ch] = true;
@@ -178,8 +299,11 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     }
 
     synth = allocTonegen();
+    applyEngineBuildParams(synth);
     initToneGenerator(synth, nullptr, sampleRate, targetRatio);
     init_vibrato(&synth->inst_vibrato, sampleRate);
+    // Percussion decay constants need SampleRateD, so recompute post-init.
+    setFastPercussionDecay(synth, synth->percFastDecaySeconds);
 
     preampModule = (b_preamp*) allocPreamp();
     initPreamp(preampModule, nullptr, sampleRate);
@@ -333,10 +457,13 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     fresh->splitPointHz    = (double) paramPtrs[P_SPLIT_POINT]->load();
     fresh->splitWidthCents = (double) paramPtrs[P_SPLIT_WIDTH]->load();
 
+    applyEngineBuildParams(fresh);
     initToneGenerator(fresh, nullptr, currentSampleRate, targetRatio, freqSrc, initGamut, initWheels);
     if (useGamut)
         memcpy(fresh->slotIndex, gamutSlot, sizeof(gamutSlot));   // gamutSize set via the init arg
     init_vibrato(&fresh->inst_vibrato, currentSampleRate);
+    // Percussion decay constants need SampleRateD, so recompute post-init.
+    setFastPercussionDecay(fresh, fresh->percFastDecaySeconds);
 
     // Re-apply the tonegen-side parameters (the same set the old synchronous reinit did).
     for (int i = P_DRAWBAR_MIN; i <= P_DRAWBAR_MAX; i++)
@@ -519,6 +646,58 @@ void TuneBfreeAudioProcessor::buildFileGamut(double freqTable[], int slotIndexOu
 // Parameter application
 // ============================================================================
 
+// TINKER parameters that are baked into the tonegen at build time. Must run on a
+// freshly allocated engine BEFORE initToneGenerator (which consumes the crosstalk /
+// EQ / harmonics / key-click state) and BEFORE init_vibrato (which builds the
+// scanner offset tables from the inst_vibrato fields).
+void TuneBfreeAudioProcessor::applyEngineBuildParams(b_tonegen* t)
+{
+    // Scanner (vibrato guts)
+    t->inst_vibrato.vibFqHertz = (double) paramPtrs[P_SCANNER_HZ]->load();
+    t->inst_vibrato.vib1OffAmp = (double) paramPtrs[P_SCANNER_V1]->load();
+    t->inst_vibrato.vib2OffAmp = (double) paramPtrs[P_SCANNER_V2]->load();
+    t->inst_vibrato.vib3OffAmp = (double) paramPtrs[P_SCANNER_V3]->load();
+
+    // Percussion times/gains (also live-settable; set here so rebuilds preserve them —
+    // the decay *constants* are recomputed post-init via setFastPercussionDecay)
+    t->percFastDecaySeconds = (double) paramPtrs[P_PERC_FAST_S]->load();
+    t->percSlowDecaySeconds = (double) paramPtrs[P_PERC_SLOW_S]->load();
+    setPercussionGainScaling(t, (double) paramPtrs[P_PERC_GAIN]->load());
+    setNormalPercussionGain (t, (double) paramPtrs[P_PERC_NORM_G]->load());
+    setSoftPercussionGain   (t, (double) paramPtrs[P_PERC_SOFT_G]->load());
+
+    // Key click (consumed by initEnvelopes inside initToneGenerator)
+    setEnvAttackModel      (t, (int) std::lround(paramPtrs[P_CLICK_ATK_MODEL]->load()));
+    setEnvReleaseModel     (t, (int) std::lround(paramPtrs[P_CLICK_REL_MODEL]->load()));
+    setEnvAttackClickLevel (t, (double) paramPtrs[P_CLICK_ATK_LEVEL]->load());
+    setEnvAtkClkMinLength  (t, (double) paramPtrs[P_CLICK_MIN]->load());
+    setEnvAtkClkMaxLength  (t, (double) paramPtrs[P_CLICK_MAX]->load());
+    setEnvReleaseClickLevel(t, (double) paramPtrs[P_CLICK_REL_LEVEL]->load());
+
+    // Crosstalk (consumed by the contribution-table build)
+    t->defaultCompartmentCrosstalk   = (double) paramPtrs[P_XT_COMPARTMENT]->load();
+    t->defaultTransformerCrosstalk   = (double) paramPtrs[P_XT_TRANSFORMER]->load();
+    t->defaultTerminalStripCrosstalk = (double) paramPtrs[P_XT_TERMINAL]->load();
+    t->defaultWiringCrosstalk        = (double) paramPtrs[P_XT_WIRING]->load();
+
+    // Tonegenerator EQ spline (wheel output levels)
+    t->eqP1y = (double) paramPtrs[P_EQ_BASS]->load();
+    t->eqR1y = (double) paramPtrs[P_EQ_BASS_SLOPE]->load();
+    t->eqP4y = (double) paramPtrs[P_EQ_TREBLE]->load();
+    t->eqR4y = (double) paramPtrs[P_EQ_TREBLE_SLOPE]->load();
+
+    // Tonewheel waveform preset (harmonic series from default.cfg's examples).
+    // wheel_Harmonics[i] is the level of harmonic i+1; normalised by writeSamples.
+    static const double waveTables[3][MAX_PARTIALS] = {
+        { 1.0, 0, 0,         0, 0,        0, 0,             0, 0,             0, 0,              0 }, // sine
+        { 1.0, 0, 1.0 / 3.0, 0, 0.2,      0, 1.0 / 7.0,     0, 1.0 / 9.0,     0, 1.0 / 11.0,     0 }, // square
+        { 1.0, 0, 1.0 / 9.0, 0, 1.0 / 25, 0, 1.0 / 49.0,    0, 1.0 / 81.0,    0, 1.0 / 121.0,    0 }, // triangle
+    };
+    int wave = juce::jlimit(0, 2, (int) std::lround(paramPtrs[P_WAVE]->load()));
+    for (int i = 0; i < MAX_PARTIALS; i++)
+        t->wheel_Harmonics[i] = waveTables[wave][i];
+}
+
 void TuneBfreeAudioProcessor::applyParam(int index, float value)
 {
     if (synth == nullptr) return;
@@ -571,7 +750,64 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
         // Lower manual = tonegen buses 9-17.
         setDrawBar(synth, 9 + (index - P_LOWER_DRAWBAR_MIN), (unsigned int) std::lround(value));
     }
-    // Ratio and split enable/point/width params trigger a rebuild (from processBlock), not here
+    // --- TINKER: percussion physics (live; the set*Decay calls recompute the
+    //     decay constants, so gain changes re-trigger one to do the same) ---
+    else if (index == P_PERC_FAST_S) {
+        setFastPercussionDecay(synth, (double) value);
+    }
+    else if (index == P_PERC_SLOW_S) {
+        setSlowPercussionDecay(synth, (double) value);
+    }
+    else if (index == P_PERC_GAIN || index == P_PERC_NORM_G || index == P_PERC_SOFT_G) {
+        if      (index == P_PERC_GAIN)   setPercussionGainScaling(synth, (double) value);
+        else if (index == P_PERC_NORM_G) setNormalPercussionGain (synth, (double) value);
+        else                             setSoftPercussionGain   (synth, (double) value);
+        setFastPercussionDecay(synth, synth->percFastDecaySeconds);
+    }
+    // --- TINKER: preamp (live; direct fields — the fset* wrappers printf) ---
+    else if (index == P_PRE_IN)        { if (preampModule) preampModule->inputGain  = value; }
+    else if (index == P_PRE_OUT)       { if (preampModule) preampModule->outputGain = value; }
+    else if (index == P_PRE_BASS_PRE)  { if (preampModule) preampModule->adwFb      = value; }
+    else if (index == P_PRE_BASS_POST) { if (preampModule) preampModule->adwFb2     = value; }
+    else if (index == P_PRE_SAG)       { if (preampModule) preampModule->sagFb      = value; }
+    // --- ROTARY: whirl physics (live; same setters the MIDI CC handlers use) ---
+    else if (index >= P_WHIRL_BYPASS && index <= P_MIC_DIST && whirlModule != nullptr) {
+        b_whirl* w = whirlModule;
+        switch (index) {
+            case P_WHIRL_BYPASS: w->bypass = value > 0.5f ? 1 : 0;                    break;
+            case P_HORN_SLOW:    w->hornRPMslow = value; computeRotationSpeeds(w);    break;
+            case P_HORN_FAST:    w->hornRPMfast = value; computeRotationSpeeds(w);    break;
+            case P_HORN_ACCEL:   w->hornAcc = value;                                  break;
+            case P_HORN_DECEL:   w->hornDec = value;                                  break;
+            case P_HORN_BRAKE:   w->hnBrakePos = value;                               break;
+            case P_DRUM_SLOW:    w->drumRPMslow = value; computeRotationSpeeds(w);    break;
+            case P_DRUM_FAST:    w->drumRPMfast = value; computeRotationSpeeds(w);    break;
+            case P_DRUM_ACCEL:   w->drumAcc = value;                                  break;
+            case P_DRUM_DECEL:   w->drumDec = value;                                  break;
+            case P_DRUM_BRAKE:   w->drBrakePos = value;                               break;
+            case P_HF_A_TYPE:    isetHornFilterAType(w, (int) std::lround(value));    break;
+            case P_HF_A_FREQ:    fsetHornFilterAFrequency(w, value);                  break;
+            case P_HF_A_Q:       fsetHornFilterAQ(w, value);                          break;
+            case P_HF_A_GAIN:    fsetHornFilterAGain(w, value);                       break;
+            case P_HF_B_TYPE:    isetHornFilterBType(w, (int) std::lround(value));    break;
+            case P_HF_B_FREQ:    fsetHornFilterBFrequency(w, value);                  break;
+            case P_HF_B_Q:       fsetHornFilterBQ(w, value);                          break;
+            case P_HF_B_GAIN:    fsetHornFilterBGain(w, value);                       break;
+            case P_DF_TYPE:      isetDrumFilterType(w, (int) std::lround(value));     break;
+            case P_DF_FREQ:      fsetDrumFilterFrequency(w, value);                   break;
+            case P_DF_Q:         fsetDrumFilterQ(w, value);                           break;
+            case P_DF_GAIN:      fsetDrumFilterGain(w, value);                        break;
+            case P_HORN_LEVEL:   w->hornLevel = value; w->leakage = w->leakLevel * w->hornLevel; break;
+            case P_HORN_LEAK:    w->leakLevel = value; w->leakage = w->leakLevel * w->hornLevel; break;
+            case P_HORN_WIDTH:   fsetHornMicWidth(w, value);                          break;
+            case P_DRUM_WIDTH:   fsetDrumMicWidth(w, value);                          break;
+            case P_MIC_ANGLE:    w->micAngle = 1.0 - (double) value / 180.0;          break;
+            case P_MIC_DIST:     w->micDistCm = value; computeOffsets(w);             break;
+            default: break;
+        }
+    }
+    // Ratio, split, and build-time TINKER params (scanner / key click / crosstalk /
+    // EQ spline / wave) trigger a rebuild from processBlock, not here.
 }
 
 // ============================================================================
@@ -652,7 +888,9 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             cachedParams[i] = val;
             applyParam(i, val);
             if ((i >= P_RATIO_TOP_MIN && i <= P_RATIO_BOT_MAX) ||
-                i == P_SPLIT_ENABLE || i == P_SPLIT_POINT || i == P_SPLIT_WIDTH)
+                i == P_SPLIT_ENABLE || i == P_SPLIT_POINT || i == P_SPLIT_WIDTH ||
+                (i >= P_SCANNER_HZ && i <= P_SCANNER_V3) ||          // scanner tables
+                (i >= P_CLICK_ATK_MODEL && i <= P_WAVE))             // click/xtalk/EQ/wave
                 needParamRebuild = true;
         }
     }

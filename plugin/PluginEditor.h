@@ -39,6 +39,9 @@ public:
     juce::Font getComboBoxFont  (juce::ComboBox&) override;
     juce::Font getPopupMenuFont () override;
 
+    // Slider value boxes (the editable read-outs under TINKER/ROTARY knobs).
+    juce::Font getLabelFont (juce::Label&) override;
+
     // Drawbar cap colour by index (0 = 16', 8 = 1').
     static juce::Colour drawbarColour (int index);
 };
@@ -206,7 +209,123 @@ private:
 };
 
 // ============================================================================
-//  TuneBfreeAudioProcessorEditor — top-level window: amber header + DefaultPage.
+//  LabelledKnob — the standard TINKER/ROTARY control: grey caption above a
+//  rotary knob with an editable value box below. init() binds it to an APVTS
+//  parameter, so host automation / preset recall update it automatically.
+// ============================================================================
+
+struct LabelledKnob : public juce::Component
+{
+    LabelledKnob();
+    void init (juce::AudioProcessorValueTreeState& state, const juce::String& paramID,
+               const juce::String& captionText, const juce::String& valueSuffix = {},
+               int decimalPlaces = 2);
+    void resized() override;
+
+    juce::Label  caption;
+    juce::Slider knob;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+};
+
+// ============================================================================
+//  TinkerPage — engine physics (.cfg territory): scanner, percussion envelope,
+//  preamp, key click, crosstalk, tonegen EQ + wave, and the drawbar HARMONICS
+//  (ratio_top/ratio_bot fractions), laid out at the SAME x-positions as the
+//  PLAY-page drawbars so page flips keep each drawbar's column in place.
+// ============================================================================
+
+class TinkerPage : public juce::Component
+{
+public:
+    explicit TinkerPage (TuneBfreeAudioProcessor& p);
+    void paint   (juce::Graphics&) override;
+    void resized () override;
+
+private:
+    TuneBfreeAudioProcessor& proc;
+
+    // group titles (amber, all-caps)
+    juce::Label scannerTitle, percTitle, preampTitle, clickTitle,
+                xtalkTitle, harmTitle, toneTitle;
+
+    // SCANNER / PERCUSSION / PREAMP (row 1)
+    LabelledKnob scanSpeed, scanV1, scanV2, scanV3;
+    LabelledKnob percFast, percSlow, percGain, percSoft;
+    LabelledKnob preIn, preOut, bassPre, bassPost, sag;
+
+    // KEY CLICK / CROSSTALK (row 2)
+    juce::Label    atkModelCap, relModelCap;
+    juce::ComboBox atkModelBox, relModelBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> atkModelAtt, relModelAtt;
+    LabelledKnob clickAtkLevel, clickMin, clickMax, clickRelLevel;
+    LabelledKnob xtComp, xtXfmr, xtTerm, xtWiring;
+
+    // HARMONICS (row 3, left) — numerator over denominator per drawbar, plus a
+    // read-out of the deviation from the just-intonation harmonic in cents.
+    juce::Label  footage[9];
+    juce::Slider ratioTop[9], ratioBot[9];
+    juce::Label  ratioErr[9];
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> topAtt[9], botAtt[9];
+
+    // TONE (row 3, right; left-aligned with CROSSTALK/PREAMP)
+    LabelledKnob eqBass, eqBassSlope, eqTreble, eqTrebleSlope;
+    juce::Label    waveCap;
+    juce::ComboBox waveBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveAtt;
+    juce::TextButton resetBtn { "RESET" };
+
+    void updateErrorLabel (int i);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TinkerPage)
+};
+
+// ============================================================================
+//  RotaryPage — Leslie physics (x42-whirl territory): motors, filters, cabinet
+//  mics, and independent HORN / DRUM speed switches (the PLAY-page 3-way sets
+//  both `horn` and `drum`; here each rotor gets its own CHORALE/STOP/TREMOLO).
+// ============================================================================
+
+class RotaryPage : public juce::Component
+{
+public:
+    explicit RotaryPage (TuneBfreeAudioProcessor& p);
+    void paint   (juce::Graphics&) override;
+    void resized () override;
+    void syncFromParams();   // horn/drum switches follow the params (host / PLAY page)
+
+private:
+    TuneBfreeAudioProcessor& proc;
+
+    juce::Label hornMotorTitle, drumMotorTitle, micTitle, speedTitle,
+                fATitle, fBTitle, dFTitle, mixTitle;
+
+    LabelledKnob hornSlow, hornFast, hornAccel, hornDecel, hornBrake;
+    LabelledKnob drumSlow, drumFast, drumAccel, drumDecel, drumBrake;
+    LabelledKnob micAngle, micDist, hornWidth, drumWidth;   // MIC & CABINET
+    LabelledKnob hornLevel, hornLeak;                       // MIX
+
+    juce::Label    fACap, fBCap, dFCap;
+    juce::ComboBox fAType, fBType, dFType;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> fAAtt, fBAtt, dFAtt;
+    LabelledKnob fAFreq, fAQ, fAGain;
+    LabelledKnob fBFreq, fBQ, fBGain;
+    LabelledKnob dFFreq, dFQ, dFGain;
+
+    // SPEED — one 3-way per rotor + bypass. CHORALE=1 STOP=0 TREMOLO=2.
+    juce::Label      hornSwCap, drumSwCap;
+    juce::TextButton hornChorale { "CHORALE" }, hornStop { "STOP" }, hornTremolo { "TREMOLO" };
+    juce::TextButton drumChorale { "CHORALE" }, drumStop { "STOP" }, drumTremolo { "TREMOLO" };
+    juce::TextButton bypassBtn { "BYPASS" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
+
+    void setSpeedParam (const char* paramID, float v);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RotaryPage)
+};
+
+// ============================================================================
+//  TuneBfreeAudioProcessorEditor — top-level window: amber header (title, page
+//  radio, TUNING) + the current page (PLAY / TINKER / ROTARY).
 // ============================================================================
 
 class TuneBfreeAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -227,7 +346,15 @@ private:
     juce::Label      titleLabel;
     juce::TextButton tuningBtn { "TUNING" };
     juce::TextButton panicBtn  { "PANIC" };   // release all notes (debugging); temporary
-    DefaultPage      defaultPage;
+
+    // Page radio (header centre). PLAY is the default page.
+    juce::TextButton playBtn { "PLAY" }, tinkerBtn { "TINKER" }, rotaryBtn { "ROTARY" };
+    int currentPage = 0;                      // 0 = PLAY, 1 = TINKER, 2 = ROTARY
+    void setPage (int page);
+
+    DefaultPage defaultPage;
+    TinkerPage  tinkerPage;
+    RotaryPage  rotaryPage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuneBfreeAudioProcessorEditor)
 };

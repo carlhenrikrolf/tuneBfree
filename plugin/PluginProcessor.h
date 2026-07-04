@@ -37,7 +37,71 @@
 #define P_LOWER_VIBRATO    42   // lower-manual vibrato/chorus on/off
 #define P_LOWER_DRAWBAR_MIN 43
 #define P_LOWER_DRAWBAR_MAX 51  // 9 lower-manual drawbars
-#define P_COUNT           52
+
+// --- TINKER page (engine physics; .cfg-file territory) ---
+// Scanner + key click + crosstalk + EQ spline + wave need a tonegen rebuild;
+// percussion times/gains and the preamp apply live.
+#define P_SCANNER_HZ       52
+#define P_SCANNER_V1       53
+#define P_SCANNER_V2       54
+#define P_SCANNER_V3       55
+#define P_PERC_FAST_S      56
+#define P_PERC_SLOW_S      57
+#define P_PERC_GAIN        58
+#define P_PERC_NORM_G      59
+#define P_PERC_SOFT_G      60
+#define P_CLICK_ATK_MODEL  61
+#define P_CLICK_REL_MODEL  62
+#define P_CLICK_ATK_LEVEL  63
+#define P_CLICK_MIN        64
+#define P_CLICK_MAX        65
+#define P_CLICK_REL_LEVEL  66
+#define P_XT_COMPARTMENT   67
+#define P_XT_TRANSFORMER   68
+#define P_XT_TERMINAL      69
+#define P_XT_WIRING        70
+#define P_EQ_BASS          71
+#define P_EQ_BASS_SLOPE    72
+#define P_EQ_TREBLE        73
+#define P_EQ_TREBLE_SLOPE  74
+#define P_WAVE             75   // 0 sine, 1 square, 2 triangle
+#define P_PRE_IN           76
+#define P_PRE_OUT          77
+#define P_PRE_BASS_PRE     78
+#define P_PRE_BASS_POST    79
+#define P_PRE_SAG          80
+
+// --- ROTARY page (whirl physics) — all apply live on the whirl instance ---
+#define P_WHIRL_BYPASS     81
+#define P_HORN_SLOW        82
+#define P_HORN_FAST        83
+#define P_HORN_ACCEL       84
+#define P_HORN_DECEL       85
+#define P_HORN_BRAKE       86
+#define P_DRUM_SLOW        87
+#define P_DRUM_FAST        88
+#define P_DRUM_ACCEL       89
+#define P_DRUM_DECEL       90
+#define P_DRUM_BRAKE       91
+#define P_HF_A_TYPE        92
+#define P_HF_A_FREQ        93
+#define P_HF_A_Q           94
+#define P_HF_A_GAIN        95
+#define P_HF_B_TYPE        96
+#define P_HF_B_FREQ        97
+#define P_HF_B_Q           98
+#define P_HF_B_GAIN        99
+#define P_DF_TYPE         100
+#define P_DF_FREQ         101
+#define P_DF_Q            102
+#define P_DF_GAIN         103
+#define P_HORN_LEVEL      104
+#define P_HORN_LEAK       105
+#define P_HORN_WIDTH      106
+#define P_DRUM_WIDTH      107
+#define P_MIC_ANGLE       108
+#define P_MIC_DIST        109
+#define P_COUNT           110
 
 // Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
@@ -309,6 +373,9 @@ private:
 
     void updateScalePeriod();
     void applyParam(int index, float value);
+    // Apply the build-time TINKER parameters (scanner, key click, crosstalk, EQ
+    // spline, wave, percussion) to a tonegen BEFORE initToneGenerator/init_vibrato.
+    void applyEngineBuildParams(b_tonegen* t);
     void renderAudio(float* outL, float* outR, int numSamples);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
