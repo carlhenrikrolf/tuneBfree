@@ -25,10 +25,15 @@
 #define P_PERCUSSION_VOL  17
 #define P_PERCUSSION_DEC  18
 #define P_PERCUSSION_HAR  19
-#define P_RATIO_TOP_MIN   20
-#define P_RATIO_TOP_MAX   28
-#define P_RATIO_BOT_MIN   29
-#define P_RATIO_BOT_MAX   37
+// HARMONICS (drawbar fine-tuning). Replaces Naren's CLAP ratio_top/ratio_bot
+// integer pairs (same 18 parameter slots): per drawbar, the CUSTOM interval in
+// cents above the key fundamental, plus an AUTO flag. AUTO = the pure JI
+// harmonic quantized to the current tuning (stock behaviour); CUSTOM = the
+// cents value used exactly (its wheel frequencies are injected un-quantized).
+#define P_HARM_CENTS_MIN  20
+#define P_HARM_CENTS_MAX  28
+#define P_HARM_AUTO_MIN   29
+#define P_HARM_AUTO_MAX   37
 #define P_EXPRESSION      38
 // Keyboard split (step 2). Indices past the CLAP-compatible range (0..38).
 #define P_SPLIT_ENABLE     39
@@ -101,7 +106,9 @@
 #define P_DRUM_WIDTH      107
 #define P_MIC_ANGLE       108
 #define P_MIC_DIST        109
-#define P_COUNT           110
+#define P_MASTER_VOL      110   // header 🔊 popup — plain output gain after the chain
+#define P_ACTIVE_MANUAL   111   // unitimbral routing: 0 = upper bank sounds, 1 = lower
+#define P_COUNT           112
 
 // Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
@@ -158,6 +165,8 @@ public:
     bool           getHasLocalTuning()  const noexcept { return hasLocalTuning.load(); }
     juce::String   getLocalSclName()    const { return localSclName; }
     juce::String   getLocalKbmName()    const { return localKbmName; }
+    // Individual .kbm filenames of the current batch (for the FILES popup).
+    juce::StringArray getLocalKbmNames() const { return localKbmNames; }
     juce::String   getLocalSclDescription() const { return localSclDescription; }
     juce::String   getLocalTuningError() const { return localTuningError; }
     // Period the .scl file itself declares (its last tone), in cents; -1 if none loaded.
@@ -214,6 +223,23 @@ public:
     // the panel shows the current time instead, since the master is queried every block.
     juce::int64 getLastTuningChangeMs() const noexcept { return lastTuningChangeMs.load(); }
 
+    // Kind of the last MIDI-tuning sysex received: -1 none yet, 0 = non-realtime
+    // (bulk dump → applies at note-on), 1 = realtime (retunes sounding notes).
+    // Drives the greyed NOTE ON / ALWAYS indicator while the source is SYSEX.
+    int getLastSysexKind() const noexcept { return lastSysexKind.load(); }
+
+    // --- HARMONICS panel support (message thread) ---
+    // The pure JI harmonic ratio of each drawbar (1/2, 3/2, 1/1, 2/1, ...).
+    static const double stockJIRatio[9];
+    // Deviation (cents) of drawbar b's SOUNDING pitch from the pure JI harmonic,
+    // at the reference fundamental refHz. Mimics the engine's wheel choice on a
+    // UI-side snapshot of the wheel table (refreshed after every rebuild).
+    double getHarmonicErrorCents(int b, double refHz) const;
+    // The raw entry strings ("3/2", "702.23 c") — persisted with the state so the
+    // display keeps the user's chosen notation (the cents PARAM drives the engine).
+    void         setHarmonicEntryText(int i, const juce::String& s);
+    juce::String getHarmonicEntryText(int i) const;
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -236,7 +262,15 @@ private:
 
     // MTS-ESP tuning change detection: 16 MIDI channels × 128 notes
     double previousFrequency[16][128] = {};
-    double previousRatio[NOF_DRAWBARS] = {};
+
+    // UI snapshot of the wheel table + target ratios (for the HARMONICS error
+    // read-outs). Written after every engine build (worker / init), read by the
+    // message thread — never touched by the audio thread.
+    mutable juce::SpinLock uiWheelLock;
+    std::vector<double>    uiWheelFreqs;
+    std::vector<char>      uiWheelInjected;   // parallel to uiWheelFreqs
+    char                   uiBusCustom[9] = {};
+    double                 uiTargetRatio[9] = { 0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 };
 
     // --- Async tonegen rebuild ---
     // Rebuilding the tonegen (mallocs + wavetable building + the
@@ -267,6 +301,9 @@ private:
     int  activeNoteCount      = 0;
     int  samplesSinceLastNote = 0;
 
+    // Master volume: ramped per block so knob moves / automation stay click-free.
+    float masterGainCur = 1.0f;
+
     // Inferred scale properties from the current MTS-ESP frequency table.
     // Written on the audio thread after every tonegen init; read by the UI.
     std::atomic<float> inferredPeriod{2.0f};
@@ -278,6 +315,7 @@ private:
     std::atomic<double>      lastNoteFreq{0.0};         // actual sounding Hz of the last note
     std::atomic<double>      penultimateNoteFreq{0.0};  // ...and the one before
     std::atomic<juce::int64> lastTuningChangeMs{0};
+    std::atomic<int>         lastSysexKind{-1};   // see getLastSysexKind()
 
     // Per-(channel, note) routing state: the engine key a held note is sounding on for
     // the upper and lower manuals, or -1 if not sounding there. Under the keyboard split
@@ -302,6 +340,10 @@ private:
     std::atomic<double> learnedSplitWidth{ 0.0 };
     bool                learnSessionActive = false;   // audio thread only
     double              learnMinPitch = 0.0, learnMaxPitch = 0.0;   // audio thread only
+    // Notes held silently while KEYPRESS (learn) is armed — they set the split but
+    // must not sound, and are tracked separately so releases balance correctly.
+    bool                learnHeld[16][128] = {};      // audio thread only
+    int                 learnHeldCount = 0;           // audio thread only
 
     // Which MIDI channels contribute to the merged tuning gamut (CHANNELS selection).
     // Default: all active — reproduces the pre-multichannel behaviour (every channel
@@ -320,6 +362,7 @@ private:
     bool                     hasLocalKBM = false;
     juce::String             localSclName;
     juce::String             localKbmName;
+    juce::StringArray        localKbmNames;     // every file of the current .kbm batch
     juce::String             localSclDescription;  // the .scl's name/description line
     juce::String             localTuningError;  // set if last load failed
 
@@ -376,6 +419,21 @@ private:
     // Apply the build-time TINKER parameters (scanner, key click, crosstalk, EQ
     // spline, wave, percussion) to a tonegen BEFORE initToneGenerator/init_vibrato.
     void applyEngineBuildParams(b_tonegen* t);
+
+    // --- HARMONICS engine support ---
+    // targetRatio per drawbar from the params: AUTO → stock JI, CUSTOM → 2^(cents/1200).
+    // Returns true if any drawbar is CUSTOM (needs wheel injection).
+    bool computeTargetRatios(double outRatio[], bool outCustom[]) const;
+    // Insert the exact wheel frequencies CUSTOM drawbars need (fundamental × ratio
+    // for every gamut slot) into the extended region of the wheel table, so the
+    // engine's closest-wheel search finds them un-quantized. injectedFlags
+    // (length NOF_FREQS) marks which final wheels came from injection — AUTO
+    // drawbars must not quantize to those.
+    static void injectCustomWheels(double* freqTable, char* injectedFlags,
+                                   int gamutSize, int& nofWheels,
+                                   const double targetRatio[], const bool custom[]);
+    // Refresh the UI wheel snapshot from a freshly built engine.
+    void publishUIWheelSnapshot(const b_tonegen* t, const double targetRatio[]);
     void renderAudio(float* outL, float* outR, int numSamples);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

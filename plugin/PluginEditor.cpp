@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include <cmath>
+#include <optional>
 
 // ============================================================================
 //  PALETTE & FONT
@@ -158,38 +159,65 @@ void TuneBfreeLookAndFeel::drawRotarySlider (
 
 void TuneBfreeLookAndFeel::drawButtonBackground (
     juce::Graphics& g, juce::Button& button, const juce::Colour&,
-    bool isHighlighted, bool)
+    bool isHighlighted, bool isDown)
 {
     auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
     bool isOn   = button.getToggleState();
-
-    // Header page radio (PLAY / TINKER / ROTARY): sits on the amber header.
-    // Active page = black fill; inactive = just a black outline on the amber.
-    if (button.getProperties().contains ("headerRadio"))
-    {
-        if (isOn)
-        {
-            g.setColour (kBtn);
-            g.fillRoundedRectangle (bounds, 3.0f);
-        }
-        else
-        {
-            g.setColour (isHighlighted ? kBtn.withAlpha (0.75f) : kBtn);
-            g.drawRoundedRectangle (bounds.reduced (1.0f), 3.0f, 1.5f);
-        }
-        return;
-    }
 
     // Use the button's own colours so individually-themed buttons (e.g. the
     // red TUNING button) work without special-casing them here.
     auto fill = isOn ? button.findColour (juce::TextButton::buttonOnColourId)
                      : button.findColour (juce::TextButton::buttonColourId);
-    if (isHighlighted) fill = fill.brighter (0.12f);
+
+    // Pressed state: tint towards the "active" colour of the button's context —
+    // red for header buttons, amber for the panel buttons. (Momentary buttons
+    // like "!" flash this while held.)
+    const bool header = button.getProperties().contains ("header");
+    if (isDown)
+        fill = fill.interpolatedWith (header ? kRed : kAmber, 0.45f);
+    else if (isHighlighted)
+        fill = fill.brighter (0.12f);
+
+    // Disabled: fade the fill into the page background — except on the amber
+    // header, where a translucent black turns brown; there the dimmed text
+    // (LookAndFeel_V4::drawButtonText) does the greying alone.
+    if (! button.isEnabled() && ! header)
+        fill = fill.withAlpha (0.4f);
 
     g.setColour (fill);
     g.fillRoundedRectangle (bounds, 3.0f);
     g.setColour (isOn ? fill.brighter (0.15f) : kBorder);
     g.drawRoundedRectangle (bounds, 3.0f, 1.0f);
+}
+
+void TuneBfreeLookAndFeel::drawButtonText (
+    juce::Graphics& g, juce::TextButton& button, bool isHighlighted, bool isDown)
+{
+    // The 🔊 header button: a stylised speaker (macOS-menu-bar-like), drawn as a
+    // path — JUCE ships no stock icons, and the emoji renders inconsistently.
+    if (button.getProperties().contains ("speakerIcon"))
+    {
+        auto r = button.getLocalBounds().toFloat().withSizeKeepingCentre (16.0f, 12.0f);
+        const float cy = r.getCentreY();
+
+        juce::Path body;   // magnet box + cone
+        body.addRectangle (r.getX(), cy - 2.5f, 3.5f, 5.0f);
+        body.addTriangle (r.getX() + 2.5f, cy,
+                          r.getX() + 8.0f, cy - 6.0f,
+                          r.getX() + 8.0f, cy + 6.0f);
+        juce::Path waves;  // two sound arcs, opening right
+        waves.addCentredArc (r.getX() + 9.5f, cy, 2.6f, 2.6f, 0.0f, 0.6f, 2.5f, true);
+        waves.addCentredArc (r.getX() + 9.5f, cy, 5.2f, 5.2f, 0.0f, 0.6f, 2.5f, true);
+
+        g.setColour (button.findColour (button.getToggleState()
+                         ? juce::TextButton::textColourOnId
+                         : juce::TextButton::textColourOffId));
+        g.fillPath (body);
+        g.strokePath (waves, juce::PathStrokeType (1.4f));
+        return;
+    }
+
+    LookAndFeel_V4::drawButtonText (g, button, isHighlighted, isDown);
 }
 
 juce::Font TuneBfreeLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
@@ -242,6 +270,15 @@ static void styleInfoBox (juce::Label& l, juce::Justification j = juce::Justific
     l.setColour (juce::Label::outlineColourId,    kBorder);
 }
 
+// Style a group title ("SCANNER", "HORN MOTOR", "VIBRATO"): amber, bold, left-aligned.
+static void styleGroupTitle (juce::Label& l, const juce::String& text)
+{
+    l.setFont (uiFont (11.0f, true));
+    l.setJustificationType (juce::Justification::centredLeft);
+    l.setColour (juce::Label::textColourId, kAmber);
+    l.setText (text, juce::dontSendNotification);
+}
+
 // Style a small caption label (the grey text above knobs etc.).
 static void styleCaption (juce::Label& l, const juce::String& text)
 {
@@ -259,6 +296,287 @@ static void styleSectionTitle (juce::Label& l, const juce::String& text)
     l.setColour (juce::Label::textColourId, kGrey);
     l.setText (text, juce::dontSendNotification);
 }
+
+// ============================================================================
+//  RIGHT-CLICK PARAMETER MENU (Surge-style: name / edit value / info).
+//  Attached to every parameter control; ctrl-click / two-finger click on Mac.
+//  MIDI learn / channel mapping will join this menu with the CONTROL panel.
+// ============================================================================
+
+// One-paragraph description per parameter (the "?" info box). Grouped by
+// prefix so families share their text. Sentence case on purpose: paragraphs
+// in all-caps are unreadable (the all-caps rule is for widget labels).
+static juce::String paramInfoText (const juce::String& id)
+{
+    auto is   = [&id] (const char* v) { return id == v; };
+    auto has  = [&id] (const char* v) { return id.startsWith (v); };
+    const juce::String rebuild =
+        "\n\nChanging this rebuilds the tone generator and cuts sounding notes "
+        "(the red dot next to the group title).";
+
+    // --- PLAY ---
+    if (has ("drawbar") || has ("lower_drawbar"))
+        return "Harmonic volume, 0 (silent) to 8 (full) - pull down for louder, like the "
+               "real drawbars. UPPER/LOWER selects which manual's bank you are editing.";
+    if (is ("vibrato") || is ("lower_vibrato"))
+        return "Routes this manual through the vibrato/chorus scanner.";
+    if (is ("vibrato_type"))
+        return "The B3 dial: V1/V2/V3 = vibrato (pitch modulation only), C1/C2/C3 = chorus "
+               "(modulated signal mixed with dry). Depth grows from 1 to 3.";
+    if (is ("drum") || is ("horn"))
+        return "Rotor speed: STOP, CHORALE (slow) or TREMOLO (fast). The PLAY switch drives "
+               "both rotors together; the ROTOR page has an independent switch per rotor.";
+    if (is ("overdrive"))
+        return "Engages the tube-preamp stage (DRIVE above 0 switches it in).";
+    if (is ("character"))
+        return "DRIVE: overdrive amount/character macro. 0 = clean bypass; above 0 the "
+               "preamp stage is engaged. Fine controls live on TINKER > PREAMP.";
+    if (is ("reverb_mix"))
+        return "Dry/wet of the reverb (Airwindows MatrixVerb). Currently the only exposed "
+               "reverb control - the algorithm's other knobs are fixed at defaults "
+               "(see roadmap/PARAMETERS.md).";
+    if (is ("percussion"))
+        return "Percussion on/off (upper manual only, as on a B3). Single-trigger: it "
+               "re-arms when upper keys are released; under a keyboard split, suppression "
+               "by held notes fades gradually across the crossfade zone.";
+    if (is ("percussion_dec"))
+        return "Percussion envelope decay: FAST or SLOW (times on TINKER > PERCUSSION).";
+    if (is ("percussion_vol"))
+        return "Percussion level: SOFT or NORMAL (levels on TINKER > PERCUSSION).";
+    if (is ("percussion_har"))
+        return "Which harmonic the percussion strikes: 2ND (4') or 3RD (2 2/3').";
+    if (is ("expression"))
+        return "The swell pedal - on a Hammond it is a pure volume control. Also driven by "
+               "MIDI CC 7 and CC 11; smoothed (~25 Hz) so pedal moves don't zipper.";
+    if (is ("split_enable"))
+        return "BITIMBRAL: splits the keyboard into lower/upper manuals by SOUNDING PITCH "
+               "(not key number), each with its own drawbar bank.";
+    if (is ("split_point"))
+        return "The split frequency: pitches below sound the lower manual, above the upper. "
+               "A frequency, not a key - so it works under any tuning. KEYPRESS sets it "
+               "from held keys (silently).";
+    if (is ("split_width"))
+        return "Crossfade width in cents around the split point. Inside the zone a note "
+               "sounds on BOTH manuals with equal-power weights.";
+    if (is ("whirl_bypass"))
+        return "Bypasses the whole rotary-speaker simulation (the organ plays dry).";
+    if (is ("master_volume"))
+        return "Master output volume, after the whole signal chain. Ramped per block, "
+               "click-free.";
+
+    // --- TINKER ---
+    if (is ("scanner_hz"))
+        return "The vibrato scanner's rate. On the instrument it is fixed by the motor "
+               "(~7 Hz); here you may detune it." + rebuild;
+    if (has ("scanner_v"))
+        return "Modulation depth for the corresponding dial positions (V1/C1, V2/C2, "
+               "V3/C3)." + rebuild;
+    if (is ("perc_fast_s") || is ("perc_slow_s"))
+        return "Percussion decay time in seconds for the FAST / SLOW switch position. "
+               "Applies live.";
+    if (is ("perc_gain"))
+        return "Overall percussion gain scaling. Applies live.";
+    if (is ("perc_norm_gain") || is ("perc_soft_gain"))
+        return "Envelope starting level for the NORMAL / SOFT switch position. Applies live.";
+    if (is ("click_attack_model") || is ("click_release_model"))
+        return "Key-contact model at attack/release: CLICK = random contact bounces (the "
+               "classic key click), SHELF = debounced step, COSINE/LINEAR = plain fades."
+               + rebuild;
+    if (is ("click_attack_level") || is ("click_release_level"))
+        return "Amount of random contact noise - more simulates worn, oxidised contacts."
+               + rebuild;
+    if (is ("click_min_length") || is ("click_max_length"))
+        return "Bounds of the random key-click burst length (fraction of ~2.9 ms)." + rebuild;
+    if (is ("xtalk_compartment"))
+        return "Crosstalk between tonewheels sharing a compartment in the generator."
+               + rebuild;
+    if (is ("xtalk_transformer"))
+        return "Pickup between neighbouring filter transformers on top of the generator "
+               "(default 0)." + rebuild;
+    if (is ("xtalk_terminal"))
+        return "Leakage between neighbouring soldering points on the output terminal strip."
+               + rebuild;
+    if (is ("xtalk_wiring"))
+        return "Crosstalk between the unshielded manual wires (they share a loom)." + rebuild;
+    if (has ("eq_bass") || has ("eq_treble"))
+        return "Tonegenerator output-level spline: BASS/TREBLE set the level at the lowest/"
+               "highest wheels, SLOPE bends the curve near that end. A broad tonal tilt "
+               "across all 91+ wheels." + rebuild;
+    if (is ("wave"))
+        return "Tonewheel waveform: pure sine (the ideal wheel) or square/triangle harmonic "
+               "series (a deliberately flawed generator)." + rebuild;
+    if (is ("preamp_in") || is ("preamp_out"))
+        return "Signal level into / out of the overdrive stage. OUT as high as possible "
+               "without clipping. Applies live.";
+    if (is ("preamp_bass_pre"))
+        return "Bass tone control BEFORE the overdrive (unity ~0.58): more sends more bass "
+               "into the distortion. Applies live.";
+    if (is ("preamp_bass_post"))
+        return "Bass recovery AFTER the overdrive - together with BASS PRE it keeps bass "
+               "out of the drive and restores it afterwards. Applies live.";
+    if (is ("preamp_sag"))
+        return "Power-supply sag recovery rate (must stay below 1): emulates the voltage "
+               "drop of a loaded amp. Applies live.";
+    if (has ("harm_cents"))
+        return "CUSTOM interval of this drawbar above the key fundamental. Type a ratio "
+               "(3/2), cents (702.23 c) or a bare integer (5 = 5/1) in the field. Active "
+               "only when the drawbar is set to C." + rebuild;
+    if (has ("harm_auto"))
+        return "A = AUTO: the pure just-intonation harmonic, quantized to the current "
+               "tuning (stock behaviour). C = CUSTOM: your entry sounds exactly - its "
+               "wheel frequencies are added un-quantized. Both remember their state."
+               + rebuild;
+
+    // --- ROTOR ---
+    if (has ("horn_slow") || has ("horn_fast") || has ("drum_slow") || has ("drum_fast"))
+        return "Target rotation speed (RPM) for this rotor's slow (chorale) / fast "
+               "(tremolo) setting. Applies live.";
+    if (has ("horn_accel") || has ("horn_decel") || has ("drum_accel") || has ("drum_decel"))
+        return "Spool-up/down time constant in seconds (time to ~63% of the change) - the "
+               "horn is light and quick, the drum heavy and slow.";
+    if (has ("horn_brake") || has ("drum_brake"))
+        return "Where the rotor parks when stopped: 0 = coast freely, above 0 = brake to "
+               "that position on the circle (1.0 = front-centre). Audible only via where "
+               "the stopped rotor points.";
+    if (has ("horn_filter_a"))
+        return "First horn voicing filter (with filter B it forms the band-pass character "
+               "of the horn driver).";
+    if (has ("horn_filter_b"))
+        return "Second horn voicing filter - the low-shelf side of the horn's band-pass "
+               "character.";
+    if (has ("drum_filter"))
+        return "The drum's voicing filter (stock: a high shelf cutting the top end - the "
+               "drum only carries the lows).";
+    if (is ("horn_level"))
+        return "The horn's level relative to the drum - a balance, not a dry/wet (that's "
+               "why no extreme silences the Leslie; use BYPASS for that).";
+    if (is ("horn_leak"))
+        return "Unrotated horn signal leaking past the rotor: band-passed, no Doppler. "
+               "Adds presence at slow speeds.";
+    if (has ("horn_width") || has ("drum_width"))
+        return "Stereo width of this rotor's virtual mic pair: 1 = full stereo, 0 = "
+               "collapsed to mono.";
+    if (is ("mic_angle"))
+        return "Angle between the two virtual microphones (180 = opposite sides - widest "
+               "modulation).";
+    if (is ("mic_dist"))
+        return "Microphone distance from the cabinet in cm. Floor is 25 cm: closer than "
+               "the rotor radius would put the mic INSIDE the rotor circle.";
+
+    return "No description yet.";
+}
+
+// Small CallOutBox content: type a new value for the parameter.
+class ParamEditContent : public juce::Component
+{
+public:
+    explicit ParamEditContent (juce::RangedAudioParameter& param) : p (param)
+    {
+        ed.setFont (uiFont (13.0f));
+        ed.setColour (juce::TextEditor::backgroundColourId, kBtn);
+        ed.setColour (juce::TextEditor::textColourId,       kWhite);
+        ed.setColour (juce::TextEditor::outlineColourId,    kBorder);
+        ed.setColour (juce::TextEditor::focusedOutlineColourId, kAmber);
+        ed.setText (p.getCurrentValueAsText(), juce::dontSendNotification);
+        ed.setSelectAllWhenFocused (true);
+        ed.onReturnKey = [this]
+        {
+            p.setValueNotifyingHost (p.convertTo0to1 (ed.getText().getFloatValue()));
+            dismiss();
+        };
+        ed.onEscapeKey = [this] { dismiss(); };
+        addAndMakeVisible (ed);
+        setSize (150, 30);
+    }
+    void resized() override { ed.setBounds (getLocalBounds().reduced (3)); }
+    void parentHierarchyChanged() override { ed.grabKeyboardFocus(); }
+
+private:
+    void dismiss()
+    {
+        if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    }
+    juce::RangedAudioParameter& p;
+    juce::TextEditor ed;
+};
+
+// Small CallOutBox content: the parameter's info text, wrapped.
+class ParamInfoContent : public juce::Component
+{
+public:
+    ParamInfoContent (const juce::String& title, const juce::String& body)
+    {
+        text.append (title.toUpperCase() + "\n\n", uiFont (12.0f, true), kAmber);
+        text.append (body, uiFont (12.0f), kWhite);
+        juce::TextLayout probe;
+        probe.createLayout (text, 260.0f);
+        setSize (280, (int) std::ceil (probe.getHeight()) + 20);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        juce::TextLayout tl;
+        tl.createLayout (text, (float) getWidth() - 20.0f);
+        tl.draw (g, getLocalBounds().toFloat().reduced (10.0f));
+    }
+
+private:
+    juce::AttributedString text;
+};
+
+// The menu itself. Safe against the editor closing mid-menu (SafePointer).
+static void showParamMenu (juce::AudioProcessorValueTreeState& state,
+                           const juce::String& paramID, juce::Component* target)
+{
+    auto* p = state.getParameter (paramID);
+    if (p == nullptr) return;
+
+    juce::PopupMenu m;
+    m.setLookAndFeel (&target->getLookAndFeel());
+    m.addSectionHeader (p->getName (64).toUpperCase());
+    m.addItem (1, "EDIT VALUE: " + p->getCurrentValueAsText());
+    m.addItem (2, "INFO");
+
+    juce::Component::SafePointer<juce::Component> safe (target);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+        [p, safe, paramID] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            if (r == 1)
+                juce::CallOutBox::launchAsynchronously (
+                    std::make_unique<ParamEditContent> (*p), safe->getScreenBounds(), nullptr);
+            else if (r == 2)
+                juce::CallOutBox::launchAsynchronously (
+                    std::make_unique<ParamInfoContent> (p->getName (64), paramInfoText (paramID)),
+                    safe->getScreenBounds(), nullptr);
+        });
+}
+
+// Attach to any control: right-click (ctrl-click / two-finger click) opens the
+// parameter menu. The id is a function so controls with a DYNAMIC parameter
+// (the drawbars follow the UPPER/LOWER selection) stay correct.
+class ParamMenuAttachment : public juce::MouseListener
+{
+public:
+    ParamMenuAttachment (juce::AudioProcessorValueTreeState& s, juce::Component& c,
+                         std::function<juce::String()> idFn)
+        : state (s), comp (c), getId (std::move (idFn))
+    {
+        comp.addMouseListener (this, true);
+    }
+    ~ParamMenuAttachment() override { comp.removeMouseListener (this); }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu())
+            showParamMenu (state, getId(), &comp);
+    }
+
+private:
+    juce::AudioProcessorValueTreeState& state;
+    juce::Component& comp;
+    std::function<juce::String()> getId;
+};
 
 // ============================================================================
 //  CHANNELS popup (shown from the CHANNELS button via a CallOutBox).
@@ -345,6 +663,63 @@ private:
 };
 
 // ============================================================================
+//  FILES popup (from the tuning panel's FILES button): lists the loaded tuning
+//  files — the scale plus the current .kbm batch — with CLEAR ALL to unload.
+//  Groundwork for tuning program change (several tunings loaded at once).
+// ============================================================================
+
+class TuningFilesContent : public juce::Component
+{
+public:
+    explicit TuningFilesContent (TuneBfreeAudioProcessor& p) : proc (p)
+    {
+        auto addLine = [this] (const juce::String& text, juce::Colour colour)
+        {
+            auto* l = lines.add (new juce::Label());
+            l->setFont (uiFont (11.0f));
+            l->setColour (juce::Label::textColourId, colour);
+            l->setText (text, juce::dontSendNotification);
+            addAndMakeVisible (l);
+        };
+        const auto scl  = proc.getLocalSclName();
+        const auto kbms = proc.getLocalKbmNames();
+        if (scl.isNotEmpty())
+            addLine ("SCALE  " + scl.toUpperCase(), kWhite);
+        for (const auto& k : kbms)
+            addLine ("MAP    " + k.toUpperCase(), kWhite);
+        if (lines.isEmpty())
+            addLine ("NO TUNING FILES LOADED", kGrey);
+
+        clearBtn.setEnabled (scl.isNotEmpty() || ! kbms.isEmpty());
+        clearBtn.onClick = [this]
+        {
+            proc.clearLocalTuning();
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->dismiss();
+        };
+        addAndMakeVisible (clearBtn);
+
+        setSize (250, 8 + lines.size() * 18 + 8 + 24 + 8);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (8);
+        clearBtn.setBounds (r.removeFromBottom (24));
+        r.removeFromBottom (8);
+        for (auto* l : lines)
+            l->setBounds (r.removeFromTop (18));
+    }
+
+private:
+    TuneBfreeAudioProcessor& proc;
+    juce::OwnedArray<juce::Label> lines;
+    juce::TextButton clearBtn { "CLEAR ALL" };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuningFilesContent)
+};
+
+// ============================================================================
 //  TUNING SIDE PANEL
 // ============================================================================
 
@@ -380,7 +755,7 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     // TuningSourceId enum. MPE / MIDI 2.0 are shown but disabled.
     encodingBox.addItem ("MTS ESP",  TS_MTS);
     encodingBox.addItem ("SYSEX",    TS_SYSEX);
-    encodingBox.addItem ("FILE",     TS_FILE);
+    encodingBox.addItem ("SCALA",    TS_FILE);   // .scl/.kbm files (renamed from FILE)
     encodingBox.addItem ("MPE",      4);
     encodingBox.addItem ("MIDI 2.0", 5);
     encodingBox.addItem ("STANDARD", TS_STANDARD);
@@ -401,54 +776,55 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     };
     addAndMakeVisible (channelsBtn);
 
-    addAndMakeVisible (loadSclBtn);
-    addAndMakeVisible (loadKbmBtn);
+    addAndMakeVisible (loadBtn);
+    addAndMakeVisible (filesBtn);
 
-    loadSclBtn.onClick = [this]
+    // ONE loader for scale + mappings: multi-select .scl AND .kbm in the same
+    // dialog (anything else greyed out). The first .scl becomes the scale; all
+    // .kbm files become the per-channel batch ("*_i.kbm" → MIDI channel i).
+    // Also a step towards tuning program change (several tunings loaded at once).
+    loadBtn.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser> (
-            "Load Scala Scale (.scl)", lastTuningDir, "*.scl");
-        fileChooser->launchAsync (
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
-            {
-                auto r = fc.getResults();
-                if (! r.isEmpty())
-                {
-                    lastTuningDir = r[0].getParentDirectory();   // remember for next time
-                    proc.loadSCLFile (r[0]);
-                    maybeOfferSwitchToFile();
-                    refresh();
-                }
-            });
-    };
-
-    loadKbmBtn.onClick = [this]
-    {
-        // Multi-select: several .kbm map to MIDI channels 1..N (per-channel multichannel
-        // tuning of one .scl). A single selection behaves as before (all channels).
-        fileChooser = std::make_unique<juce::FileChooser> (
-            "Load Keyboard Mapping(s) (.kbm) — one per MIDI channel", lastTuningDir, "*.kbm");
+            "Load tuning files (.scl + .kbm)", lastTuningDir, "*.scl;*.kbm");
         fileChooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
                 | juce::FileBrowserComponent::canSelectMultipleItems,
             [this] (const juce::FileChooser& fc)
             {
-                auto r = fc.getResults();
-                if (! r.isEmpty())
+                auto results = fc.getResults();
+                if (results.isEmpty()) return;
+                lastTuningDir = results[0].getParentDirectory();   // remember for next time
+
+                juce::Array<juce::File> kbms;
+                juce::File scl;
+                for (const auto& f : results)
                 {
-                    lastTuningDir = r[0].getParentDirectory();
-                    proc.loadKBMFiles (r);
-                    maybeOfferSwitchToFile();
-                    refresh();
+                    if (f.hasFileExtension ("scl") && scl == juce::File())
+                        scl = f;                       // first .scl wins; extras ignored
+                    else if (f.hasFileExtension ("kbm"))
+                        kbms.add (f);
                 }
+                if (scl != juce::File()) proc.loadSCLFile (scl);
+                if (! kbms.isEmpty())    proc.loadKBMFiles (kbms);
+                refresh();
             });
+    };
+
+    // FILES: popup listing the loaded tuning files (like the CHANNELS popup).
+    filesBtn.onClick = [this]
+    {
+        auto content = std::make_unique<TuningFilesContent> (proc);
+        content->setLookAndFeel (&getLookAndFeel());
+        juce::CallOutBox::launchAsynchronously (std::move (content),
+                                                filesBtn.getScreenBounds(), nullptr);
     };
 
     // NOTE ON vs ALWAYS retuning: a 2-way toggle (UI-only for now). "Always" lets a
     // sounding note change pitch; note-on is the default — it suits tuneBfree's
     // wavetable rebuild step.
-    makeRadioGroup ({ &noteOnBtn, &alwaysBtn });
+    makeRadioGroup ({ &noteOnBtn, &alwaysBtn },
+                    [this] { retuneAlwaysPref = alwaysBtn.getToggleState(); });
     noteOnBtn.setToggleState (true, juce::dontSendNotification);
     addAndMakeVisible (noteOnBtn);
     addAndMakeVisible (alwaysBtn);
@@ -510,9 +886,9 @@ void TuningSidePanelContent::resized()
     auto fileRow  = r.removeFromTop (btnH * 2 + gap);
     auto leftCol  = fileRow.removeFromLeft (fileRow.getWidth() / 2).withTrimmedRight (gap / 2);
     auto rightCol = fileRow.withTrimmedLeft (gap / 2);
-    loadSclBtn.setBounds (leftCol.removeFromTop (btnH));
+    loadBtn.setBounds (leftCol.removeFromTop (btnH));
     leftCol.removeFromTop (gap);
-    loadKbmBtn.setBounds (leftCol.removeFromTop (btnH));
+    filesBtn.setBounds (leftCol.removeFromTop (btnH));
     noteOnBtn.setBounds (rightCol.removeFromTop (btnH));
     rightCol.removeFromTop (gap);
     alwaysBtn.setBounds (rightCol.removeFromTop (btnH));
@@ -596,38 +972,58 @@ void TuningSidePanelContent::refresh()
 
     if (pen >= 0 && last >= 0 && fp > 0.0 && fl > 0.0)
     {
-        double cents = 1200.0 * std::log2 (fl / fp);
-        centsLabel.setText ((cents >= 0.0 ? "+" : "") + juce::String (cents, 1) + " c",
-                            juce::dontSendNotification);
+        // Octave-folded read-out: a cents value below an octave plus the octave
+        // count, e.g. "-(702.23 + 2x1200) c", "(315.00 + 1200) c", "-498.78 c".
+        const double cents = 1200.0 * std::log2 (fl / fp);
+        const bool   neg   = cents < 0.0;
+        const double mag   = std::abs (cents);
+        const int    octs  = (int) (mag / 1200.0);
+        const auto   rem   = juce::String (mag - 1200.0 * octs, 2);
+        juce::String text;
+        if (octs == 0)
+            text = (neg ? "-" : "") + rem + " c";
+        else
+            text = juce::String (neg ? "-(" : "(") + rem + " + "
+                   + (octs == 1 ? juce::String ("1200") : juce::String (octs) + "x1200")
+                   + ") c";
+        centsLabel.setText (text, juce::dontSendNotification);
     }
     else
     {
         centsLabel.setText ("? c", juce::dontSendNotification);
     }
 
-    // --- file loaders: show the loaded filename, else the SCALE / MAP label ---
-    auto scl = proc.getLocalSclName();
-    auto kbm = proc.getLocalKbmName();
-    loadSclBtn.setButtonText (scl.isNotEmpty() ? scl.toUpperCase() : "SCALE");
-    loadKbmBtn.setButtonText (kbm.isNotEmpty() ? kbm.toUpperCase() : "MAP");
+    // --- loader: show the loaded scale name; FILES: show how many are loaded ---
+    const auto scl = proc.getLocalSclName();
+    const int  n   = (scl.isNotEmpty() ? 1 : 0) + proc.getLocalKbmNames().size();
+    loadBtn.setButtonText (scl.isNotEmpty() ? scl.toUpperCase() : "LOAD SCL+KBM");
+    filesBtn.setButtonText (n > 0 ? "FILES (" + juce::String (n) + ")" : "FILES");
+
+    // --- per-source grey-out (TUNING_PANEL.md) ---
+    // Files load only under SCALA. NOTE ON / ALWAYS is the user's choice under
+    // MTS ESP (would also apply to MPE); under SYSEX it's greyed but ACTS AS AN
+    // INDICATOR, following the last message (realtime retune vs bulk dump).
+    loadBtn.setEnabled  (src == TS_FILE);
+    filesBtn.setEnabled (src == TS_FILE);
+
+    const bool retuneEditable = (src == TS_MTS);
+    noteOnBtn.setEnabled (retuneEditable);
+    alwaysBtn.setEnabled (retuneEditable);
+    if (src == TS_SYSEX && proc.getLastSysexKind() >= 0)
+    {
+        const bool realtime = proc.getLastSysexKind() == 1;
+        noteOnBtn.setToggleState (! realtime, juce::dontSendNotification);
+        alwaysBtn.setToggleState (realtime,   juce::dontSendNotification);
+    }
+    else
+    {
+        noteOnBtn.setToggleState (! retuneAlwaysPref, juce::dontSendNotification);
+        alwaysBtn.setToggleState (retuneAlwaysPref,   juce::dontSendNotification);
+    }
 }
 
-void TuningSidePanelContent::maybeOfferSwitchToFile()
-{
-    if (proc.getTuningSource() == TS_FILE)
-        return;   // already using files
-
-    juce::AlertWindow::showOkCancelBox (
-        juce::MessageBoxIconType::QuestionIcon,
-        "Tuning source",
-        "A tuning file was loaded, but the active source is not FILE.\nSwitch to FILE now?",
-        "Switch", "Cancel", this,
-        juce::ModalCallbackFunction::create ([this] (int result)
-        {
-            if (result == 1)   // "Switch" -> sendNotification fires encodingBox.onChange
-                encodingBox.setSelectedId (TS_FILE, juce::sendNotification);
-        }));
-}
+// (The old "switch to FILE?" dialog is gone: the loader is simply greyed out
+//  unless the SCALA source is selected — per TUNING_PANEL.md.)
 
 // ============================================================================
 //  DEFAULT PAGE
@@ -638,20 +1034,35 @@ static const char* kFootage[9] = {
     "16'", "5\xe2\x85\x93'", "8'", "4'", "2\xe2\x85\x94'", "2'", "1\xe2\x85\x97'", "1\xe2\x85\x93'", "1'"
 };
 
-DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent (p)
+DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p)
 {
-    // ---- LFO: vibrato / chorus / off (+ depth) -> vibrato, vibrato_type ----
-    makeRadioGroup ({ &vibratoBtn, &chorusBtn, &modOffBtn }, [this] { applyLfoToParams(); });
-    for (auto* b : { &vibratoBtn, &chorusBtn, &modOffBtn }) addAndMakeVisible (b);
+    // ---- Group titles (amber, matching the TINKER/ROTOR pages) ----
+    for (auto* t : { &vibTitle, &percTitle, &timbTitle, &drawTitle, &fxTitle, &leslieTitle })
+        addAndMakeVisible (t);
+    styleGroupTitle (vibTitle,    "VIBRATO");
+    styleGroupTitle (percTitle,   "PERCUSSION");
+    styleGroupTitle (timbTitle,   "TIMBRALITY");
+    styleGroupTitle (drawTitle,   "DRAWBARS");
+    styleGroupTitle (fxTitle,     "EFFECTS");
+    styleGroupTitle (leslieTitle, "LESLIE");
 
-    depthKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
-    depthKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    depthKnob.setRange (1.0, 3.0, 1.0);
-    depthKnob.setValue (2.0, juce::dontSendNotification);
-    depthKnob.onValueChange = [this] { applyLfoToParams(); };
-    addAndMakeVisible (depthKnob);
-    styleCaption (depthLabel, "DEPTH");
-    addAndMakeVisible (depthLabel);
+    // ---- VIBRATO: the B3 dial (V1 C1 V2 C2 V3 C3 = vibrato_type 0..5) + ON/OFF ----
+    vibratoKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+    vibratoKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    vibratoKnob.setRange (0.0, 5.0, 1.0);
+    vibratoKnob.setValue (3.0, juce::dontSendNotification);   // C2
+    vibratoKnob.onValueChange = [this] { applyLfoToParams(); updateValueLabels(); };
+    addAndMakeVisible (vibratoKnob);
+    // Standard value-label style (white, small) — consistent with every read-out.
+    vibratoValue.setFont (uiFont (10.0f));
+    vibratoValue.setJustificationType (juce::Justification::centred);
+    vibratoValue.setColour (juce::Label::textColourId, kWhite);
+    addAndMakeVisible (vibratoValue);
+
+    makeRadioGroup ({ &vibOnBtn, &vibOffBtn }, [this] { applyLfoToParams(); });
+    vibOffBtn.setToggleState (true, juce::dontSendNotification);
+    addAndMakeVisible (vibOnBtn);
+    addAndMakeVisible (vibOffBtn);
 
     // ---- Envelope: percussion, four 2-way vertical switches ----
     makeRadioGroup ({ &percOnBtn,   &percOffBtn  }, [this] { applyPercToParams(); });
@@ -668,11 +1079,13 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
     upperBtn.setToggleState (true, juce::dontSendNotification);
     upperBtn.onClick = [this] {
         if (! isUpper) switchToManual (true);
+        setParam ("active_manual", 0.0f);   // unitimbral routing: upper bank sounds
         upperBtn.setToggleState (true,  juce::dontSendNotification);
         lowerBtn.setToggleState (false, juce::dontSendNotification);
     };
     lowerBtn.onClick = [this] {
         if (isUpper) switchToManual (false);
+        setParam ("active_manual", 1.0f);   // unitimbral routing: lower bank sounds
         lowerBtn.setToggleState (true,  juce::dontSendNotification);
         upperBtn.setToggleState (false, juce::dontSendNotification);
     };
@@ -708,9 +1121,9 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
 
     styleCaption (splitLabel, "SPLIT");
     addAndMakeVisible (splitLabel);
-    splitNoteLabel.setFont (uiFont (12.0f, true));
+    splitNoteLabel.setFont (uiFont (10.0f));
     splitNoteLabel.setJustificationType (juce::Justification::centred);
-    splitNoteLabel.setColour (juce::Label::textColourId, kAmber);
+    splitNoteLabel.setColour (juce::Label::textColourId, kWhite);
     addAndMakeVisible (splitNoteLabel);
     updateSplitNoteLabel();
 
@@ -741,12 +1154,25 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
 
         styleCaption (footageLabels[i], utf8 (kFootage[i]));
         addAndMakeVisible (footageLabels[i]);
+
+        // Live JI-error read-out (same semantics as the TINKER HARMONICS labels).
+        drawbarErr[i].setFont (uiFont (9.0f));
+        drawbarErr[i].setJustificationType (juce::Justification::centred);
+        drawbarErr[i].setColour (juce::Label::textColourId, kGrey);
+        addAndMakeVisible (drawbarErr[i]);
     }
 
     // ---- Leslie ----
     makeRadioGroup ({ &choraleBtn, &stopBtn, &tremoloBtn }, [this] { applyLeslieToParams(); });
     choraleBtn.setToggleState (true, juce::dontSendNotification);
     for (auto* b : { &choraleBtn, &stopBtn, &tremoloBtn }) addAndMakeVisible (b);
+
+    // BYPASS the whole Leslie (whirl_bypass). Standard amber when engaged; the
+    // speed 3-way greys out while bypassed (see syncFromParams).
+    bypassBtn.setClickingTogglesState (true);
+    addAndMakeVisible (bypassBtn);
+    bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        proc.apvts, "whirl_bypass", bypassBtn);
 
     // ---- Expression (knob; same size as every other knob) ----
     expressionKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
@@ -773,17 +1199,55 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
         setParam ("character", d);
         setParam ("overdrive", d > 0.0f ? 1.0f : 0.0f);
     };
-    reverbKnob.onValueChange = [this] { setParam ("reverb_mix", (float) reverbKnob.getValue()); };
+    reverbKnob.onValueChange = [this] { setParam ("reverb_mix", (float) reverbKnob.getValue()); updateValueLabels(); };
+    driveKnob.onValueChange = [this]   // re-set: adds the value label update
+    {
+        float d = (float) driveKnob.getValue();
+        setParam ("character", d);
+        setParam ("overdrive", d > 0.0f ? 1.0f : 0.0f);
+        updateValueLabels();
+    };
     styleCaption (driveLabel,  "DRIVE");
     styleCaption (reverbLabel, "REVERB");
     addAndMakeVisible (driveLabel);
     addAndMakeVisible (reverbLabel);
 
-    // Split / bitimbral controls are now wired to the engine (step 2), so they're
-    // enabled. (EXPRESSION was already wired to the swell pedal.)
+    // Value read-outs under the knobs (consistency with the TINKER/ROTOR pages).
+    for (auto* v : { &driveValue, &reverbValue, &crossfadeValue, &expressionValue })
+    {
+        v->setFont (uiFont (10.0f));
+        v->setJustificationType (juce::Justification::centred);
+        v->setColour (juce::Label::textColourId, kWhite);
+        addAndMakeVisible (v);
+    }
+    crossfadeKnob.onValueChange = [this] { setParam ("split_width", (float) crossfadeKnob.getValue()); updateValueLabels(); };
+    expressionKnob.onValueChange = [this] { setParam ("expression", (float) expressionKnob.getValue()); updateValueLabels(); };
+    updateValueLabels();
 
-    // Add the tuning overlay LAST so it paints on top of everything.
-    addChildComponent (tuningContent);
+    // Right-click parameter menus. Drawbars resolve their id dynamically so the
+    // menu follows the UPPER/LOWER selection.
+    {
+        auto& st_ = proc.apvts;
+        auto menu = [&] (juce::Component& c, juce::String id)
+        { paramMenus.add (new ParamMenuAttachment (st_, c, [id] { return id; })); };
+        for (int i = 0; i < 9; ++i)
+            paramMenus.add (new ParamMenuAttachment (st_, drawbars[i], [this, i]
+                { return (isUpper ? "drawbar" : "lower_drawbar") + juce::String (i); }));
+        menu (vibratoKnob, "vibrato_type");
+        menu (vibOnBtn,  "vibrato");  menu (vibOffBtn, "vibrato");
+        menu (percOnBtn, "percussion");     menu (percOffBtn,  "percussion");
+        menu (percFastBtn, "percussion_dec"); menu (percSlowBtn, "percussion_dec");
+        menu (percSoftBtn, "percussion_vol"); menu (percNormBtn, "percussion_vol");
+        menu (perc2ndBtn,  "percussion_har"); menu (perc3rdBtn,  "percussion_har");
+        menu (bitimbralBtn, "split_enable");
+        menu (splitKnob, "split_point");
+        menu (crossfadeKnob, "split_width");
+        menu (driveKnob, "character");
+        menu (reverbKnob, "reverb_mix");
+        menu (expressionKnob, "expression");
+        menu (choraleBtn, "horn"); menu (stopBtn, "horn"); menu (tremoloBtn, "horn");
+        menu (bypassBtn, "whirl_bypass");
+    }
 
     // Reflect the processor's current parameter values in every wired control.
     syncFromParams();
@@ -791,11 +1255,34 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p), tuningContent 
 
 // ---- State helpers ----
 
-void DefaultPage::setModButtons (int mode)
+// Dial position names, matching vibrato_type 0..5 (vibrato.cpp).
+static const char* kVibratoNames[6] = { "V1", "C1", "V2", "C2", "V3", "C3" };
+
+void DefaultPage::setVibControls (int type, bool on)
 {
-    vibratoBtn.setToggleState (mode == 1, juce::dontSendNotification);
-    chorusBtn.setToggleState  (mode == 2, juce::dontSendNotification);
-    modOffBtn.setToggleState  (mode == 0, juce::dontSendNotification);
+    vibratoKnob.setValue (juce::jlimit (0, 5, type), juce::dontSendNotification);
+    vibOnBtn.setToggleState  (on,   juce::dontSendNotification);
+    vibOffBtn.setToggleState (! on, juce::dontSendNotification);
+    updateValueLabels();
+}
+
+// Percussion is upper-manual-only (B3-like), so grey the section under LOWER.
+void DefaultPage::setPercussionSectionEnabled (bool enabled)
+{
+    for (auto* b : { &percOnBtn, &percOffBtn, &percFastBtn, &percSlowBtn,
+                     &percSoftBtn, &percNormBtn, &perc2ndBtn, &perc3rdBtn })
+        b->setEnabled (enabled);
+    percTitle.setAlpha (enabled ? 1.0f : 0.4f);
+}
+
+void DefaultPage::updateValueLabels()
+{
+    vibratoValue.setText (kVibratoNames[juce::jlimit (0, 5, (int) std::lround (vibratoKnob.getValue()))],
+                          juce::dontSendNotification);
+    driveValue.setText      (juce::String (driveKnob.getValue(), 2),      juce::dontSendNotification);
+    reverbValue.setText     (juce::String (reverbKnob.getValue(), 2),     juce::dontSendNotification);
+    crossfadeValue.setText  (juce::String ((int) crossfadeKnob.getValue()) + " C", juce::dontSendNotification);
+    expressionValue.setText (juce::String (expressionKnob.getValue(), 2), juce::dontSendNotification);
 }
 
 void DefaultPage::setPercButtons (bool on, bool fast, bool soft, bool third)
@@ -812,11 +1299,11 @@ void DefaultPage::setPercButtons (bool on, bool fast, bool soft, bool third)
 
 void DefaultPage::updateSplitNoteLabel()
 {
+    // Frequency read-out (was the nearest note name): the split point is a pitch,
+    // not a key, so Hz is the truthful display under microtuning.
     const double hz = splitKnob.getValue();
-    const int note = (hz > 0.0)
-        ? juce::jlimit (0, 127, (int) std::lround (69.0 + 12.0 * std::log2 (hz / 440.0)))
-        : 60;
-    splitNoteLabel.setText (noteName (note), juce::dontSendNotification);
+    splitNoteLabel.setText (juce::String (hz, hz < 100.0 ? 1 : 0) + " Hz",
+                            juce::dontSendNotification);
 }
 
 ManualState DefaultPage::captureStateFromControls() const
@@ -824,8 +1311,8 @@ ManualState DefaultPage::captureStateFromControls() const
     ManualState s;
     for (int i = 0; i < 9; ++i)
         s.drawbars[i] = (float) drawbars[i].getValue();
-    s.vibratoMode = vibratoBtn.getToggleState() ? 1 : chorusBtn.getToggleState() ? 2 : 0;
-    s.depth       = juce::roundToInt (depthKnob.getValue());
+    s.vibType     = juce::roundToInt (vibratoKnob.getValue());
+    s.vibOn       = vibOnBtn.getToggleState();
     s.percOn      = percOnBtn.getToggleState();
     s.percFast    = percFastBtn.getToggleState();
     s.percSoft    = percSoftBtn.getToggleState();
@@ -837,8 +1324,7 @@ void DefaultPage::updateControlsFromState (const ManualState& s)
 {
     for (int i = 0; i < 9; ++i)
         drawbars[i].setValue ((double) s.drawbars[i], juce::dontSendNotification);
-    depthKnob.setValue ((double) s.depth, juce::dontSendNotification);
-    setModButtons  (s.vibratoMode);
+    setVibControls (s.vibType, s.vibOn);
     setPercButtons (s.percOn, s.percFast, s.percSoft, s.percThird);
 }
 
@@ -850,6 +1336,11 @@ void DefaultPage::switchToManual (bool toUpper)
     for (int i = 0; i < 9; ++i)
         drawbars[i].setValue (getParam ((isUpper ? "drawbar" : "lower_drawbar") + juce::String (i)),
                               juce::dontSendNotification);
+    // Vibrato ON/OFF is per manual too (the dial position is shared).
+    setVibControls ((int) std::lround (getParam ("vibrato_type")),
+                    getParam (isUpper ? "vibrato" : "lower_vibrato") > 0.5f);
+    // Percussion is upper-only: grey it out while editing the lower manual.
+    setPercussionSectionEnabled (toUpper);
 }
 
 // ---- Engine wiring (control -> parameter) ----
@@ -865,18 +1356,15 @@ float DefaultPage::getParam (const juce::String& id) const
     return proc.apvts.getRawParameterValue (id)->load();
 }
 
-// VIBRATO/CHORUS/OFF + DEPTH -> vibrato (on/off) + vibrato_type.
+// The B3 dial + ON/OFF -> vibrato (on/off) + vibrato_type.
 // vibrato_type is interleaved: 0=V1 1=C1 2=V2 3=C2 4=V3 5=C3 (vibrato.cpp).
 void DefaultPage::applyLfoToParams()
 {
-    const bool off = modOffBtn.getToggleState();
-    setParam ("vibrato", off ? 0.0f : 1.0f);
-    if (! off)
-    {
-        int depth = juce::jlimit (1, 3, (int) std::lround (depthKnob.getValue()));
-        int type  = 2 * (depth - 1) + (chorusBtn.getToggleState() ? 1 : 0);
-        setParam ("vibrato_type", (float) type);
-    }
+    // ON/OFF is PER MANUAL (vibrato / lower_vibrato); the dial position is the
+    // one shared scanner (vibrato_type) — as on the instrument.
+    setParam (isUpper ? "vibrato" : "lower_vibrato",
+              vibOnBtn.getToggleState() ? 1.0f : 0.0f);
+    setParam ("vibrato_type", (float) juce::roundToInt (vibratoKnob.getValue()));
 }
 
 // CHORALE/STOP/TREMOLO -> drum & horn together (0=stop, 1=slow, 2=fast; whirl.cpp).
@@ -929,11 +1417,21 @@ void DefaultPage::syncFromParams()
     driveKnob.setValue      (getParam ("character"),  juce::dontSendNotification);
     expressionKnob.setValue (getParam ("expression"), juce::dontSendNotification);
 
-    // LFO: rebuild mode + depth from vibrato / vibrato_type.
-    const bool vibOn = getParam ("vibrato") > 0.5f;
-    const int  vtype = (int) std::lround (getParam ("vibrato_type"));
-    setModButtons (vibOn ? ((vtype % 2 == 1) ? 2 : 1) : 0);   // odd type = chorus
-    depthKnob.setValue (vtype / 2 + 1, juce::dontSendNotification);
+    // Manual selection follows the param (host automation / right-click edit).
+    const bool lowerActive = getParam ("active_manual") > 0.5f;
+    if (lowerActive == isUpper)   // mismatch: switch banks
+        switchToManual (! lowerActive);
+    upperBtn.setToggleState (! lowerActive, juce::dontSendNotification);
+    lowerBtn.setToggleState (lowerActive,   juce::dontSendNotification);
+
+    // Vibrato: shared dial position + the ACTIVE manual's on/off.
+    setVibControls ((int) std::lround (getParam ("vibrato_type")),
+                    getParam (isUpper ? "vibrato" : "lower_vibrato") > 0.5f);
+
+    // Leslie speed makes no sense while the whirl is bypassed: grey the 3-way.
+    const bool whirlByp = getParam ("whirl_bypass") > 0.5f;
+    for (auto* b : { &choraleBtn, &stopBtn, &tremoloBtn })
+        b->setEnabled (! whirlByp);
 
     // Percussion (note the inverted percussion_vol: value 0 = soft).
     setPercButtons (getParam ("percussion")     > 0.5f,
@@ -946,13 +1444,21 @@ void DefaultPage::syncFromParams()
     choraleBtn.setToggleState (horn == 1, juce::dontSendNotification);
     stopBtn.setToggleState    (horn == 0, juce::dontSendNotification);
     tremoloBtn.setToggleState (horn == 2, juce::dontSendNotification);
+
+    // Drawbar JI-error read-outs (same semantics as the TINKER HARMONICS labels).
+    double ref = proc.getLastNoteFreq();
+    if (ref <= 0.0) ref = 261.63;
+    for (int i = 0; i < 9; ++i)
+    {
+        const double err  = proc.getHarmonicErrorCents (i, ref);
+        const bool   zero = std::abs (err) < 0.05;
+        drawbarErr[i].setText (zero ? utf8 ("\xc2\xb1") + juce::String ("0")
+                                    : juce::String (err > 0 ? "+" : "") + juce::String (err, 1),
+                               juce::dontSendNotification);
+        drawbarErr[i].setColour (juce::Label::textColourId, zero ? kGrey : kWhite);
+    }
+    updateValueLabels();
 }
-
-// ---- Tuning panel ----
-
-void DefaultPage::toggleTuningPanel()       { tuningContent.setVisible (! tuningContent.isVisible()); }
-bool DefaultPage::isTuningPanelShowing() const { return tuningContent.isVisible(); }
-void DefaultPage::refreshTuningPanel()      { tuningContent.refresh(); }
 
 // ============================================================================
 //  DEFAULT PAGE LAYOUT
@@ -970,29 +1476,27 @@ void DefaultPage::resized()
     const int knob     = 62;  // diameter of EVERY knob (kept identical)
     const int btnH     = 30;  // height of a standard button
     const int capH     = 14;  // height of a caption label
+    const int titleH   = 12;  // height of a group title
+    const int valH     = 12;  // height of a value read-out
     const int gap      = 5;   // small gap between the stacked buttons of a switch
     const int twoWayW  = 56;  // width of EACH half of a 2-way switch
     const int switchW  = twoWayW * 2 + 4;       // 3-way switch == 2-way switch total width
     const int timbralW = 122; // width of the timbrality sub-column
     const int effectsW = 158; // width of the effects/leslie/expression sub-column
     const int rightW   = timbralW + effectsW;
-    const int tuningPanelW = rightW + margin * 3 / 2;
 
-    const int bandH    = btnH * 3 + gap * 2;    // height of the vibrato 3-way switch
+    // Row heights shared by BOTH columns of the right region (grid alignment):
+    const int rowAH = titleH + 2 + btnH * 3 + gap * 2;      // 3 stacked buttons + title
+    const int rowCH = capH + knob + valH;                   // caption + knob + value
 
     auto area = getLocalBounds().reduced (margin);          // uniform margin on all sides
 
-    // Cross-column vertical anchors — must mirror the RIGHT-region layout below:
-    //   splitLabelY  — top of the SPLIT caption (centre of the middle row)
-    //   knobBaseline — bottom edge of the CROSSFADE / EXPRESSION knobs
-    // The drawbar captions (LEFT region) top-align with splitLabelY and the
-    // drawbar bottoms align with knobBaseline, so the drawbar travel is derived
-    // from these anchors rather than a fixed height.
+    // Cross-column vertical anchors: the drawbar captions top-align with the
+    // SPLIT caption; the drawbar bottoms align with the row-C knob bottoms.
     const int splitBlockH  = capH + knob + capH;
-    const int midTop       = area.getY() + bandH;
-    const int midBottom    = area.getBottom() - (capH + knob);
+    const int midTop       = area.getY() + rowAH;
+    const int midBottom    = area.getBottom() - rowCH;
     const int splitLabelY  = midTop + (midBottom - midTop - splitBlockH) / 2;
-    const int knobBaseline = area.getBottom();
 
     auto rightRegion = area.removeFromRight (rightW);
     area.removeFromRight (margin);                          // gap between left & right
@@ -1000,148 +1504,154 @@ void DefaultPage::resized()
 
     // =====================================================================
     //  LEFT REGION
-    //  Top band (LFO + envelope), drawbars anchored to the bottom. The freed
-    //  space sits BETWEEN the band and the drawbars (never at an edge).
+    //  Top band (VIBRATO + PERCUSSION), drawbars anchored to the bottom. The
+    //  freed space sits BETWEEN the band and the drawbars (never at an edge).
     // =====================================================================
     {
-        auto band = leftRegion.removeFromTop (bandH);
+        const int stackH = btnH * 2 + gap;                  // a 2-way switch stack
+        auto band    = leftRegion.removeFromTop (titleH + 2 + knob + valH);
+        auto titles  = band.removeFromTop (titleH);
+        band.removeFromTop (2);
 
-        // VIBRATO / CHORUS / OFF (3-way switch)
-        auto vc = band.removeFromLeft (switchW);
-        vibratoBtn.setBounds (vc.removeFromTop (btnH)); vc.removeFromTop (gap);
-        chorusBtn.setBounds  (vc.removeFromTop (btnH)); vc.removeFromTop (gap);
-        modOffBtn.setBounds  (vc.removeFromTop (btnH));
+        // VIBRATO: the B3 dial + its position read-out, ON/OFF 2-way beside it.
+        vibTitle.setBounds (titles.getX(), titles.getY(), 110, titleH);
+        vibratoKnob.setBounds  (band.getX(), band.getY(), knob, knob);
+        vibratoValue.setBounds (band.getX(), band.getY() + knob, knob, valH);
+        const int vsX = band.getX() + knob + 10;
+        const int vsY = band.getY() + (knob + valH - stackH) / 2;
+        vibOnBtn.setBounds  (vsX, vsY, 44, btnH);
+        vibOffBtn.setBounds (vsX, vsY + btnH + gap, 44, btnH);
 
-        band.removeFromLeft (margin);
-
-        // DEPTH knob — top-anchored so it lines up with DRIVE/REVERB on the right.
-        auto depthCol = band.removeFromLeft (knob + 8);
-        depthLabel.setBounds (depthCol.removeFromTop (capH));
-        depthKnob.setBounds  (depthCol.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
-
-        // PERCUSSION — four 2-way switches, RIGHT-aligned so their right edge
-        // matches the drawbars below. Button height makes the 2-stack equal the
-        // vibrato 3-stack (tops AND bottoms line up).
-        const int percW   = 44;
-        const int percGap = 8;
-        const int percBtnH = (bandH - gap) / 2;
+        // PERCUSSION: four 2-way switches, right-aligned to the drawbars below.
+        // Wider than the minimum so the vibrato↔percussion void stays modest.
+        const int percW = 52, percGap = 14;
         auto percRow = band.removeFromRight (percW * 4 + percGap * 3);
+        percTitle.setBounds (percRow.getX(), titles.getY(), 110, titleH);
+        const int psY = percRow.getY() + (knob + valH - stackH) / 2;
         juce::TextButton* tops[4] = { &percOnBtn,  &percFastBtn, &percSoftBtn, &perc2ndBtn };
         juce::TextButton* bots[4] = { &percOffBtn, &percSlowBtn, &percNormBtn, &perc3rdBtn };
         for (int i = 0; i < 4; ++i)
         {
-            auto cell = percRow.removeFromLeft (percW);
-            tops[i]->setBounds (cell.removeFromTop (percBtnH)); cell.removeFromTop (gap);
-            bots[i]->setBounds (cell.removeFromTop (percBtnH));
-            percRow.removeFromLeft (percGap);
+            const int px = percRow.getX() + i * (percW + percGap);
+            tops[i]->setBounds (px, psY, percW, btnH);
+            bots[i]->setBounds (px, psY + btnH + gap, percW, btnH);
         }
 
-        // DRAWBARS — footage captions ABOVE the bars (correction: matches the
-        // labels-above-knob layout used elsewhere on the page). Two cross-column
-        // alignments, both driven by the anchors computed at the top of resized():
-        //   • the caption row top-aligns with the SPLIT label on the right
-        //   • the drawbar bottoms align with the CROSSFADE / EXPRESSION knob bottoms
+        // DRAWBARS — title just above the footage captions; captions top-align
+        // with the SPLIT caption; a JI-error row sits under the bars, level with
+        // the row-C value read-outs.
         auto bars = leftRegion;
-        bars.setTop    (splitLabelY);
-        bars.setBottom (knobBaseline);
+        bars.setTop    (splitLabelY - (titleH + 4));
+        bars.setBottom (area.getBottom());
+        drawTitle.setBounds (bars.removeFromTop (titleH));
+        bars.removeFromTop (4);
         auto labels = bars.removeFromTop (capH);
+        auto errRow = bars.removeFromBottom (valH);
         int  cellW  = bars.getWidth() / 9;
         for (int i = 0; i < 9; ++i)
         {
             drawbars[i].setBounds      (bars.removeFromLeft (cellW).reduced (4, 0));
             footageLabels[i].setBounds (labels.removeFromLeft (cellW));
+            drawbarErr[i].setBounds    (errRow.removeFromLeft (cellW));
         }
     }
 
     // =====================================================================
     //  RIGHT REGION — two sub-columns sharing three aligned rows:
-    //    Row A (top)    : UPPER/LOWER+BITIMBRAL | DRIVE+REVERB
-    //    Row C (bottom) : CROSSFADE knob        | EXPRESSION knob   (aligned)
-    //    Row B (middle) : SPLIT knob            | LESLIE            (fills the rest)
+    //    Row A (top)    : TIMBRALITY buttons     | EFFECTS knobs
+    //    Row C (bottom) : CROSSFADE knob + value | EXPRESSION knob + value
+    //    Row B (middle) : SPLIT knob             | LESLIE (fills the rest)
     // =====================================================================
     auto timbral = rightRegion.removeFromLeft (timbralW).withTrimmedRight (margin / 2);
     auto effects = rightRegion.withTrimmedLeft (margin / 2);
 
-    // ---- Row A: top, height == left band so DEPTH lines up with DRIVE/REVERB ----
+    // ---- Row A ----
     {
-        auto tA = timbral.removeFromTop (bandH);
+        auto tA = timbral.removeFromTop (rowAH);
+        timbTitle.setBounds (tA.removeFromTop (titleH));
+        tA.removeFromTop (2);
         auto ul = tA.removeFromTop (btnH).withSizeKeepingCentre (switchW, btnH);
         upperBtn.setBounds (ul.removeFromLeft (twoWayW));
         lowerBtn.setBounds (ul.removeFromRight (twoWayW));
         tA.removeFromTop (gap);
         bitimbralBtn.setBounds (tA.removeFromTop (btnH).withSizeKeepingCentre (switchW, btnH));
+        tA.removeFromTop (gap);
+        learnBtn.setBounds (tA.removeFromTop (btnH).withSizeKeepingCentre (switchW, btnH));
 
-        auto eA = effects.removeFromTop (bandH);
+        auto eA = effects.removeFromTop (rowAH);
+        fxTitle.setBounds (eA.removeFromTop (titleH));
+        eA.removeFromTop (2);
         auto dr = eA.removeFromLeft (eA.getWidth() / 2);
         driveLabel.setBounds (dr.removeFromTop (capH));
         driveKnob.setBounds  (dr.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
+        driveValue.setBounds (dr.removeFromTop (valH));
         reverbLabel.setBounds (eA.removeFromTop (capH));
         reverbKnob.setBounds  (eA.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
+        reverbValue.setBounds (eA.removeFromTop (valH));
     }
 
-    // ---- Row C: bottom knobs (CROSSFADE and EXPRESSION line up) ----
+    // ---- Row C: bottom knobs + value read-outs (aligned across the columns) ----
     {
-        auto tC = timbral.removeFromBottom (capH + knob);
+        auto tC = timbral.removeFromBottom (rowCH);
         crossfadeLabel.setBounds (tC.removeFromTop (capH));
-        crossfadeKnob.setBounds  (tC.withSizeKeepingCentre (knob, knob));
+        crossfadeKnob.setBounds  (tC.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
+        crossfadeValue.setBounds (tC.removeFromTop (valH));
 
-        auto eC = effects.removeFromBottom (capH + knob);
+        auto eC = effects.removeFromBottom (rowCH);
         expressionLabel.setBounds (eC.removeFromTop (capH));
-        expressionKnob.setBounds  (eC.withSizeKeepingCentre (knob, knob));
+        expressionKnob.setBounds  (eC.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
+        expressionValue.setBounds (eC.removeFromTop (valH));
     }
 
-    // ---- Row B: middle, fills the remaining space (SPLIT knob + LEARN | LESLIE) ----
+    // ---- Row B: middle (SPLIT knob + Hz | LESLIE stack) ----
     {
-        auto splitBlock = timbral.withSizeKeepingCentre (timbral.getWidth(), capH + knob + capH + gap + btnH);
+        auto splitBlock = timbral.withSizeKeepingCentre (timbral.getWidth(), splitBlockH);
         splitLabel.setBounds     (splitBlock.removeFromTop (capH));
         splitKnob.setBounds      (splitBlock.removeFromTop (knob).withSizeKeepingCentre (knob, knob));
         splitNoteLabel.setBounds (splitBlock.removeFromTop (capH));
-        splitBlock.removeFromTop (gap);
-        learnBtn.setBounds       (splitBlock.removeFromTop (btnH).withSizeKeepingCentre (switchW, btnH));
 
-        auto leslie = effects.withSizeKeepingCentre (switchW, bandH);
+        // LESLIE: title + 3-way + BYPASS.
+        const int leslieH = titleH + 2 + btnH * 4 + gap * 3;
+        auto leslie = effects.withSizeKeepingCentre (switchW, leslieH);
+        leslieTitle.setBounds (leslie.removeFromTop (titleH));
+        leslie.removeFromTop (2);
         choraleBtn.setBounds (leslie.removeFromTop (btnH)); leslie.removeFromTop (gap);
         stopBtn.setBounds    (leslie.removeFromTop (btnH)); leslie.removeFromTop (gap);
-        tremoloBtn.setBounds (leslie.removeFromTop (btnH));
+        tremoloBtn.setBounds (leslie.removeFromTop (btnH)); leslie.removeFromTop (gap);
+        bypassBtn.setBounds  (leslie.removeFromTop (btnH));
     }
-
-    // The tuning panel covers the right region plus half the centre gap, so its
-    // left edge lands in the MIDDLE of that margin (correction), leaving the
-    // drawbars + vibrato/depth/percussion strip clear. tuningPanelW is defined
-    // with the layout constants at the top of resized().
-    tuningContent.setBounds (getLocalBounds().removeFromRight (tuningPanelW));
 }
 
 // ============================================================================
 //  LABELLED KNOB (TINKER / ROTARY standard control)
 // ============================================================================
 
-// Style a group title ("SCANNER", "HORN MOTOR"): amber, bold, left-aligned.
-static void styleGroupTitle (juce::Label& l, const juce::String& text)
-{
-    l.setFont (uiFont (11.0f, true));
-    l.setJustificationType (juce::Justification::centredLeft);
-    l.setColour (juce::Label::textColourId, kAmber);
-    l.setText (text, juce::dontSendNotification);
-}
-
 LabelledKnob::LabelledKnob()
 {
     addAndMakeVisible (caption);
     addAndMakeVisible (knob);
+    addMouseListener (this, true);   // right-click anywhere on the knob = param menu
 }
 
-void LabelledKnob::init (juce::AudioProcessorValueTreeState& state, const juce::String& paramID,
+void LabelledKnob::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && stateRef != nullptr)
+        showParamMenu (*stateRef, paramID, this);
+}
+
+void LabelledKnob::init (juce::AudioProcessorValueTreeState& state, const juce::String& paramID_,
                          const juce::String& captionText, const juce::String& valueSuffix,
                          int decimalPlaces)
 {
+    stateRef = &state;
+    paramID  = paramID_;
     styleCaption (caption, captionText);
     knob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     knob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 13);
     knob.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.setColour (juce::Slider::textBoxTextColourId,    kWhite);
     attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        state, paramID, knob);
+        state, paramID_, knob);
     // AFTER the attachment: it installs the parameter's own text conversion
     // (raw floats, 7 decimals) as textFromValueFunction, which takes precedence
     // over setNumDecimalPlacesToDisplay — so replace it with our own precision.
@@ -1179,6 +1689,42 @@ static void fillFilterTypeBox (juce::ComboBox& box)
 static constexpr int kPageMargin = 14;    // = DefaultPage `margin`
 static constexpr int kRightColW  = 280;   // = DefaultPage `rightW`
 
+// Stock harmonics entries (pure JI, matching stockJIRatio).
+static const char* kDefaultHarmEntry[9] = {
+    "1/2", "3/2", "1/1", "2/1", "3/1", "4/1", "5/1", "6/1", "8/1" };
+
+// Parse a Scala-style harmonics entry: "n/d" = ratio, contains "." = cents,
+// bare integer = ratio n/1. Returns the interval in cents, or nullopt if the
+// text is unparseable. `canonical` gets the normalised display form.
+static std::optional<double> parseHarmonicEntry (const juce::String& raw, juce::String& canonical)
+{
+    auto s = raw.trim().toLowerCase().removeCharacters (" ");
+    if (s.endsWith ("c")) s = s.dropLastCharacters (1);
+    if (s.isEmpty()) return {};
+
+    if (s.containsChar ('/'))
+    {
+        if (! s.containsOnly ("0123456789./")) return {};
+        const double n = s.upToFirstOccurrenceOf ("/", false, false).getDoubleValue();
+        const double d = s.fromFirstOccurrenceOf ("/", false, false).getDoubleValue();
+        if (n <= 0.0 || d <= 0.0) return {};
+        canonical = s;
+        return 1200.0 * std::log2 (n / d);
+    }
+    if (s.containsChar ('.'))
+    {
+        if (! s.containsOnly ("0123456789.-")) return {};
+        const double c = s.getDoubleValue();
+        canonical = juce::String (c, 2) + " c";
+        return c;
+    }
+    if (! s.containsOnly ("0123456789")) return {};
+    const double n = s.getDoubleValue();
+    if (n <= 0.0) return {};
+    canonical = s + "/1";
+    return 1200.0 * std::log2 (n);
+}
+
 TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
 {
     auto& st = proc.apvts;
@@ -1195,7 +1741,7 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
     styleGroupTitle (toneTitle,    "TONE");
 
     // --- row 1: SCANNER | PERCUSSION | PREAMP ---
-    scanSpeed.init (st, "scanner_hz", "SPEED", " HZ", 2);
+    scanSpeed.init (st, "scanner_hz", "SPEED", " Hz", 2);
     scanV1.init    (st, "scanner_v1", "V1", "", 1);
     scanV2.init    (st, "scanner_v2", "V2", "", 1);
     scanV3.init    (st, "scanner_v3", "V3", "", 1);
@@ -1247,7 +1793,7 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
                      &eqBass, &eqBassSlope, &eqTreble, &eqTrebleSlope })
         addAndMakeVisible (k);
 
-    // --- row 3 left: HARMONICS (fractions at the PLAY drawbar positions) ---
+    // --- row 3 left: HARMONICS (entries at the PLAY drawbar positions) ---
     for (int i = 0; i < 9; ++i)
     {
         const auto colour = TuneBfreeLookAndFeel::drawbarColour (i);
@@ -1258,26 +1804,34 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
         footage[i].setText (utf8 (kFootage[i]), juce::dontSendNotification);
         addAndMakeVisible (footage[i]);
 
-        for (auto* s : { &ratioTop[i], &ratioBot[i] })
+        auto& e = harmEntry[i];
+        e.setFont (uiFont (11.0f));
+        e.setJustificationType (juce::Justification::centred);
+        e.setColour (juce::Label::backgroundColourId, kBtn);
+        e.setColour (juce::Label::outlineColourId,    kBorder);
+        e.onTextChange = [this, i] { commitHarmonicEntry (i); };
+        addAndMakeVisible (e);
+        const auto stored = proc.getHarmonicEntryText (i);
+        e.setText (stored.isNotEmpty() ? stored : juce::String (kDefaultHarmEntry[i]),
+                   juce::dontSendNotification);
+
+        // A|C two-way toggle: A = AUTO (greys the entry), C = CUSTOM.
+        harmAutoBtn[i].setButtonText ("A");
+        harmCustomBtn[i].setButtonText ("C");
+        makeRadioGroup ({ &harmAutoBtn[i], &harmCustomBtn[i] }, [this, i]
         {
-            s->setSliderStyle (juce::Slider::LinearBar);
-            s->setColour (juce::Slider::trackColourId, kBtn);
-            s->setColour (juce::Slider::textBoxTextColourId, kWhite);
-            s->setNumDecimalPlacesToDisplay (0);
-            s->setMouseDragSensitivity (400);   // 1000 steps: keep drags controllable
-            s->onValueChange = [this, i] { updateErrorLabel (i); };
-            addAndMakeVisible (s);
-        }
-        topAtt[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-            st, "ratio_top_" + juce::String (i), ratioTop[i]);
-        botAtt[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-            st, "ratio_bot_" + juce::String (i), ratioBot[i]);
+            if (auto* p = proc.apvts.getParameter ("harm_auto_" + juce::String (i)))
+                p->setValueNotifyingHost (harmAutoBtn[i].getToggleState() ? 1.0f : 0.0f);
+            refreshHarmonics();
+        });
+        addAndMakeVisible (harmAutoBtn[i]);
+        addAndMakeVisible (harmCustomBtn[i]);
 
         ratioErr[i].setFont (uiFont (9.0f));
         ratioErr[i].setJustificationType (juce::Justification::centred);
         addAndMakeVisible (ratioErr[i]);
-        updateErrorLabel (i);
     }
+    refreshHarmonics();
 
     // --- row 3 right: TONE (EQ spline + wave preset + harmonics reset) ---
     eqBass.init        (st, "eq_bass",         "BASS", "", 2);
@@ -1285,66 +1839,118 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
     eqTreble.init      (st, "eq_treble",       "TREBLE", "", 2);
     eqTrebleSlope.init (st, "eq_treble_slope", "SLOPE", "", 2);
 
+    // WAVE: a 3-way switch (SINE = 0, SQUARE = 1, TRIANGLE = 2 on the `wave` param).
     styleCaption (waveCap, "WAVE");
     addAndMakeVisible (waveCap);
-    waveBox.addItem ("SINE", 1);
-    waveBox.addItem ("SQUARE", 2);
-    waveBox.addItem ("TRIANGLE", 3);
-    addAndMakeVisible (waveBox);
-    waveAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        st, "wave", waveBox);
+    makeRadioGroup ({ &sineBtn, &squareBtn, &triangleBtn }, [this]
+    {
+        const float v = squareBtn.getToggleState() ? 1.0f
+                      : triangleBtn.getToggleState() ? 2.0f : 0.0f;
+        if (auto* p = proc.apvts.getParameter ("wave"))
+            p->setValueNotifyingHost (p->getNormalisableRange().convertTo0to1 (v));
+    });
+    for (auto* b : { &sineBtn, &squareBtn, &triangleBtn })
+        addAndMakeVisible (b);
+    syncFromParams();
 
-    // RESET restores the stock (just-intonation) drawbar ratios.
+    // ALL AUTO: flip every drawbar back to AUTO (the stock sound). The CUSTOM
+    // entries are deliberately KEPT — each mode remembers its own state.
     resetBtn.onClick = [this]
     {
-        static const float st_[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
-        static const float sb_[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
         for (int i = 0; i < 9; ++i)
-        {
-            if (auto* pt = proc.apvts.getParameter ("ratio_top_" + juce::String (i)))
-                pt->setValueNotifyingHost (pt->getNormalisableRange().convertTo0to1 (st_[i]));
-            if (auto* pb = proc.apvts.getParameter ("ratio_bot_" + juce::String (i)))
-                pb->setValueNotifyingHost (pb->getNormalisableRange().convertTo0to1 (sb_[i]));
-        }
+            if (auto* pa = proc.apvts.getParameter ("harm_auto_" + juce::String (i)))
+                pa->setValueNotifyingHost (1.0f);
+        refreshHarmonics();
     };
     addAndMakeVisible (resetBtn);
+
+    // Right-click parameter menus on the non-LabelledKnob controls.
+    {
+        auto menu = [&] (juce::Component& c, juce::String id)
+        { paramMenus.add (new ParamMenuAttachment (st, c, [id] { return id; })); };
+        menu (atkModelBox, "click_attack_model");
+        menu (relModelBox, "click_release_model");
+        menu (sineBtn, "wave"); menu (squareBtn, "wave"); menu (triangleBtn, "wave");
+        for (int i = 0; i < 9; ++i)
+        {
+            menu (harmEntry[i],     "harm_cents_" + juce::String (i));
+            menu (harmAutoBtn[i],   "harm_auto_" + juce::String (i));
+            menu (harmCustomBtn[i], "harm_auto_" + juce::String (i));
+        }
+    }
 }
 
 void TinkerPage::paint (juce::Graphics& g)
 {
     g.fillAll (kBg);
 
-    // Fraction bars between numerator and denominator, in the drawbar colours.
-    for (int i = 0; i < 9; ++i)
+    // Red "LED" after the title of every group whose changes REBUILD the engine —
+    // i.e. cut the currently sounding notes. (PERCUSSION and PREAMP apply live.)
+    g.setColour (kRed);
+    for (auto* t : { &scannerTitle, &clickTitle, &xtalkTitle, &harmTitle, &toneTitle })
     {
-        auto top = ratioTop[i].getBounds();
-        auto bot = ratioBot[i].getBounds();
-        const int y = (top.getBottom() + bot.getY()) / 2 - 1;
-        g.setColour (TuneBfreeLookAndFeel::drawbarColour (i));
-        g.fillRect (top.getX(), y, top.getWidth(), 3);
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (t->getFont(), t->getText(), 0.0f, 0.0f);
+        const float tw = ga.getBoundingBox (0, -1, true).getWidth();
+        g.fillEllipse ((float) t->getX() + tw + 9.0f,
+                       (float) t->getY() + (float) t->getHeight() * 0.5f - 3.5f, 7.0f, 7.0f);
     }
 }
 
-// Deviation of the current fraction from the stock just-intonation harmonic, in
-// cents. Reads "±0 C" (grey) at the stock ratio, a signed value (white) otherwise.
-void TinkerPage::updateErrorLabel (int i)
+void TinkerPage::syncFromParams()
 {
-    static const double st_[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
-    static const double sb_[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
-    const double top = ratioTop[i].getValue();
-    const double bot = ratioBot[i].getValue();
-    if (top <= 0.0 || bot <= 0.0)
+    const int wave = (int) std::lround (proc.apvts.getRawParameterValue ("wave")->load());
+    sineBtn.setToggleState     (wave == 0, juce::dontSendNotification);
+    squareBtn.setToggleState   (wave == 1, juce::dontSendNotification);
+    triangleBtn.setToggleState (wave == 2, juce::dontSendNotification);
+    refreshHarmonics();   // error read-outs follow the last-played note live
+}
+
+// Commit an edited entry: parse, normalise the display, persist the string, and
+// push the cents value to the parameter (which triggers the engine rebuild).
+// Unparseable text reverts to the last good entry.
+void TinkerPage::commitHarmonicEntry (int i)
+{
+    juce::String canonical;
+    const auto cents = parseHarmonicEntry (harmEntry[i].getText(), canonical);
+    if (! cents.has_value())
     {
-        ratioErr[i].setText ("--", juce::dontSendNotification);
-        ratioErr[i].setColour (juce::Label::textColourId, kGrey);
+        const auto stored = proc.getHarmonicEntryText (i);
+        harmEntry[i].setText (stored.isNotEmpty() ? stored : juce::String (kDefaultHarmEntry[i]),
+                              juce::dontSendNotification);
         return;
     }
-    const double err  = 1200.0 * std::log2 ((top / bot) / (st_[i] / sb_[i]));
-    const bool   zero = std::abs (err) < 0.05;
-    ratioErr[i].setText (zero ? utf8 ("\xc2\xb1") + juce::String ("0 C")
-                              : juce::String (err > 0 ? "+" : "") + juce::String (err, 1) + " C",
-                         juce::dontSendNotification);
-    ratioErr[i].setColour (juce::Label::textColourId, zero ? kGrey : kWhite);
+    harmEntry[i].setText (canonical, juce::dontSendNotification);
+    proc.setHarmonicEntryText (i, canonical);
+    if (auto* p = proc.apvts.getParameter ("harm_cents_" + juce::String (i)))
+        p->setValueNotifyingHost (p->getNormalisableRange().convertTo0to1 ((float) *cents));
+    refreshHarmonics();
+}
+
+// AUTO = entry greyed and read-only (the JI harmonic, quantized to the tuning,
+// sounds); CUSTOM = entry editable/white and used exactly. Error label: the
+// sounding pitch vs the pure JI harmonic, at the last-played fundamental.
+void TinkerPage::refreshHarmonics()
+{
+    double ref = proc.getLastNoteFreq();
+    if (ref <= 0.0) ref = 261.63;   // middle C until something is played
+
+    for (int i = 0; i < 9; ++i)
+    {
+        const bool isAuto =
+            proc.apvts.getRawParameterValue ("harm_auto_" + juce::String (i))->load() > 0.5f;
+        harmAutoBtn[i].setToggleState   (isAuto,   juce::dontSendNotification);
+        harmCustomBtn[i].setToggleState (! isAuto, juce::dontSendNotification);
+        harmEntry[i].setEditable (false, ! isAuto);   // double-click edits when CUSTOM
+        harmEntry[i].setColour (juce::Label::textColourId, isAuto ? kGrey : kWhite);
+
+        const double err  = proc.getHarmonicErrorCents (i, ref);
+        const bool   zero = std::abs (err) < 0.05;
+        ratioErr[i].setText (zero ? utf8 ("\xc2\xb1") + juce::String ("0 C")
+                                  : juce::String (err > 0 ? "+" : "") + juce::String (err, 1) + " C",
+                             juce::dontSendNotification);
+        ratioErr[i].setColour (juce::Label::textColourId, zero ? kGrey : kWhite);
+    }
 }
 
 void TinkerPage::resized()
@@ -1389,37 +1995,53 @@ void TinkerPage::resized()
     y += titleH + 2 + knobH + rowGap;
     harmTitle.setBounds (area.getX(), y, 150, titleH);
     toneTitle.setBounds (rightX, y, 150, titleH);
+    // RESET sits on the HARMONICS title row, right-aligned to the harmonics block.
+    resetBtn.setBounds (area.getX() + (area.getWidth() - kRightColW - kPageMargin) - 64,
+                        y - 4, 64, 20);
 
     // Same cell grid as the PLAY drawbars: left region = area minus right column
     // minus the inter-column margin, split into 9 equal cells.
     const int leftW = area.getWidth() - kRightColW - kPageMargin;
     const int cellW = leftW / 9;
-    const int boxH = 34, errH = 11, footH = 12, barGap = 9;
-    // The stack (footage / numerator / bar / denominator / error) is centred in
-    // the space below the title, so the leftover splits above and below it.
-    const int stackH  = footH + 2 + boxH + barGap + boxH + 2 + errH;
-    const int stackY  = y + titleH + (area.getBottom() - y - titleH - stackH) / 2;
+    const int footH = 12, entryLen = 64, entryH = 18, modeW = 17, modeH = 14, errH = 11;
+    // Stack: footage / rotated entry / A|C toggle / error, centred in the space
+    // below the title (the entry occupies entryLen VISUAL height once rotated).
+    const int stackH = footH + 4 + entryLen + 6 + modeH + 4 + errH;
+    const int stackY = y + titleH + (area.getBottom() - y - titleH - stackH) / 2;
     for (int i = 0; i < 9; ++i)
     {
-        const int cx = area.getX() + i * cellW;
-        auto cell = juce::Rectangle<int> (cx, stackY, cellW, stackH);
-        footage[i].setBounds  (cell.removeFromTop (footH));
-        cell.removeFromTop (2);
-        ratioTop[i].setBounds (cell.removeFromTop (boxH).reduced (5, 0));
-        cell.removeFromTop (barGap);
-        ratioBot[i].setBounds (cell.removeFromTop (boxH).reduced (5, 0));
-        cell.removeFromTop (2);
-        ratioErr[i].setBounds (cell.removeFromTop (errH));
+        const int cx = area.getX() + i * cellW + cellW / 2;   // column centre
+        int cy = stackY;
+        footage[i].setBounds (cx - cellW / 2, cy, cellW, footH);
+        cy += footH + 4;
+        // Entry: laid out horizontally, then rotated -90° about its centre so it
+        // reads bottom-to-top along the drawbar column.
+        auto& e = harmEntry[i];
+        e.setTransform (juce::AffineTransform());
+        e.setBounds (cx - entryLen / 2, cy + entryLen / 2 - entryH / 2, entryLen, entryH);
+        e.setTransform (juce::AffineTransform::rotation (
+            -juce::MathConstants<float>::halfPi,
+            (float) e.getBounds().getCentreX(), (float) e.getBounds().getCentreY()));
+        cy += entryLen + 6;
+        harmAutoBtn[i].setBounds   (cx - modeW - 1, cy, modeW, modeH);
+        harmCustomBtn[i].setBounds (cx + 1,         cy, modeW, modeH);
+        cy += modeH + 4;
+        ratioErr[i].setBounds (cx - cellW / 2, cy, cellW, errH);
     }
 
-    // TONE: two knob columns (level over slope) + a WAVE/RESET column.
+    // TONE: two knob columns (level over slope) + the WAVE 3-way column.
     const int tY = y + titleH + 2;
     knobRow ({ &eqBass,      &eqTreble },      rightX, tY, 56);
     knobRow ({ &eqBassSlope, &eqTrebleSlope }, rightX, tY + knobH + 6, 56);
-    const int wx = rightX + 132, ww = kRightColW - 132;
-    waveCap.setBounds  (wx, tY, ww, capComboH);
-    waveBox.setBounds  (wx, tY + capComboH + 8, ww, comboH);
-    resetBtn.setBounds (wx, tY + knobH + 6 + capComboH + 8, ww, comboH);
+    // WAVE buttons match the KEY CLICK combo width (86) for size consistency.
+    const int wx = rightX + 148, ww = 86;
+    waveCap.setBounds (wx, tY, ww, capComboH);
+    int wy = tY + capComboH + 8;
+    for (auto* b : { &sineBtn, &squareBtn, &triangleBtn })
+    {
+        b->setBounds (wx, wy, ww, comboH);
+        wy += comboH + 4;
+    }
 }
 
 // ============================================================================
@@ -1430,17 +2052,15 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
 {
     auto& st = proc.apvts;
 
-    for (auto* t : { &hornMotorTitle, &drumMotorTitle, &micTitle, &speedTitle,
-                     &fATitle, &fBTitle, &dFTitle, &mixTitle })
+    for (auto* t : { &hornMotorTitle, &drumMotorTitle, &micTitle,
+                     &fATitle, &fBTitle, &dFTitle })
         addAndMakeVisible (t);
     styleGroupTitle (hornMotorTitle, "HORN MOTOR");
     styleGroupTitle (drumMotorTitle, "DRUM MOTOR");
     styleGroupTitle (micTitle,       "MIC & CABINET");
-    styleGroupTitle (speedTitle,     "SPEED");
     styleGroupTitle (fATitle,        "HORN FILTER A");
     styleGroupTitle (fBTitle,        "HORN FILTER B");
     styleGroupTitle (dFTitle,        "DRUM FILTER");
-    styleGroupTitle (mixTitle,       "MIX");
 
     hornSlow.init  (st, "horn_slow_rpm", "SLOW", " RPM", 1);
     hornFast.init  (st, "horn_fast_rpm", "FAST", " RPM", 0);
@@ -1457,8 +2077,8 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
     micDist.init   (st, "mic_dist",   "DIST", " CM", 0);
     hornWidth.init (st, "horn_width", "H WIDTH", "", 2);
     drumWidth.init (st, "drum_width", "D WIDTH", "", 2);
-    hornLevel.init (st, "horn_level", "LEVEL", "", 2);
-    hornLeak.init  (st, "horn_leak",  "LEAK", "", 2);
+    hornLevel.init (st, "horn_level", "H LEVEL", "", 2);
+    hornLeak.init  (st, "horn_leak",  "H LEAK", "", 2);
 
     for (auto* box : { &fAType, &fBType, &dFType })
     {
@@ -1470,13 +2090,13 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
     dFAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (st, "drum_filter_type",   dFType);
     for (auto* c : { &fACap, &fBCap, &dFCap }) { styleCaption (*c, "TYPE"); addAndMakeVisible (c); }
 
-    fAFreq.init (st, "horn_filter_a_freq", "FREQ", " HZ", 0);
+    fAFreq.init (st, "horn_filter_a_freq", "FREQ", " Hz", 0);
     fAQ.init    (st, "horn_filter_a_q",    "Q", "", 2);
     fAGain.init (st, "horn_filter_a_gain", "GAIN", " DB", 1);
-    fBFreq.init (st, "horn_filter_b_freq", "FREQ", " HZ", 0);
+    fBFreq.init (st, "horn_filter_b_freq", "FREQ", " Hz", 0);
     fBQ.init    (st, "horn_filter_b_q",    "Q", "", 2);
     fBGain.init (st, "horn_filter_b_gain", "GAIN", " DB", 1);
-    dFFreq.init (st, "drum_filter_freq",   "FREQ", " HZ", 0);
+    dFFreq.init (st, "drum_filter_freq",   "FREQ", " Hz", 0);
     dFQ.init    (st, "drum_filter_q",      "Q", "", 2);
     dFGain.init (st, "drum_filter_gain",   "GAIN", " DB", 1);
 
@@ -1488,12 +2108,8 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
                      &dFFreq, &dFQ, &dFGain })
         addAndMakeVisible (k);
 
-    // SPEED: independent 3-ways. CHORALE = 1 (slow), STOP = 0, TREMOLO = 2 —
-    // the `horn` / `drum` parameter encoding used by the engine (useRevOption).
-    styleCaption (hornSwCap, "HORN");
-    styleCaption (drumSwCap, "DRUM");
-    addAndMakeVisible (hornSwCap);
-    addAndMakeVisible (drumSwCap);
+    // Per-rotor speed 3-ways (inline on the motor rows). CHORALE = 1 (slow),
+    // STOP = 0, TREMOLO = 2 — the engine's `horn` / `drum` encoding (useRevOption).
     makeRadioGroup ({ &hornChorale, &hornStop, &hornTremolo }, [this]
     {
         setSpeedParam ("horn", hornChorale.getToggleState() ? 1.0f
@@ -1509,13 +2125,16 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
         addAndMakeVisible (b);
     syncFromParams();
 
-    // BYPASS: red when engaged (the organ plays dry).
-    bypassBtn.setClickingTogglesState (true);
-    bypassBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
-    bypassBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
-    addAndMakeVisible (bypassBtn);
-    bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        st, "whirl_bypass", bypassBtn);
+    // Right-click parameter menus on the combos / speed switches.
+    {
+        auto menu = [&] (juce::Component& c, juce::String id)
+        { paramMenus.add (new ParamMenuAttachment (st, c, [id] { return id; })); };
+        menu (fAType, "horn_filter_a_type");
+        menu (fBType, "horn_filter_b_type");
+        menu (dFType, "drum_filter_type");
+        menu (hornChorale, "horn"); menu (hornStop, "horn"); menu (hornTremolo, "horn");
+        menu (drumChorale, "drum"); menu (drumStop, "drum"); menu (drumTremolo, "drum");
+    }
 }
 
 void RotaryPage::paint (juce::Graphics& g) { g.fillAll (kBg); }
@@ -1539,80 +2158,105 @@ void RotaryPage::syncFromParams()
              (int) std::lround (proc.apvts.getRawParameterValue ("horn")->load()));
     set3way (drumChorale, drumStop, drumTremolo,
              (int) std::lround (proc.apvts.getRawParameterValue ("drum")->load()));
+
+    // Speed is meaningless while the whirl is bypassed: grey the switches.
+    const bool whirlByp = proc.apvts.getRawParameterValue ("whirl_bypass")->load() > 0.5f;
+    for (auto* b : { &hornChorale, &hornStop, &hornTremolo,
+                     &drumChorale, &drumStop, &drumTremolo })
+        b->setEnabled (! whirlByp);
 }
 
 void RotaryPage::resized()
 {
+    // Three equal rows (denser than the old four): each rotor's motor knobs,
+    // its speed 3-way, and its filter share ONE row; row 3 = mics + drum filter.
+    // Bigger knobs than before — close to the PLAY page's size.
     auto area = getLocalBounds().reduced (kPageMargin);
-    const int rightX = area.getRight() - kRightColW;      // same column split as TINKER
-    const int titleH = 12, knobH = 68, comboH = 22;
-    const int rowH = titleH + 2 + knobH, rowGap = 8;
+    const int titleH = 12, comboH = 22, rowGap = 8;
+    const int rowH   = (area.getHeight() - 2 * rowGap) / 3;
+    const int knobH  = rowH - titleH - 2;                  // caption + knob + value
+    const int cellW  = 61, comboW = 96;
+    const int ftrW   = comboW + 8 + 3 * cellW;             // filter block width
+    const int rightX = area.getRight() - ftrW;
 
     auto knobRow = [knobH] (std::initializer_list<LabelledKnob*> ks, int x, int y, int w)
     {
         for (auto* k : ks) { k->setBounds (x, y, w, knobH); x += w; }
     };
-    // A filter block: TYPE caption + combo on the left, FREQ/Q/GAIN right-aligned.
-    auto filterRow = [&] (juce::Label& cap, juce::ComboBox& box,
-                          LabelledKnob& fr, LabelledKnob& q, LabelledKnob& gn, int y)
+    // Filter block: TYPE caption + combo, FREQ/Q/GAIN right-aligned to the margin.
+    auto filterBlock = [&] (juce::Label& cap, juce::ComboBox& box,
+                            LabelledKnob& fr, LabelledKnob& q, LabelledKnob& gn, int y)
     {
-        cap.setBounds (rightX, y, 100, 12);
-        box.setBounds (rightX, y + 12 + (knobH - 12 - comboH - 13) / 2, 100, comboH);
-        knobRow ({ &fr, &q, &gn }, area.getRight() - 3 * 56, y, 56);
+        cap.setBounds (rightX, y, comboW, 12);
+        box.setBounds (rightX, y + 12 + (knobH - 12 - comboH - 13) / 2, comboW, comboH);
+        knobRow ({ &fr, &q, &gn }, rightX + comboW + 8, y, cellW);
+    };
+    // A rotor's speed 3-way, centred in the gap between motor knobs and filter.
+    auto speedStack = [&] (juce::TextButton& a, juce::TextButton& b, juce::TextButton& c, int y)
+    {
+        const int bw = 84, bh = 26, bgap = 4;
+        const int sx = area.getX() + 5 * cellW + (rightX - area.getX() - 5 * cellW - bw) / 2;
+        const int sy = y + (knobH - (3 * bh + 2 * bgap)) / 2;
+        a.setBounds (sx, sy, bw, bh);
+        b.setBounds (sx, sy + bh + bgap, bw, bh);
+        c.setBounds (sx, sy + 2 * (bh + bgap), bw, bh);
     };
 
-    // ---- rows 1-2: motors | horn filters ----
+    // ---- row 1: HORN — motor + speed + filter A ----
     int y = area.getY();
     hornMotorTitle.setBounds (area.getX(), y, 150, titleH);
     fATitle.setBounds        (rightX, y, 150, titleH);
     knobRow ({ &hornSlow, &hornFast, &hornAccel, &hornDecel, &hornBrake },
-             area.getX(), y + titleH + 2, 54);
-    filterRow (fACap, fAType, fAFreq, fAQ, fAGain, y + titleH + 2);
+             area.getX(), y + titleH + 2, cellW);
+    speedStack (hornChorale, hornStop, hornTremolo, y + titleH + 2);
+    filterBlock (fACap, fAType, fAFreq, fAQ, fAGain, y + titleH + 2);
 
+    // ---- row 2: DRUM — motor + speed + filter B ----
     y += rowH + rowGap;
     drumMotorTitle.setBounds (area.getX(), y, 150, titleH);
     fBTitle.setBounds        (rightX, y, 150, titleH);
     knobRow ({ &drumSlow, &drumFast, &drumAccel, &drumDecel, &drumBrake },
-             area.getX(), y + titleH + 2, 54);
-    filterRow (fBCap, fBType, fBFreq, fBQ, fBGain, y + titleH + 2);
+             area.getX(), y + titleH + 2, cellW);
+    speedStack (drumChorale, drumStop, drumTremolo, y + titleH + 2);
+    filterBlock (fBCap, fBType, fBFreq, fBQ, fBGain, y + titleH + 2);
 
-    // ---- row 3: mic & cabinet | drum filter ----
+    // ---- row 3: MIC & CABINET (incl. horn level/leak) | DRUM FILTER ----
     y += rowH + rowGap;
     micTitle.setBounds (area.getX(), y, 150, titleH);
     dFTitle.setBounds  (rightX, y, 150, titleH);
-    knobRow ({ &micAngle, &micDist, &hornWidth, &drumWidth },
-             area.getX(), y + titleH + 2, 54);
-    filterRow (dFCap, dFType, dFFreq, dFQ, dFGain, y + titleH + 2);
-
-    // ---- row 4: speed switches + bypass | mix ----
-    y += rowH + rowGap;
-    speedTitle.setBounds (area.getX(), y, 150, titleH);
-    mixTitle.setBounds   (rightX, y, 150, titleH);
-    {
-        const int cy = y + titleH + 2;
-        const int bw = 80, bh = 20, bgap = 2;
-        hornSwCap.setBounds (area.getX(), cy, bw, 12);
-        drumSwCap.setBounds (area.getX() + bw + 10, cy, bw, 12);
-        juce::TextButton* horns[3] = { &hornChorale, &hornStop, &hornTremolo };
-        juce::TextButton* drums[3] = { &drumChorale, &drumStop, &drumTremolo };
-        for (int i = 0; i < 3; ++i)
-        {
-            horns[i]->setBounds (area.getX(),           cy + 14 + i * (bh + bgap), bw, bh);
-            drums[i]->setBounds (area.getX() + bw + 10, cy + 14 + i * (bh + bgap), bw, bh);
-        }
-        // Bypass: centred on the stacks' middle row.
-        bypassBtn.setBounds (area.getX() + 2 * (bw + 10), cy + 14 + (bh + bgap), bw, bh);
-
-        knobRow ({ &hornLevel, &hornLeak }, rightX, cy, 56);
-    }
+    knobRow ({ &micAngle, &micDist, &hornWidth, &drumWidth, &hornLevel, &hornLeak },
+             area.getX(), y + titleH + 2, cellW);
+    filterBlock (dFCap, dFType, dFFreq, dFQ, dFGain, y + titleH + 2);
 }
 
 // ============================================================================
 //  TOP-LEVEL EDITOR
 // ============================================================================
 
+// Popup content for the header 🔊 button: one vertical master-volume slider,
+// shown in a CallOutBox (like the menu-bar volume slider on macOS/Debian).
+class VolumeSliderContent : public juce::Component
+{
+public:
+    explicit VolumeSliderContent (TuneBfreeAudioProcessor& p)
+    {
+        slider.setSliderStyle (juce::Slider::LinearVertical);
+        slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        addAndMakeVisible (slider);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+            p.apvts, "master_volume", slider);
+        setSize (36, 120);
+    }
+    void resized() override { slider.setBounds (getLocalBounds().reduced (4)); }
+
+private:
+    juce::Slider slider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+};
+
 TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), defaultPage (p), tinkerPage (p), rotaryPage (p)
+    : AudioProcessorEditor (&p), proc (p),
+      defaultPage (p), tinkerPage (p), rotaryPage (p), tuningContent (p)
 {
     setLookAndFeel (&laf);
 
@@ -1622,22 +2266,24 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     titleLabel.setColour (juce::Label::textColourId, kBtn);
     addAndMakeVisible (titleLabel);
 
-    // Page radio (header centre): PLAY / TINKER / ROTARY.
+    // Page radio (header centre): PLAY / TINKER / ROTOR. Same design language as
+    // the TUNING button: black when unselected, red when selected.
     juce::TextButton* pages[3] = { &playBtn, &tinkerBtn, &rotaryBtn };
     for (int i = 0; i < 3; ++i)
     {
         auto* b = pages[i];
-        b->getProperties().set ("headerRadio", true);          // header-specific drawing
-        b->setColour (juce::TextButton::textColourOffId, kBtn);   // black text on amber
-        b->setColour (juce::TextButton::textColourOnId,  kAmber); // amber text on black
+        b->setColour (juce::TextButton::buttonColourId,   kBtn);
+        b->setColour (juce::TextButton::buttonOnColourId, kRed);
+        b->setColour (juce::TextButton::textColourOffId,  kAmber);
+        b->setColour (juce::TextButton::textColourOnId,   kWhite);
         b->setClickingTogglesState (false);
         b->onClick = [this, i] { setPage (i); };
         addAndMakeVisible (b);
     }
     playBtn.setToggleState (true, juce::dontSendNotification);
 
-    // TUNING button: dark normally, RED when the panel is open. The panel lives on
-    // the PLAY page, so pressing it from another page switches to PLAY first.
+    // TUNING button: dark normally, RED when the panel is open. The panel is an
+    // editor-level overlay, independent of the page radio.
     tuningBtn.setClickingTogglesState (false);
     tuningBtn.setColour (juce::TextButton::buttonColourId,   kBtn);
     tuningBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
@@ -1645,36 +2291,59 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     tuningBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
     tuningBtn.onClick = [this]
     {
-        if (currentPage != 0)
-        {
-            setPage (0);
-            if (! defaultPage.isTuningPanelShowing())
-                defaultPage.toggleTuningPanel();
-        }
-        else
-            defaultPage.toggleTuningPanel();
-        tuningBtn.setToggleState (defaultPage.isTuningPanelShowing(), juce::dontSendNotification);
+        tuningContent.setVisible (! tuningContent.isVisible());
+        tuningBtn.setToggleState (tuningContent.isVisible(), juce::dontSendNotification);
     };
     addAndMakeVisible (tuningBtn);
 
-    // PANIC: release all notes (temporary, for debugging stuck notes). Sits left of TUNING.
-    panicBtn.setClickingTogglesState (false);
+    // CONTROL: MIDI CC / program-change management — the side panel is still to come.
+    controlBtn.setColour (juce::TextButton::buttonColourId,  kBtn);
+    controlBtn.setColour (juce::TextButton::textColourOffId, kAmber);
+    controlBtn.setEnabled (false);   // placeholder until the CONTROL panel lands
+    addAndMakeVisible (controlBtn);
+
+    // "!" (panic: release all notes) and 🔊 (master volume popup), mid-header.
     panicBtn.setColour (juce::TextButton::buttonColourId,  kBtn);
     panicBtn.setColour (juce::TextButton::textColourOffId, kAmber);
     panicBtn.onClick = [this] { proc.triggerPanic(); };
     addAndMakeVisible (panicBtn);
 
+    volumeBtn.getProperties().set ("speakerIcon", true);   // drawn by the LookAndFeel
+    volumeBtn.setColour (juce::TextButton::buttonColourId,  kBtn);
+    volumeBtn.setColour (juce::TextButton::textColourOffId, kAmber);
+    volumeBtn.onClick = [this]
+    {
+        juce::CallOutBox::launchAsynchronously (
+            std::make_unique<VolumeSliderContent> (proc),
+            volumeBtn.getScreenBounds(), nullptr);
+    };
+    addAndMakeVisible (volumeBtn);
+    paramMenus.add (new ParamMenuAttachment (proc.apvts, volumeBtn,
+                                             [] { return juce::String ("master_volume"); }));
+
+    // Every header button presses towards RED (the header's active colour).
+    for (auto* b : { &tuningBtn, &controlBtn, &panicBtn, &volumeBtn,
+                     &playBtn, &tinkerBtn, &rotaryBtn })
+        b->getProperties().set ("header", true);
+
     addAndMakeVisible (defaultPage);
     addChildComponent (tinkerPage);   // hidden until selected
     addChildComponent (rotaryPage);
+    addChildComponent (tuningContent);   // LAST: the overlay paints on top of the pages
 
     setSize (740, 430);
 
     // Dev hooks (used for the mockup-review screenshot workflow):
-    //   TUNEBFREE_PAGE=1|2          start on TINKER / ROTARY
+    //   TUNEBFREE_PAGE=1|2          start on TINKER / ROTOR
+    //   TUNEBFREE_TUNING=1          start with the tuning panel open
     //   TUNEBFREE_SNAPSHOT=out.png  save a 2x snapshot of the editor and quit
     if (auto* pg = std::getenv ("TUNEBFREE_PAGE"))
         setPage (juce::jlimit (0, 2, juce::String (pg).getIntValue()));
+    if (std::getenv ("TUNEBFREE_TUNING") != nullptr)
+    {
+        tuningContent.setVisible (true);
+        tuningBtn.setToggleState (true, juce::dontSendNotification);
+    }
     if (auto* snap = std::getenv ("TUNEBFREE_SNAPSHOT"))
     {
         juce::String path (snap);
@@ -1721,30 +2390,58 @@ void TuneBfreeAudioProcessorEditor::paint (juce::Graphics& g)
 void TuneBfreeAudioProcessorEditor::resized()
 {
     auto r = getLocalBounds();
-    auto header = r.removeFromTop (44);
-    titleLabel.setBounds (header.removeFromLeft (180).reduced (12, 8));
-    tuningBtn.setBounds  (header.removeFromRight (96).reduced (10, 8));
-    panicBtn.setBounds   (header.removeFromRight (96).reduced (10, 8));   // left of TUNING
+    r.removeFromTop (44);
 
-    // Page radio, centred in the window.
-    const int pw = 72, ph = 28, pgap = 6;
-    int px = (getWidth() - (3 * pw + 2 * pgap)) / 2;
+    // ---- Header: one consistent button height/row and ONE gap everywhere —
+    //      the differing button designs (! and the speaker) do the grouping. ----
+    const int bh = 28, by = (44 - bh) / 2, bgap = 6;
+    titleLabel.setBounds (14, by, 140, bh);
+
+    tuningBtn.setBounds  (getWidth() - 14 - 76, by, 76, bh);
+    controlBtn.setBounds (tuningBtn.getX() - bgap - 76, by, 76, bh);
+
+    const int pw = 68;
+    int px = (getWidth() - (3 * pw + 2 * bgap)) / 2;
     for (auto* b : { &playBtn, &tinkerBtn, &rotaryBtn })
     {
-        b->setBounds (px, (44 - ph) / 2, pw, ph);
-        px += pw + pgap;
+        b->setBounds (px, by, pw, bh);
+        px += pw + bgap;
     }
+    panicBtn.setBounds  (px, by, bh, bh);   // square "!"
+    volumeBtn.setBounds (panicBtn.getRight() + bgap, by, bh, bh);
 
     defaultPage.setBounds (r);
     tinkerPage.setBounds  (r);
     rotaryPage.setBounds  (r);
+
+    // Tuning overlay: covers the right column of the window (same width the
+    // panel had inside the PLAY page: right region + half the centre gap).
+    tuningContent.setBounds (getLocalBounds().withTrimmedTop (44).removeFromRight (301));
+}
+
+bool TuneBfreeAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+{
+#if TUNEBFREE_MELATONIN
+    if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0))
+    {
+        inspector.setVisible (! inspector.isVisible());
+        inspector.toggle (inspector.isVisible());
+        return true;
+    }
+#else
+    juce::ignoreUnused (key);
+#endif
+    return false;
 }
 
 void TuneBfreeAudioProcessorEditor::timerCallback()
 {
-    defaultPage.syncFromParams();
-    if (defaultPage.isTuningPanelShowing())
-        defaultPage.refreshTuningPanel();
+    if (defaultPage.isVisible())
+        defaultPage.syncFromParams();
+    if (tuningContent.isVisible())
+        tuningContent.refresh();
     if (rotaryPage.isVisible())
         rotaryPage.syncFromParams();   // follow PLAY-page 3-way / host automation
+    if (tinkerPage.isVisible())
+        tinkerPage.syncFromParams();   // WAVE 3-way + harmonics follow the params
 }

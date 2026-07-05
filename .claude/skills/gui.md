@@ -21,13 +21,29 @@ triggers:
 
 ## Architecture Overview
 
-**As implemented (2026-06)** in `plugin/PluginEditor.{h,cpp}`. Three classes:
+**As implemented (2026-07-05)** in `plugin/PluginEditor.{h,cpp}` (740×430):
 
 | Class | Role |
 |-------|------|
-| `TuneBfreeAudioProcessorEditor` | Top-level window: amber header (title + TUNING button) over a `DefaultPage`. Owns the `LookAndFeel` and a 2 Hz `Timer` that refreshes the tuning panel. |
-| `DefaultPage` | The play screen. LEFT region = vibrato/depth/percussion strip + drawbars; RIGHT region = timbrality column + effects/leslie/expression column. Holds the tuning overlay. |
-| `TuningSidePanelContent` | The grey panel shown over the RIGHT region when TUNING is pressed. |
+| `TuneBfreeAudioProcessorEditor` | Header: title, PLAY/TINKER/ROTOR radio (red = active, TUNING-style; uniform 6px gaps), "!" panic + drawn-speaker volume popup (master_volume), CONTROL (disabled placeholder), TUNING. Owns the pages, the EDITOR-LEVEL tuning overlay (survives page switches), LookAndFeel, 15 Hz sync timer, dev hooks (TUNEBFREE_PAGE / TUNEBFREE_TUNING / TUNEBFREE_SNAPSHOT). |
+| `DefaultPage` (PLAY) | Amber group titles; B3 vibrato dial (vibrato_type 0-5 = V1 C1 V2 C2 V3 C3) + PER-MANUAL ON/OFF (vibrato / lower_vibrato); percussion 2-ways (greyed under LOWER); drawbars + live JI-error row; TIMBRALITY (UPPER/LOWER drives `active_manual` routing, BITIMBRAL, KEYPRESS = silent split learn); SPLIT (Hz read-out) / CROSSFADE (cents); EFFECTS w/ value labels; LESLIE 3-way (greyed while bypassed) + BYPASS (standard amber). |
+| `TinkerPage` | Engine physics: SCANNER / PERCUSSION / PREAMP / KEY CLICK / CROSSTALK / TONE (EQ spline + WAVE 3-way) + HARMONICS: rotated Scala-style entries ("3/2", "702.23 c") on the PLAY drawbar x-grid, A\|C toggles (A greys the entry), ALL AUTO. Red LEDs after titles of rebuild-scope groups (changes cut sounding notes). |
+| `RotaryPage` (ROTOR) | 3 dense rows: per-rotor [motor knobs → speed 3-way → voicing filter]; row 3 = MIC & CABINET (incl. horn level/leak) \| drum filter. Speed switches grey while bypassed. |
+| `TuningSidePanelContent` | Overlay: freq read-outs (octave-folded cents `-(702.23 + 2x1200) c`), STATUS, SETTINGS — source dropdown (SCALA renamed from FILE), CHANNELS popup, ONE combined .scl+.kbm multi-select loader + FILES popup (list + CLEAR ALL), NOTE ON/ALWAYS (editable only under MTS; greyed SYSEX indicator follows realtime-vs-dump). Loader greyed unless SCALA. |
+| `LabelledKnob` | Standard TINKER/ROTOR control: caption / knob / editable value box. `init(apvts,id,...)`; precision must be set AFTER the attachment (it installs the param's raw textFromValueFunction) + `updateText()`. |
+| `ParamMenuAttachment` / `showParamMenu` | Right-click on any parameter control: NAME header / EDIT VALUE (type-in CallOutBox) / INFO (wrapped text; `paramInfoText` registry covers all ~112 params, incl. the red-LED explanation). Drawbar menus resolve upper/lower dynamically. MIDI-learn deferred to the CONTROL phase. |
+
+Cross-page gotchas: layout constants `kPageMargin`=14 / `kRightColW`=280 must
+match DefaultPage's own; screenshots via the sandbox-safe `tuneBfree_snapshot`
+tool (scripts/SnapshotTool.cpp), NEVER macOS screencapture; Melatonin inspector
+auto-enables with the submodule (cmd+I); press-state tints in
+drawButtonBackground (header→red, panels→amber; disabled header buttons keep a
+SOLID black fill — translucent black over amber renders brown); units "Hz" not
+"HZ"; value labels white uiFont(10), never amber bold.
+
+(Sections below describe the 2026-06 single-page state + mockup workflow —
+palette/spec/history still valid; where they disagree, trust the table above
+and the code.)
 
 Config & Presets pages are **not built yet** (Phase 3 continues). When added,
 prefer a `setVisible` swap of child pages over `TabbedComponent` to keep the

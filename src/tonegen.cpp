@@ -787,6 +787,10 @@ static void applyManualDefaults(struct b_tonegen *t, int keyOffset, int busOffse
                 bestTerminalNumber = 0;
                 for (terminalNumber = 1; terminalNumber <= t->nofWheels; terminalNumber++)
                 { /* For each possible terminal */
+                    /* AUTO drawbars quantize to the TUNING's wheels only —
+                     * wheels injected for CUSTOM drawbars are invisible here. */
+                    if (!t->busCustom[b % 9] && t->wheelInjected[terminalNumber - 1])
+                        continue;
                     ratio = oscFrequency[terminalNumber] / t->frequency[k];
                     centDiff = 1200 * std::fabs(std::log2(t->targetRatio[b] / ratio));
                     if (centDiff < smallestCentDiff)
@@ -1036,9 +1040,8 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
     } /* if defaultTerminalStripCrosstalk */
 
     /* Key connections and taper. Manual stride = gamutSize: upper [0,gamutSize),
-     * lower [gamutSize,2*gamutSize). Pedal is not wired (unused). Wiring is the dominant
-     * rebuild cost (O(gamutSize * 9 * nofWheels) per manual), so the lower manual is only
-     * wired when the keyboard split is enabled.
+     * lower [gamutSize,2*gamutSize). Pedal is not wired (unused). Both manuals are
+     * always wired (the lower at crossfade gains when split, full gain otherwise).
      *
      * When split, each slot's taper is scaled by an equal-power crossfade around the
      * split point: the upper manual fades in above it, the lower fades out below it. */
@@ -1056,8 +1059,13 @@ static void applyDefaultConfiguration(struct b_tonegen *t)
     }
     else
     {
+        /* Unitimbral: BOTH manuals wired at full gain, so the UPPER/LOWER
+         * selection can route notes to either bank instantly (no rebuild,
+         * no audio cut). Which one sounds is decided per note-on. */
         applyManualDefaults(t, 0, 0);
         applyDefaultCrosstalk(t, 0, 0);
+        applyManualDefaults(t, t->gamutSize, 9);
+        applyDefaultCrosstalk(t, t->gamutSize, 9);
     }
 
     /*
@@ -2971,6 +2979,8 @@ void initToneGenerator(struct b_tonegen *t, void *m, double rate, double *target
         t->eqvSet[i] = '\0';
     }
 
+    t->gainTimeConstant = (float)(156.825 / t->SampleRateD); /* ~25 Hz LPF (upstream #96) */
+
     if (t->envAtkClkMinLength < 0)
     {
         t->envAtkClkMinLength = floor(t->SampleRateD * 8.0 / 22050.0);
@@ -3154,6 +3164,8 @@ void oscKeyOff(struct b_tonegen *t, short keyNumber, short realKey)
         if (keyNumber < t->gamutSize)
         {
             t->upperKeyCount--;
+            /* (No percussion bookkeeping here: the key-on trigger scan reads
+             * activeKeys[] directly, so releases need no mirror.) */
         }
 #ifdef KEYCOMPRESSION
         t->keyDownCount--;
@@ -3194,6 +3206,38 @@ void oscKeyOn(struct b_tonegen *t, short keyNumber, short realKey)
     if (keyNumber < t->gamutSize)
     {
         t->upperKeyCount++;
+        /* Percussion trigger — event-based single-trigger, GRADUAL over the
+         * keyboard-split crossfade. The envelope re-fires scaled by how free
+         * the upper manual is:
+         *
+         *     percEnvGain = reset * (1 - max upper crossfade weight held)
+         *
+         * A held fully-upper key (weight 1) gives exactly zero re-fire — the
+         * authentic B3 single-trigger. A held crossfade-zone key suppresses
+         * re-firing only PARTIALLY, in proportion to how "upper" it is, so
+         * percussion fades across the zone instead of cutting off sharply
+         * (the old all-upper-keys-up re-arm silenced melody percussion the
+         * moment any zone note was held). Without the split every held upper
+         * key has weight 1, which reduces to the stock behaviour. */
+        double maxHeld = 0.0;
+        if (t->splitEnabled)
+        {
+            for (int k = 0; k < t->gamutSize && maxHeld < 1.0; k++)
+            {
+                if (k == keyNumber || t->activeKeys[k] == 0)
+                    continue;
+                double wLower, wUpper;
+                splitCrossfade(t->frequency[k], t->splitPointHz, t->splitWidthCents,
+                               &wLower, &wUpper);
+                if (wUpper > maxHeld)
+                    maxHeld = wUpper;
+            }
+        }
+        else if (t->upperKeyCount > 1)   /* this key + at least one other held */
+        {
+            maxHeld = 1.0;
+        }
+        t->percEnvGain = t->percEnvGainReset * (float)(1.0 - maxHeld);
     }
 #ifdef KEYCOMPRESSION
     t->keyDownCount++;
@@ -3774,12 +3818,17 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
             t->pz = temp;
             pp = prcBuffer;
 #endif /* HIPASS_PERCUSSION */
-            t->outputGain = t->swellPedalGain * t->percDrawbarGain;
+            /* Swell gain is CHASED through a ~25 Hz LPF per sample (upstream
+             * 6efe51e / #96) so pedal moves and EXPRESSION drags don't zipper.
+             * The +1e-12 keeps the recursion out of denormals. */
+            t->targetGain = t->swellPedalGain * t->percDrawbarGain;
+            const float a = t->gainTimeConstant;
             if (t->oldRouting & RT_VIB)
             { /* If vibrato is on */
                 for (i = 0; i < BUFFER_SIZE_SAMPLES; i++)
                 { /* Perc and vibrato */
-                    *yptr++ = (t->outputGain * KEYCOMPLEVEL *
+                    t->currentGain += a * (t->targetGain - t->currentGain) + 1e-12f;
+                    *yptr++ = (t->currentGain * KEYCOMPLEVEL *
                                ((*xp++) + (*vp++) + ((*pp++) * t->percEnvGain)));
                     t->percEnvGain *= t->percEnvGainDecay;
                     KEYCOMPCHASE();
@@ -3789,8 +3838,9 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
             { /* Percussion only */
                 for (i = 0; i < BUFFER_SIZE_SAMPLES; i++)
                 {
+                    t->currentGain += a * (t->targetGain - t->currentGain) + 1e-12f;
                     *yptr++ =
-                        (t->outputGain * KEYCOMPLEVEL * ((*xp++) + ((*pp++) * t->percEnvGain)));
+                        (t->currentGain * KEYCOMPLEVEL * ((*xp++) + ((*pp++) * t->percEnvGain)));
                     t->percEnvGain *= t->percEnvGainDecay;
                     KEYCOMPCHASE();
                 }
@@ -3798,27 +3848,30 @@ void oscGenerateFragment(struct b_tonegen *t, float *buf, size_t lengthSamples)
         }
         else if (t->oldRouting & RT_VIB)
         { /* No percussion and vibrato */
-
+            t->targetGain = t->swellPedalGain;
+            const float a = t->gainTimeConstant;
             for (i = 0; i < BUFFER_SIZE_SAMPLES; i++)
             {
-                *yptr++ = (t->swellPedalGain * KEYCOMPLEVEL * ((*xp++) + (*vp++)));
+                t->currentGain += a * (t->targetGain - t->currentGain) + 1e-12f;
+                *yptr++ = (t->currentGain * KEYCOMPLEVEL * ((*xp++) + (*vp++)));
                 KEYCOMPCHASE();
             }
         }
         else
         { /* No percussion and no vibrato */
+            t->targetGain = t->swellPedalGain;
+            const float a = t->gainTimeConstant;
             for (i = 0; i < BUFFER_SIZE_SAMPLES; i++)
             {
-                *yptr++ = (t->swellPedalGain * KEYCOMPLEVEL * (*xp++));
+                t->currentGain += a * (t->targetGain - t->currentGain) + 1e-12f;
+                *yptr++ = (t->currentGain * KEYCOMPLEVEL * (*xp++));
                 KEYCOMPCHASE();
             }
         }
     }
 
-    if (t->upperKeyCount == 0)
-    {
-        t->percEnvGain = t->percEnvGainReset;
-    }
+    /* (Percussion re-arm moved to oscKeyOn — event-based and split-aware; the
+     * old continuous "reset while all upper keys are up" lived here.) */
 } /* oscGenerateFragment */
 
 struct b_tonegen *allocTonegen()
@@ -4209,9 +4262,9 @@ TEST_CASE("initToneGenerator wires a gamut larger than 128 (step 1b keyspace)")
     // Upper-manual slots beyond the old 128 cap are wired...
     CHECK(t->keyTaper[60]  != nullptr);
     CHECK(t->keyTaper[140] != nullptr);          // slot 140 > 128
-    // ...and the lower manual is NOT wired (applyDefaultConfiguration wires upper only
-    // until the keyboard split lands — see step 2). The stride is still the gamut size.
-    CHECK(t->keyTaper[gamut + 60] == nullptr);
+    // ...and the LOWER manual is wired too (both manuals are always wired now;
+    // in unitimbral mode the per-note routing decides which bank sounds).
+    CHECK(t->keyTaper[gamut + 60] != nullptr);
 
     // The engine stays usable: key a high slot on/off with no crash or stuck state.
     oscKeyOn (t, (short) 140, (short) 60);
@@ -4336,4 +4389,66 @@ TEST_CASE("Testing initToneGenerator")
     freeToneGenerator(t);
 }
 */
+
+TEST_CASE("Percussion trigger fades gradually over the keyboard-split crossfade")
+{
+    struct b_tonegen *t = (struct b_tonegen *)calloc(1, sizeof(struct b_tonegen));
+    initValues(t);
+    t->gamutSize = 128;
+    for (int i = 0; i < 128; i++)
+        t->frequency[i] = 440.0 * std::pow(2.0, (i - 69) / 12.0);
+    t->percEnvGainReset = 1.0f;
+    t->percEnvGain = 0.0f;
+    t->splitEnabled = 1;
+    t->splitPointHz = 261.63;      /* ~ MIDI note 60 */
+    t->splitWidthCents = 400.0;    /* crossfade zone ~ notes 58..62 */
+
+    /* Upper weight of note 59 (-100c in a ±200c zone): x=0.25 → sin(π/8). */
+    const float w59 = (float)std::sin(0.25 * 1.5707963267948966);
+
+    /* First key (nothing held): fires at full strength. */
+    oscKeyOn(t, 59, 59);
+    CHECK(t->percEnvGain == 1.0f);
+    t->percEnvGain = 0.0f;                 /* its percussion decays away */
+
+    /* Staccato melody above the split, bass 59 still held: re-fires at
+     * (1 - w59) — GRADUAL suppression instead of the old sharp cutoff. */
+    oscKeyOn(t, 72, 72);
+    CHECK(t->percEnvGain == doctest::Approx(1.0f - w59).epsilon(0.001));
+
+    /* Legato second upper note: a held fully-upper key (72, weight 1)
+     * suppresses completely — authentic single-trigger. */
+    oscKeyOn(t, 74, 74);
+    CHECK(t->percEnvGain == 0.0f);
+
+    /* Release the melody (bass still held): the next attack re-fires,
+     * again scaled by the held bass's upper weight. */
+    oscKeyOff(t, 72, 72);
+    oscKeyOff(t, 74, 74);
+    oscKeyOn(t, 72, 72);
+    CHECK(t->percEnvGain == doctest::Approx(1.0f - w59).epsilon(0.001));
+
+    /* A held TOP-OF-ZONE note (62 = +200c, weight ~1) blocks like a normal
+     * upper key (not exactly 0: the split point 261.63 Hz is a hair off the
+     * table's note 60, so 62's weight is 1 minus float dust). */
+    oscKeyOff(t, 72, 72);
+    oscKeyOn(t, 62, 62);
+    t->percEnvGain = 0.0f;
+    oscKeyOn(t, 72, 72);
+    CHECK(t->percEnvGain < 1.0e-6f);
+
+    /* Without the split: stock single-trigger (any held upper key blocks). */
+    oscKeyOff(t, 72, 72);
+    oscKeyOff(t, 62, 62);
+    oscKeyOff(t, 59, 59);
+    t->splitEnabled = 0;
+    oscKeyOn(t, 40, 40);
+    CHECK(t->percEnvGain == 1.0f);         /* first key fires */
+    oscKeyOn(t, 45, 45);
+    CHECK(t->percEnvGain == 0.0f);         /* legato: fully blocked */
+    oscKeyOff(t, 40, 40);
+    oscKeyOff(t, 45, 45);
+
+    free(t);
+}
 #endif

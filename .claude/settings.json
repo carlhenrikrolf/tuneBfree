@@ -1,7 +1,20 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(cmake --build /Users/henrikaslund/Git/tuneBfree/build --config Release --target tuneBfree_Standalone)"
+    "deny": [
+      "Read(~/.ssh/**)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "credentials": {
+      "files": [
+        {
+          "path": "~/.ssh",
+          "mode": "deny"
+        }
+      ]
+    }
   }
 }

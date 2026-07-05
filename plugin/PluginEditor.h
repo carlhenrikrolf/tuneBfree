@@ -2,6 +2,11 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
+// Optional GUI-layout inspector (see CMakeLists.txt for how to install it).
+#if TUNEBFREE_MELATONIN
+ #include <melatonin_inspector/melatonin_inspector.h>
+#endif
+
 // ============================================================================
 //  TuneBfreeLookAndFeel
 //  ---------------------------------------------------------------------------
@@ -32,6 +37,9 @@ public:
     // All text buttons / switches.
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&,
                                bool isHighlighted, bool isDown) override;
+    // Handles the drawn speaker icon (header 🔊); everything else falls through.
+    void drawButtonText (juce::Graphics&, juce::TextButton&,
+                         bool isHighlighted, bool isDown) override;
 
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
 
@@ -55,8 +63,8 @@ public:
 struct ManualState
 {
     float drawbars[9] = { 7.f, 8.f, 8.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
-    int   vibratoMode = 2;     // 0 = off, 1 = vibrato, 2 = chorus
-    int   depth       = 2;     // 1..3
+    int   vibType     = 3;     // vibrato_type 0..5 = V1 C1 V2 C2 V3 C3
+    bool  vibOn       = false;
     bool  percOn      = false;
     bool  percFast    = false; // false = slow decay
     bool  percSoft    = false; // false = hard/normal volume
@@ -100,15 +108,18 @@ private:
     // --- SETTINGS block ---
     juce::Label      settingsTitle;        // "SETTINGS" section header
     juce::ComboBox   encodingBox;          // microtuning encoding (UI-only for now)
-    juce::TextButton channelsBtn { "CHANNELS" };                 // opens the channel popup
-    juce::TextButton loadSclBtn, loadKbmBtn;                      // SCALE / MAP loaders
+    juce::TextButton channelsBtn { "CHANNELS" };   // opens the channel popup
+    juce::TextButton loadBtn;                      // ONE loader: .scl AND .kbm together
+    juce::TextButton filesBtn { "FILES" };         // popup listing the loaded files
     juce::TextButton noteOnBtn { "NOTE ON" }, alwaysBtn { "ALWAYS" }; // 2-way toggle
 
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::File lastTuningDir { juce::File::getSpecialLocation (juce::File::userHomeDirectory) };
 
-    // After loading a file while the source isn't FILE, offer to switch to FILE.
-    void maybeOfferSwitchToFile();
+    // The user's NOTE ON / ALWAYS choice (editable under MTS ESP only). While the
+    // source is SYSEX the greyed toggle acts as an INDICATOR instead, following
+    // the last received message (realtime = ALWAYS, bulk dump = NOTE ON).
+    bool retuneAlwaysPref = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuningSidePanelContent)
 };
@@ -130,10 +141,6 @@ public:
     void paint   (juce::Graphics&) override;
     void resized () override;
 
-    void toggleTuningPanel ();
-    bool isTuningPanelShowing () const;
-    void refreshTuningPanel ();
-
     // Pull current parameter values into the controls (host automation / preset
     // recall). Called from the editor's timer; skips while the user is dragging.
     void syncFromParams ();
@@ -141,15 +148,13 @@ public:
 private:
     TuneBfreeAudioProcessor& proc;
 
-    // Tuning overlay (child component; hidden until TUNING is pressed).
-    TuningSidePanelContent tuningContent;
+    // Group titles (amber, like the TINKER/ROTOR pages).
+    juce::Label vibTitle, percTitle, timbTitle, drawTitle, fxTitle, leslieTitle;
 
-    // --- LFO: vibrato/chorus + depth ---
-    juce::TextButton vibratoBtn { "VIBRATO" };
-    juce::TextButton chorusBtn  { "CHORUS"  };
-    juce::TextButton modOffBtn  { "OFF"     };
-    juce::Slider     depthKnob;
-    juce::Label      depthLabel;
+    // --- VIBRATO: the B3 dial (V1 C1 V2 C2 V3 C3 = vibrato_type 0..5) + ON/OFF ---
+    juce::Slider     vibratoKnob;
+    juce::Label      vibratoValue;               // dial position read-out (V1..C3)
+    juce::TextButton vibOnBtn { "ON" }, vibOffBtn { "OFF" };
 
     // --- Envelope: percussion, as four 2-way vertical switches in a row ---
     juce::TextButton percOnBtn   { "ON"   }, percOffBtn  { "OFF"  };
@@ -161,44 +166,53 @@ private:
     juce::TextButton upperBtn     { "UPPER"     };
     juce::TextButton lowerBtn     { "LOWER"     };
     juce::TextButton bitimbralBtn { "BITIMBRAL" };
-    juce::TextButton learnBtn     { "LEARN"     };   // set split from played notes
+    juce::TextButton learnBtn     { "KEYPRESS"  };   // set split from held keys (silent)
     juce::Slider     splitKnob;
     juce::Label      splitLabel;
     juce::Label      splitNoteLabel;   // shows the split note, e.g. "C4"
     juce::Slider     crossfadeKnob;
     juce::Label      crossfadeLabel;
 
-    // --- Drawbars ---
+    // --- Drawbars (+ live JI-error read-outs, as on the TINKER page) ---
     juce::Slider drawbars[9];
     juce::Label  footageLabels[9];
+    juce::Label  drawbarErr[9];
 
     // --- Leslie ---
     juce::TextButton choraleBtn { "CHORALE" };
     juce::TextButton stopBtn    { "STOP"    };
     juce::TextButton tremoloBtn { "TREMOLO" };
+    juce::TextButton bypassBtn  { "BYPASS"  };   // whirl_bypass (red when engaged)
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
 
     // --- Expression (knob, aligned with crossfade) ---
     juce::Slider expressionKnob;
-    juce::Label  expressionLabel;
+    juce::Label  expressionLabel, expressionValue;
+    juce::Label  crossfadeValue;                 // cents read-out under CROSSFADE
 
     // --- Effects ---
     juce::Slider driveKnob;
-    juce::Label  driveLabel;
+    juce::Label  driveLabel, driveValue;
     juce::Slider reverbKnob;
-    juce::Label  reverbLabel;
+    juce::Label  reverbLabel, reverbValue;
 
     // UI-only manual state
     ManualState upperState, lowerState;
     bool        isUpper = true;
 
-    void setModButtons  (int mode);
+    void setVibControls (int type, bool on);
     void setPercButtons (bool on, bool fast, bool soft, bool third);
+    void setPercussionSectionEnabled (bool enabled);   // greyed under LOWER
     void updateSplitNoteLabel ();
+    void updateValueLabels ();
     ManualState captureStateFromControls () const;
     void updateControlsFromState (const ManualState& s);
     void switchToManual (bool toUpper);
 
     // --- engine wiring (control -> parameter) ---
+    // Right-click parameter menus (name / edit value / info) on the controls.
+    juce::OwnedArray<juce::MouseListener> paramMenus;
+
     void  setParam (const juce::String& id, float realValue);
     float getParam (const juce::String& id) const;
     void  applyLfoToParams ();      // VIBRATO/CHORUS/OFF + DEPTH -> vibrato, vibrato_type
@@ -221,10 +235,14 @@ struct LabelledKnob : public juce::Component
                const juce::String& captionText, const juce::String& valueSuffix = {},
                int decimalPlaces = 2);
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;   // right-click: parameter menu
 
     juce::Label  caption;
     juce::Slider knob;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+
+    juce::AudioProcessorValueTreeState* stateRef = nullptr;   // for the right-click menu
+    juce::String paramID;
 };
 
 // ============================================================================
@@ -260,22 +278,32 @@ private:
     LabelledKnob clickAtkLevel, clickMin, clickMax, clickRelLevel;
     LabelledKnob xtComp, xtXfmr, xtTerm, xtWiring;
 
-    // HARMONICS (row 3, left) — numerator over denominator per drawbar, plus a
-    // read-out of the deviation from the just-intonation harmonic in cents.
-    juce::Label  footage[9];
-    juce::Slider ratioTop[9], ratioBot[9];
-    juce::Label  ratioErr[9];
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> topAtt[9], botAtt[9];
+    // HARMONICS (row 3, left) — one Scala-style entry per drawbar ("3/2" = ratio,
+    // "702.23 c" = cents; bare integer = n/1), rotated 90° to read along the
+    // drawbar columns. A|C toggle below: A = AUTO (JI harmonic quantized to the
+    // tuning; entry greyed out), C = CUSTOM (entry used exactly, un-quantized).
+    // Error label: sounding pitch vs pure JI at the last-played note.
+    juce::Label      footage[9];
+    juce::Label      harmEntry[9];
+    juce::TextButton harmAutoBtn[9], harmCustomBtn[9];
+    juce::Label      ratioErr[9];
+
+    void commitHarmonicEntry (int i);
+    void refreshHarmonics();   // grey-out state, mode toggles, live error labels
 
     // TONE (row 3, right; left-aligned with CROSSTALK/PREAMP)
     LabelledKnob eqBass, eqBassSlope, eqTreble, eqTrebleSlope;
-    juce::Label    waveCap;
-    juce::ComboBox waveBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveAtt;
-    juce::TextButton resetBtn { "RESET" };
+    juce::Label      waveCap;
+    juce::TextButton sineBtn { "SINE" }, squareBtn { "SQUARE" }, triangleBtn { "TRIANGLE" };
+    juce::TextButton resetBtn { "ALL AUTO" };   // flip every drawbar to AUTO (entries kept)
 
-    void updateErrorLabel (int i);
+    // Right-click parameter menus on the combos / buttons / entries.
+    juce::OwnedArray<juce::MouseListener> paramMenus;
 
+public:
+    void syncFromParams();   // WAVE 3-way + harmonics follow the params / last note
+
+private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TinkerPage)
 };
 
@@ -296,13 +324,12 @@ public:
 private:
     TuneBfreeAudioProcessor& proc;
 
-    juce::Label hornMotorTitle, drumMotorTitle, micTitle, speedTitle,
-                fATitle, fBTitle, dFTitle, mixTitle;
+    juce::Label hornMotorTitle, drumMotorTitle, micTitle, fATitle, fBTitle, dFTitle;
 
     LabelledKnob hornSlow, hornFast, hornAccel, hornDecel, hornBrake;
     LabelledKnob drumSlow, drumFast, drumAccel, drumDecel, drumBrake;
-    LabelledKnob micAngle, micDist, hornWidth, drumWidth;   // MIC & CABINET
-    LabelledKnob hornLevel, hornLeak;                       // MIX
+    // MIC & CABINET (incl. the horn level/leak mix)
+    LabelledKnob micAngle, micDist, hornWidth, drumWidth, hornLevel, hornLeak;
 
     juce::Label    fACap, fBCap, dFCap;
     juce::ComboBox fAType, fBType, dFType;
@@ -311,14 +338,15 @@ private:
     LabelledKnob fBFreq, fBQ, fBGain;
     LabelledKnob dFFreq, dFQ, dFGain;
 
-    // SPEED — one 3-way per rotor + bypass. CHORALE=1 STOP=0 TREMOLO=2.
-    juce::Label      hornSwCap, drumSwCap;
+    // Per-rotor 3-way speed switches, inline on each rotor's motor row.
+    // CHORALE=1 STOP=0 TREMOLO=2. (BYPASS lives on the PLAY page's Leslie section.)
     juce::TextButton hornChorale { "CHORALE" }, hornStop { "STOP" }, hornTremolo { "TREMOLO" };
     juce::TextButton drumChorale { "CHORALE" }, drumStop { "STOP" }, drumTremolo { "TREMOLO" };
-    juce::TextButton bypassBtn { "BYPASS" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
 
     void setSpeedParam (const char* paramID, float v);
+
+    // Right-click parameter menus on the combos / speed switches.
+    juce::OwnedArray<juce::MouseListener> paramMenus;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RotaryPage)
 };
@@ -338,23 +366,39 @@ public:
     void paint   (juce::Graphics&) override;
     void resized () override;
     void timerCallback () override;
+    bool keyPressed (const juce::KeyPress&) override;   // cmd+I: Melatonin inspector
 
 private:
     TuneBfreeAudioProcessor& proc;
     TuneBfreeLookAndFeel laf;
 
+#if TUNEBFREE_MELATONIN
+    melatonin::Inspector inspector { *this, false };    // hidden until cmd+I
+#endif
+
     juce::Label      titleLabel;
     juce::TextButton tuningBtn { "TUNING" };
-    juce::TextButton panicBtn  { "PANIC" };   // release all notes (debugging); temporary
+    // CONTROL: MIDI CC + program-change management (the "preset" concept: a
+    // program = default values for the CC controllers). Placeholder for now.
+    juce::TextButton controlBtn { "CONTROL" };
+    juce::TextButton panicBtn  { "!" };       // release all notes
+    juce::TextButton volumeBtn;               // 🔊 — popup master volume slider
 
     // Page radio (header centre). PLAY is the default page.
-    juce::TextButton playBtn { "PLAY" }, tinkerBtn { "TINKER" }, rotaryBtn { "ROTARY" };
-    int currentPage = 0;                      // 0 = PLAY, 1 = TINKER, 2 = ROTARY
+    juce::TextButton playBtn { "PLAY" }, tinkerBtn { "TINKER" }, rotaryBtn { "ROTOR" };
+    int currentPage = 0;                      // 0 = PLAY, 1 = TINKER, 2 = ROTOR
     void setPage (int page);
 
     DefaultPage defaultPage;
     TinkerPage  tinkerPage;
     RotaryPage  rotaryPage;
+
+    // Tuning side panel: an editor-level overlay (independent of the page radio,
+    // so it survives page switches). Covers the window's right column.
+    TuningSidePanelContent tuningContent;
+
+    // Right-click parameter menu on the header volume button.
+    juce::OwnedArray<juce::MouseListener> paramMenus;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuneBfreeAudioProcessorEditor)
 };

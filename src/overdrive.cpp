@@ -592,7 +592,8 @@ void initPreamp(void *pa, void *m, double SampleRateD)
     useMIDIControlFunction(m, "xov.ctl_sagtobias", ctl_sagtoBias, pa);
     useMIDIControlFunction(m, "overdrive.character", setCharacter, pa);
     cfg_biased(pa, 0.5347);
-    pp->adwFb = 0.5821;
+    /* upstream 82931a9: no hardcoded adwFb here — it would clobber the
+     * xov.ctl_biased_fb config value (tuneBfree's BASS PRE param). */
     useMIDIControlFunction(m, "overdrive.enable", setCleanCC, pa);
     useMIDIControlFunction(m, "overdrive.inputgain", setInputGain, pa);
     useMIDIControlFunction(m, "overdrive.outputgain", setOutputGain, pa);

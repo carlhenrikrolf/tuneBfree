@@ -115,6 +115,20 @@ target_link_libraries(tuneBfree
 )
 
 # ---------------------------------------------------------------------------
+# Melatonin Inspector (GUI layout debugging). Auto-enabled when the submodule
+# is present. To install it (needs network, so run this yourself):
+#   git submodule add https://github.com/sudara/melatonin_inspector.git libs/melatonin_inspector
+#   git submodule update --init libs/melatonin_inspector
+# Then reconfigure cmake. Toggle the inspector with cmd+I in the editor.
+# ---------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/melatonin_inspector/CMakeLists.txt")
+    add_subdirectory(libs/melatonin_inspector)
+    target_link_libraries(tuneBfree PRIVATE melatonin_inspector)
+    target_compile_definitions(tuneBfree PRIVATE TUNEBFREE_MELATONIN=1)
+    message(STATUS "Melatonin Inspector enabled (cmd+I in the editor)")
+endif()
+
+# ---------------------------------------------------------------------------
 # Unit tests (doctest) — JUCE-free console runner.
 # Builds the DSP core + config stubs with -DTESTS, so the in-file TEST_CASE
 # blocks (src/tuning.cpp, src/tonegen.cpp) compile into one executable.
@@ -160,7 +174,7 @@ if(TUNEBFREE_BUILD_SNAPSHOT_TOOL)
     juce_add_console_app(tuneBfree_snapshot PRODUCT_NAME "tuneBfree_snapshot")
     juce_generate_juce_header(tuneBfree_snapshot)
     target_sources(tuneBfree_snapshot PRIVATE
-        plugin/SnapshotTool.cpp
+        scripts/SnapshotTool.cpp
         plugin/PluginProcessor.cpp
         plugin/PluginEditor.cpp
         plugin/midi_stubs.cpp
@@ -168,6 +182,7 @@ if(TUNEBFREE_BUILD_SNAPSHOT_TOOL)
     )
     target_include_directories(tuneBfree_snapshot PRIVATE
         src
+        plugin
         libs/MTS-ESP/Client
         libs/readerwriterqueue
         libs/tuning-library/include

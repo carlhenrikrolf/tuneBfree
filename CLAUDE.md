@@ -16,8 +16,8 @@ tuneBfree is a microtunable Hammond B3 tonewheel organ emulator, forked from set
 | Area | Status |
 |------|--------|
 | JUCE CMake build | Working -- builds Standalone, AU, VST3, CLAP on Mac |
-| PluginProcessor | Complete -- wraps all DSP, 38 APVTS parameters, MTS-ESP, silence detection |
-| PluginEditor | Phase 2 tuning UI: menu bar + TuningPanel (MTS-ESP status, .scl/.kbm load, cents table) |
+| PluginProcessor | Complete -- wraps all DSP, 112 APVTS parameters (see roadmap/PARAMETERS.md), MTS-ESP, silence detection, async rebuild, master volume, active-manual routing |
+| PluginEditor | Full 3-page GUI (2026-07): PLAY / TINKER / ROTOR + editor-level tuning overlay, right-click param menus (name/edit/info), header (panic, volume popup, CONTROL placeholder). See .claude/skills/gui.md |
 | CLAP note-off bug | Fixed in src/clap.cpp -- added MIDI dialect + CLAP_EVENT_MIDI handler |
 | Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md, gui.md, scala.md, mts-esp.md (OSC quirks documented) |
 | GUI mockup | roadmap/gui.json (OSC 1.30.3) -- v1 tested, screenshots in roadmap/screenshots/ |
@@ -39,8 +39,8 @@ The big Phase-2+ work is done and builds (Standalone; unit tests green). Full re
   (percussion upper-only; shared vibrato type, per-manual on/off).
 - **CHANNELS popup** governs active channels for MTS *and* FILE (OMNI + generic fallback).
 - **Verified by the user (2026-06-30):** plays correctly, split + channel selection work.
-  GUI polish + the other TUNING_PANEL.md tweaks deferred to a later iteration. Known
-  limitation: percussion single-trigger vs the crossfade (see the `setbfree` skill).
+  GUI polish + the other TUNING_PANEL.md tweaks landed 2026-07-04/05 (see the `gui`
+  skill). Percussion/crossfade limitation SOLVED (graded trigger — `setbfree` skill).
 
 ### Phase 1 tested and working (Mac, June 2026)
 
@@ -63,6 +63,20 @@ git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue libs/d
 # Configure + build (auto-copies AU to ~/Library/Audio/Plug-Ins/Components/)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
+
+# NOTE: the plain build above compiles EVERY format (Standalone, AU, VST3, CLAP)
+# plus the tests and the snapshot tool — slow. For iteration, build one target:
+cmake --build build --target tuneBfree_Standalone   # GUI/audio testing
+cmake --build build --target tuneBfree_AU           # GarageBand testing
+
+# Headless GUI screenshots (sandbox-safe; renders the editor in software):
+cmake --build build --target tuneBfree_snapshot
+build/tuneBfree_snapshot_artefacts/Release/tuneBfree_snapshot 1 build/snapshots/tinker.png
+#   page: 0 = PLAY, 1 = TINKER, 2 = ROTOR — output is a 2x PNG at parameter defaults
+
+# Melatonin Inspector (GUI layout debugging, cmd+I in the editor) — enabled
+# automatically once the submodule exists (network needed, run manually):
+#   git submodule add https://github.com/sudara/melatonin_inspector.git libs/melatonin_inspector
 ```
 
 ### Tests
@@ -96,7 +110,7 @@ tuneBfree/
 +-- CMakeLists.txt          <- JUCE build (root level, new)
 +-- plugin/                 <- JUCE plugin wrapper (new)
 |   +-- PluginProcessor.h/cpp
-|   +-- PluginEditor.h/cpp  (Phase 3 placeholder, not yet used)
+|   +-- PluginEditor.h/cpp  <- 3-page GUI (PLAY/TINKER/ROTOR) + tuning overlay
 |   +-- midi_stubs.cpp      <- stubs for setBfree config/MIDI-CC callbacks
 +-- src/                    <- DSP core (setBfree, unchanged except clap.cpp)
 |   +-- tonegen.cpp/h       <- tonewheel oscillator bank
@@ -129,34 +143,27 @@ tuneBfree/
 
 ---
 
-## PluginProcessor parameters (38 total)
+## PluginProcessor parameters (112 total)
 
-Indices match src/clap.cpp for compatibility.
+Full audit (exposed / hidden / dead / stubbed): `roadmap/PARAMETERS.md`.
+Index map (P_* defines in plugin/PluginProcessor.h):
 
-| Index | ID | Range | Default | Maps to |
-|-------|----|-------|---------|---------|
-| 0-8 | drawbar0-8 | 0-8 (step 1) | 7,8,8,0... | setDrawBar |
-| 9 | vibrato | 0-1 | 0 | setVibratoUpper |
-| 10 | vibrato_type | 0-5 | 0 | setVibratoFromInt |
-| 11 | drum | 0-2 | 1 | useRevOption |
-| 12 | horn | 0-2 | 1 | useRevOption |
-| 13 | overdrive | 0-1 | 0 | preamp->isClean |
-| 14 | character | 0-1 | 0 | fsetCharacter |
-| 15 | reverb_mix | 0-1 | 0.1 | setReverbMix |
-| 16 | percussion | 0-1 | 0 | setPercussionEnabled |
-| 17 | percussion_vol | 0-1 | 0 | setPercussionVolume |
-| 18 | percussion_dec | 0-1 | 0 | setPercussionFast |
-| 19 | percussion_har | 0-1 | 0 | setPercussionFirst |
-| 20-28 | ratio_top_0-8 | 0-1000 | 1,3,1,2,3,4,5,6,8 | targetRatio[i] |
-| 29-37 | ratio_bot_0-8 | 0-1000 | 2,2,1,1,1,1,1,1,1 | targetRatio[i] |
+| Indices | Group |
+|---------|-------|
+| 0-19 | CLAP-era basics: drawbars, vibrato(+type), drum/horn, overdrive/character, reverb_mix, percussion switches |
+| 20-37 | HARMONICS: harm_cents_0-8 + harm_auto_0-8 (replaced ratio_top/bot; AUTO = JI quantized to tuning, CUSTOM = exact cents w/ injected wheels) |
+| 38-51 | expression, split enable/point/width, lower_vibrato, lower drawbars |
+| 52-80 | TINKER: scanner, percussion physics, key click, crosstalk, EQ spline, wave, preamp |
+| 81-109 | ROTOR: bypass, motors, filters, mic & cabinet |
+| 110-111 | master_volume (header volume popup), active_manual (unitimbral routing) |
 
 ---
 
 ## Key architectural decisions
 
-- **Single manual only** -- The 3-manual MIDI channel split is removed in Phase 2.
-  Remaining manual is the upper manual (has percussion, vibrato).
-  Multi-manual setups: run multiple instances.
+- **Two manuals, pitch-split** -- upper + lower banks; BITIMBRAL splits by sounding
+  pitch with an equal-power crossfade; unitimbral mode routes to the bank selected by
+  UPPER/LOWER (`active_manual`). Both manuals always wired; percussion is upper-only.
 - **MTS-ESP channels** -- Tracking double previousFrequency[16][128] (all 16 MIDI channels
   x 128 notes). Full per-channel tuning at oscKeyOn level is Phase 2 (requires tonegen changes).
 - **Silence detection** -- processBlock skips DSP when activeNoteCount == 0 and silent

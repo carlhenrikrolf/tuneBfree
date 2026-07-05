@@ -371,6 +371,21 @@ struct b_tonegen {
  */
 	float percEnvGain;
 
+	/* HARMONICS (set before initToneGenerator): busCustom[b] = drawbar b uses a
+	 * CUSTOM (un-quantized) pitch; wheelInjected[i] = frequency[i] was injected
+	 * for a CUSTOM drawbar rather than derived from the tuning. AUTO drawbars
+	 * must ignore injected wheels, otherwise one drawbar's CUSTOM toggle would
+	 * shift the quantization of the others. */
+	char busCustom[9];
+	char wheelInjected[NOF_FREQS];
+
+	/* Swell-gain smoothing (upstream 6efe51e, issue #96): the swell pedal /
+	 * expression gain is chased through a ~25 Hz one-pole LPF per sample so
+	 * fast pedal moves don't zipper. */
+	float gainTimeConstant; /**< LPF coefficient, set from the sample rate */
+	float targetGain;       /**< where the output gain is heading */
+	float currentGain;      /**< smoothed gain actually applied */
+
 	/**
  * Runtime: The starting value of percEnvGain when all keys are released.
  */

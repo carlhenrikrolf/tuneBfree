@@ -207,19 +207,55 @@ routing presses the upper key `slot` and/or lower key `gamutSize+slot`; `keyRefC
 ref-counts engine keys so shared pitches don't cut each other. B3-like: percussion
 upper-only, one shared vibrato type with per-manual on/off.
 
-**Percussion is single-trigger — and it fights the crossfade (known limitation).**
-Percussion is ONE global envelope (`percEnvGain`) that decays once a note sounds and
-**re-arms only when `upperKeyCount == 0`** (all upper keys up — `oscGenerateFragment` end).
-The monophonic-staccato "gradient" (low→high = more percussion) works because each note
-re-arms *and* the crossfade scales its amplitude. But a held crossfade-zone note presses an
-upper key → `upperKeyCount` never hits 0 → the envelope never re-arms → subsequent staccato
-notes get no percussion, with a **sharp edge** at the zone's lower boundary. This is
-fundamental to single-trigger + one envelope + a continuous crossfade: you can't make it
-gradual without either (A) leaving it, or (B) per-voice percussion envelopes — which breaks
-single-trigger (every legato note would speak) and needs a percussion-path rewrite (the
-engine applies percussion to the summed bus, not per note). "Don't count mostly-lower held
-notes" backfires — their own percussion would then sustain instead of decaying. Left as (A);
-an option C without side-effects is an open question (user, 2026-06-30).
+**Percussion trigger — graded and split-aware (solved 2026-07-04, user-confirmed
+by ear 2026-07-05).** ONE global envelope, but the re-arm is now event-based at
+key-on: `percEnvGain = reset × (1 − max upper crossfade weight among held keys)`.
+A held fully-upper key (weight 1) → exactly zero re-fire = authentic B3
+single-trigger; a held crossfade-zone key suppresses only in proportion to its
+upper weight, so percussion FADES across the zone instead of cutting off. No
+counters — oscKeyOn scans `activeKeys[]`; oscKeyOff needs no mirror; the old
+continuous "reset while all upper keys up" at fragment end is gone. Known cost:
+a new attack faintly re-pings held zone-notes' percussion (one shared envelope);
+the next step up would be per-voice envelopes. Doctest: "Percussion trigger
+fades gradually over the keyboard-split crossfade".
+
+---
+
+## tuneBfree 2.1 engine changes (2026-07-04/05)
+
+- **HARMONICS rework**: params `harm_cents_0-8` + `harm_auto_0-8` replaced the
+  ratio_top/bot pairs at indices 20-37. AUTO = pure JI harmonic quantized to the
+  tuning (stock behaviour); CUSTOM = exact cents — its wheel frequencies are
+  INJECTED into the table pre-init (`PluginProcessor::injectCustomWheels`).
+  `b_tonegen.busCustom[9]` + `wheelInjected[NOF_FREQS]`: AUTO drawbars SKIP
+  injected wheels in the closest-wheel search (else one CUSTOM toggle shifts the
+  other drawbars' quantization — was a live bug). UI error labels mimic the same
+  search on a post-rebuild snapshot (`getHarmonicErrorCents`, vs pure JI, at the
+  last-played note).
+- **Both manuals are ALWAYS wired** (`applyDefaultConfiguration`): split →
+  crossfade gains; unitimbral → both at full gain, and the `active_manual`
+  param (index 111) routes note-ons to the upper or lower bank — instant
+  switching, no rebuild. Vibrato ON/OFF is per manual (`vibrato` /
+  `lower_vibrato`); the dial (vibrato_type) is the one shared scanner.
+- **Percussion pitch = the drawbar's pitch**: percussion taps buses 3 (4′) and
+  4 (2⅔′) — the same wheels as those drawbars, so it inherits scale
+  quantization AND the drawbar's AUTO/CUSTOM setting.
+- **Swell LPF** ported from upstream `6efe51e` (#96): output gain chased at
+  ~25 Hz per sample (`targetGain`/`currentGain`/`gainTimeConstant`), carried
+  across engine swaps. Upstream `82931a9` (initPreamp bias clobber) also
+  ported. Upstream is otherwise ~6 irrelevant commits ahead — never merge
+  wholesale; see `roadmap/PARAMETERS.md` for the b_* directory map (incl.
+  b_conv's Leslie IRs and b_reverb = the original Schroeder we replaced with
+  Airwindows MatrixVerb).
+- **Whirl live-set gotchas**: after changing RPMs call `computeRotationSpeeds`
+  then RE-ASSERT the speed via `useRevOption` (internal revSelect is stale);
+  width params are 0=mono..1=stereo, INVERTED into `fsetHorn/DrumMicWidth`;
+  `mic_dist` floor 25 cm (below the rotor radii the mic sits inside the
+  circle); `micAngle = 1 − degrees/180`.
+- **SYSEX**: every MIDI Tuning Standard message parses via
+  `MTS_ParseMIDIDataU`; `lastSysexKind` (F0 7F realtime vs F0 7E dump) drives
+  the tuning panel's greyed NOTE ON/ALWAYS indicator. All tuning changes apply
+  via the async rebuild (cuts sounding notes — the GUI's red-LED rule).
 
 ---
 

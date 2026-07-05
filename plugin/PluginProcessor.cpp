@@ -61,21 +61,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{ "percussion_har", 1 }, "Percussion 2nd/3rd", false));
 
-    // Drawbar harmonic ratios: top/bottom pairs for each of the 9 drawbars
-    static const float defaultRatioTop[9] = { 1, 3, 1, 2, 3, 4, 5, 6, 8 };
-    static const float defaultRatioBot[9] = { 2, 2, 1, 1, 1, 1, 1, 1, 1 };
+    // HARMONICS (drawbar fine-tuning): per drawbar, the CUSTOM interval in cents
+    // above the key fundamental (defaults = the pure JI harmonics) and an AUTO
+    // flag (JI quantized to the current tuning — the stock behaviour).
     for (int i = 0; i < 9; i++) {
-        // Integer steps: the ratios are integer fractions (n/d), and the TINKER
-        // HARMONICS boxes edit them as whole numbers.
+        const float jiCents = 1200.0f * (float) std::log2(TuneBfreeAudioProcessor::stockJIRatio[i]);
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID{ "ratio_top_" + juce::String(i), 1 },
-            "Ratio Top " + juce::String(i),
-            juce::NormalisableRange<float>(0.0f, 1000.0f, 1.0f), defaultRatioTop[i]));
-        params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID{ "ratio_bot_" + juce::String(i), 1 },
-            "Ratio Bottom " + juce::String(i),
-            juce::NormalisableRange<float>(1.0f, 1000.0f, 1.0f), defaultRatioBot[i]));
+            juce::ParameterID{ "harm_cents_" + juce::String(i), 1 },
+            "Harmonic " + juce::String(i) + " (cents)",
+            juce::NormalisableRange<float>(-4800.0f, 4800.0f), jiCents));
     }
+    for (int i = 0; i < 9; i++)
+        params.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{ "harm_auto_" + juce::String(i), 1 },
+            "Harmonic " + juce::String(i) + " Auto", true));
 
     // Expression / swell pedal (the Hammond expression pedal — a volume control).
     // Default 1.0 = full, matching setBfree's out-of-box swell level.
@@ -198,12 +197,147 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
 
     addFloat("horn_level", "Horn Level",        0.0f, 1.0f, 0.7f);
     addFloat("horn_leak",  "Horn Leak",         0.0f, 1.0f, 0.15f);
-    addFloat("horn_width", "Horn Mic Width",   -1.0f, 1.0f, 0.0f);
-    addFloat("drum_width", "Drum Mic Width",   -1.0f, 1.0f, 0.0f);
+    // Widths: 0 = mono (one mic), 1 = full stereo (engine field is inverted).
+    addFloat("horn_width", "Horn Stereo Width", 0.0f, 1.0f, 1.0f);
+    addFloat("drum_width", "Drum Stereo Width", 0.0f, 1.0f, 1.0f);
     addFloat("mic_angle",  "Mic Angle (deg)",   0.0f, 180.0f, 180.0f);
-    addFloat("mic_dist",   "Mic Distance (cm)", 9.0f, 200.0f, 42.0f, 0.0f, 42.0f);
+    // Distance floor = above the rotor radii (horn 17 / drum 22 cm) — below that
+    // the virtual mic sits INSIDE the rotor circle and the geometry inverts.
+    addFloat("mic_dist",   "Mic Distance (cm)", 25.0f, 200.0f, 42.0f, 0.0f, 42.0f);
+
+    // Master volume (header 🔊): plain output gain after the whole chain.
+    addFloat("master_volume", "Master Volume", 0.0f, 1.0f, 1.0f);
+
+    // Which manual sounds in UNITIMBRAL mode (split off): upper or lower bank.
+    // Both manuals are always wired in the engine, so this is pure routing.
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ "active_manual", 1 }, "Active Manual (Lower)", false));
 
     return { params.begin(), params.end() };
+}
+
+// ============================================================================
+// HARMONICS helpers
+// ============================================================================
+
+// Pure JI harmonic ratio of each drawbar: 16' 5⅓' 8' 4' 2⅔' 2' 1⅗' 1⅓' 1'.
+const double TuneBfreeAudioProcessor::stockJIRatio[9] = { 0.5, 1.5, 1, 2, 3, 4, 5, 6, 8 };
+
+bool TuneBfreeAudioProcessor::computeTargetRatios(double outRatio[], bool outCustom[]) const
+{
+    bool anyCustom = false;
+    for (int b = 0; b < 9; b++) {
+        const bool isAuto = paramPtrs[P_HARM_AUTO_MIN + b]->load() > 0.5f;
+        outCustom[b] = ! isAuto;
+        outRatio[b]  = isAuto ? stockJIRatio[b]
+                              : std::pow(2.0, (double) paramPtrs[P_HARM_CENTS_MIN + b]->load() / 1200.0);
+        anyCustom = anyCustom || ! isAuto;
+    }
+    return anyCustom;
+}
+
+// The engine wires each (key, drawbar) contact to the wheel whose frequency is
+// closest to fundamental × targetRatio (tonegen.cpp, applyManualDefaults). AUTO
+// drawbars are served by the scale-derived wheels — that's the quantization.
+// CUSTOM drawbars get their exact frequencies inserted here so the same search
+// finds them un-quantized. Only the extended region [gamutSize..] is touched;
+// slot indices point into [0..gamutSize) and must not move.
+void TuneBfreeAudioProcessor::injectCustomWheels(double* freqTable, char* injectedFlags,
+                                                 int gamutSize, int& nofWheels,
+                                                 const double targetRatio[], const bool custom[])
+{
+    std::vector<double> want;
+    for (int b = 0; b < 9; b++) {
+        if (! custom[b]) continue;
+        for (int k = 0; k < gamutSize; k++) {
+            const double f = freqTable[k] * targetRatio[b];
+            if (f >= 12.0 && f <= 20000.0)   // engine clamps wheels below 12 Hz anyway
+                want.push_back(f);
+        }
+    }
+    memset(injectedFlags, 0, NOF_FREQS);
+    if (want.empty()) return;
+
+    // Merge with the extended region, sort, dedup within 0.3 cents (inaudible).
+    // Origin is tracked through the merge: scale-derived wheels sort FIRST at
+    // equal pitch, and a duplicate that exists in the scale clears the injected
+    // flag — a CUSTOM pitch that coincides with the tuning is just the tuning.
+    struct W { double f; bool inj; };
+    std::vector<W> pool;
+    pool.reserve((size_t)(NOF_FREQS - gamutSize) + want.size());
+    for (int i = gamutSize; i < NOF_FREQS; i++) pool.push_back({ freqTable[i], false });
+    for (double f : want)                       pool.push_back({ f, true });
+    std::sort(pool.begin(), pool.end(),
+              [](const W& a, const W& b) { return a.f < b.f || (a.f == b.f && !a.inj && b.inj); });
+    const double tol = std::pow(2.0, 0.3 / 1200.0);
+    std::vector<W> merged;
+    merged.reserve(pool.size());
+    for (const W& w : pool)
+    {
+        if (merged.empty() || w.f > merged.back().f * tol)
+            merged.push_back(w);
+        else if (! w.inj)
+            merged.back().inj = false;   // scale wheel absorbs the duplicate
+    }
+
+    const int count = std::min((int) merged.size(), NOF_FREQS - gamutSize);
+    for (int i = 0; i < count; i++)
+    {
+        freqTable[gamutSize + i]     = merged[i].f;   // overflow drops the highest extras
+        injectedFlags[gamutSize + i] = merged[i].inj ? 1 : 0;
+    }
+
+    // Active wheel count: the stock 8.5×-top rule, extended to cover the highest
+    // injected frequency plus one wheel beyond it (the engine discards matches on
+    // the very last wheel as "end of search range").
+    const double top   = freqTable[gamutSize - 1] * 8.5;
+    const double need  = *std::max_element(want.begin(), want.end()) * 1.001;
+    const double limit = std::max(top, need);
+    int m = 0;
+    while (m < count && freqTable[gamutSize + m] < limit) m++;
+    if (m < count) m++;
+    nofWheels = std::min(gamutSize + m, NOF_WHEELS);
+}
+
+void TuneBfreeAudioProcessor::publishUIWheelSnapshot(const b_tonegen* t, const double targetRatio[])
+{
+    juce::SpinLock::ScopedLockType sl(uiWheelLock);
+    const int n = juce::jlimit(0, NOF_FREQS, t->nofWheels);
+    uiWheelFreqs.assign(t->frequency, t->frequency + n);
+    uiWheelInjected.assign(t->wheelInjected, t->wheelInjected + n);
+    for (int b = 0; b < 9; b++) {
+        uiTargetRatio[b] = targetRatio[b];
+        uiBusCustom[b]   = t->busCustom[b];
+    }
+}
+
+double TuneBfreeAudioProcessor::getHarmonicErrorCents(int b, double refHz) const
+{
+    if (b < 0 || b > 8 || refHz <= 0.0) return 0.0;
+    juce::SpinLock::ScopedLockType sl(uiWheelLock);
+    if (uiWheelFreqs.empty()) return 0.0;
+    // Mimic the engine's choice: the wheel closest (in cents) to the requested
+    // pitch — and, exactly like the engine, AUTO drawbars skip injected wheels.
+    const double target = refHz * uiTargetRatio[b];
+    double best = uiWheelFreqs[0], bestDiff = 1.0e30;
+    for (size_t i = 0; i < uiWheelFreqs.size(); i++) {
+        if (!uiBusCustom[b] && i < uiWheelInjected.size() && uiWheelInjected[i])
+            continue;
+        const double d = std::fabs(std::log2(uiWheelFreqs[i] / target));
+        if (d < bestDiff) { bestDiff = d; best = uiWheelFreqs[i]; }
+    }
+    // Error is always reported against the PURE JI harmonic (the spec's reference).
+    return 1200.0 * std::log2(best / (refHz * stockJIRatio[b]));
+}
+
+void TuneBfreeAudioProcessor::setHarmonicEntryText(int i, const juce::String& s)
+{
+    apvts.state.setProperty("harmEntry" + juce::String(i), s, nullptr);
+}
+
+juce::String TuneBfreeAudioProcessor::getHarmonicEntryText(int i) const
+{
+    return apvts.state.getProperty("harmEntry" + juce::String(i), juce::String()).toString();
 }
 
 // ============================================================================
@@ -232,8 +366,8 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     paramPtrs[P_PERCUSSION_HAR] = apvts.getRawParameterValue("percussion_har");
 
     for (int i = 0; i < 9; i++) {
-        paramPtrs[P_RATIO_TOP_MIN + i] = apvts.getRawParameterValue("ratio_top_" + juce::String(i));
-        paramPtrs[P_RATIO_BOT_MIN + i] = apvts.getRawParameterValue("ratio_bot_" + juce::String(i));
+        paramPtrs[P_HARM_CENTS_MIN + i] = apvts.getRawParameterValue("harm_cents_" + juce::String(i));
+        paramPtrs[P_HARM_AUTO_MIN + i]  = apvts.getRawParameterValue("harm_auto_" + juce::String(i));
     }
 
     paramPtrs[P_EXPRESSION] = apvts.getRawParameterValue("expression");
@@ -262,6 +396,7 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
         "horn_filter_b_type", "horn_filter_b_freq", "horn_filter_b_q", "horn_filter_b_gain",
         "drum_filter_type", "drum_filter_freq", "drum_filter_q", "drum_filter_gain",
         "horn_level", "horn_leak", "horn_width", "drum_width", "mic_angle", "mic_dist",
+        "master_volume", "active_manual",
     };
     for (int i = P_SCANNER_HZ; i < P_COUNT; i++)
         paramPtrs[i] = apvts.getRawParameterValue(extraIds[i - P_SCANNER_HZ]);
@@ -289,21 +424,28 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     for (int i = 0; i < NOF_FREQS; ++i)
         standardFrequencies[i] = 440.0 * std::pow(2.0, (i - 69) / 12.0);
 
-    // Build targetRatio from current parameter values
+    // Build targetRatio from the HARMONICS params (AUTO → JI, CUSTOM → cents).
+    // CUSTOM drawbars additionally get their exact wheels injected.
     double targetRatio[NOF_DRAWBARS] = {};
-    for (int i = 0; i < NOF_DRAWBARS; i++) {
-        float top = paramPtrs[P_RATIO_TOP_MIN + i]->load();
-        float bot = paramPtrs[P_RATIO_BOT_MIN + i]->load();
-        targetRatio[i] = (bot > 0.0) ? (top / bot) : 1.0;
-        previousRatio[i] = targetRatio[i];
-    }
+    bool   customDrawbar[NOF_DRAWBARS] = {};
+    const bool anyCustom = computeTargetRatios(targetRatio, customDrawbar);
 
     synth = allocTonegen();
     applyEngineBuildParams(synth);
-    initToneGenerator(synth, nullptr, sampleRate, targetRatio);
+    for (int b = 0; b < 9; b++) synth->busCustom[b] = customDrawbar[b] ? 1 : 0;
+    if (anyCustom) {
+        static double initTable[NOF_FREQS];   // one-time init: static is fine
+        memcpy(initTable, standardFrequencies, sizeof(initTable));
+        int nw = 256;
+        injectCustomWheels(initTable, synth->wheelInjected, 128, nw, targetRatio, customDrawbar);
+        initToneGenerator(synth, nullptr, sampleRate, targetRatio, initTable, 128, nw);
+    } else {
+        initToneGenerator(synth, nullptr, sampleRate, targetRatio);
+    }
     init_vibrato(&synth->inst_vibrato, sampleRate);
     // Percussion decay constants need SampleRateD, so recompute post-init.
     setFastPercussionDecay(synth, synth->percFastDecaySeconds);
+    publishUIWheelSnapshot(synth, targetRatio);
 
     preampModule = (b_preamp*) allocPreamp();
     initPreamp(preampModule, nullptr, sampleRate);
@@ -319,6 +461,8 @@ void TuneBfreeAudioProcessor::initDSP(double sampleRate)
     memset(soundingUpper, 0xFF, sizeof(soundingUpper));   // all -1: nothing sounding
     memset(soundingLower, 0xFF, sizeof(soundingLower));
     memset(keyRefCount, 0, sizeof(keyRefCount));
+    memset(learnHeld, 0, sizeof(learnHeld));
+    learnHeldCount = 0;
     activeNoteCount = 0;
     samplesSinceLastNote = 0;
 
@@ -416,12 +560,11 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
 {
     b_tonegen* fresh = allocTonegen();
 
+    // HARMONICS: AUTO → JI ratio (quantizes to the scale wheels); CUSTOM → exact
+    // cents (its wheels are injected below, after the gamut is built).
     double targetRatio[NOF_DRAWBARS] = {};
-    for (int i = 0; i < NOF_DRAWBARS; i++) {
-        float top = paramPtrs[P_RATIO_TOP_MIN + i]->load();
-        float bot = paramPtrs[P_RATIO_BOT_MIN + i]->load();
-        targetRatio[i] = (bot > 0.0) ? (top / bot) : 1.0;
-    }
+    bool   customDrawbar[NOF_DRAWBARS] = {};
+    const bool anyCustom = computeTargetRatios(targetRatio, customDrawbar);
 
     // Pick the frequency table for the active tuning source. STANDARD uses plain 12-TET;
     // FILE builds the gamut from the per-channel .kbm grid; MTS/SYSEX from the MTS client.
@@ -435,7 +578,9 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     int    gamutNw   = 256;   // tonewheels to build
     bool   useGamut  = false;
     if (src == TS_STANDARD) {
-        freqSrc = standardFrequencies;   // identity slotIndex from initToneGenerator
+        // Copy (not point at) the 12-TET table so CUSTOM wheels can be injected.
+        memcpy(gamutTable, standardFrequencies, sizeof(gamutTable));
+        freqSrc = gamutTable;            // identity slotIndex from initToneGenerator
     }
     else if (src == TS_FILE && hasLocalTuning.load(std::memory_order_acquire)) {
         buildFileGamut(gamutTable, gamutSlot, gamutSz, gamutNw);
@@ -448,8 +593,16 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     // gamutSize / nofWheels must be passed in: applyManualDefaults (inside
     // initToneGenerator) wires gamutSize keys per manual and searches nofWheels wheels.
     // An empty gamut (size 0) falls back to the default 128/256 with the standard table.
-    const int initGamut = (useGamut && gamutSz > 0) ? gamutSz : 128;
-    const int initWheels = (useGamut && gamutSz > 0) ? gamutNw : 256;
+    int initGamut = (useGamut && gamutSz > 0) ? gamutSz : 128;
+    int initWheels = (useGamut && gamutSz > 0) ? gamutNw : 256;
+
+    // CUSTOM (un-quantized) drawbars: insert their exact wheel frequencies into
+    // the extended region so the closest-wheel search finds them. AUTO drawbars
+    // ignore the injected wheels (busCustom / wheelInjected flags).
+    for (int b = 0; b < 9; b++) fresh->busCustom[b] = customDrawbar[b] ? 1 : 0;
+    if (anyCustom)
+        injectCustomWheels(gamutTable, fresh->wheelInjected, initGamut, initWheels,
+                           targetRatio, customDrawbar);
 
     // Keyboard split: set on the engine BEFORE init so applyDefaultConfiguration wires
     // (and crossfade-scales) the lower manual. Read from the params.
@@ -483,6 +636,9 @@ void TuneBfreeAudioProcessor::performBackgroundRebuild()
     inferredPeriod.store(period);
     inferredScaleSize.store(size);
 
+    // HARMONICS error read-outs work from this snapshot (message thread).
+    publishUIWheelSnapshot(fresh, targetRatio);
+
     // Publish. If the audio thread never consumed a previous build, free it here
     // (on the worker) rather than leak it.
     if (auto* stale = pendingSynth.exchange(fresh, std::memory_order_release))
@@ -502,8 +658,10 @@ void TuneBfreeAudioProcessor::applyPendingRebuild()
         return;
 
     // Carry over live state the worker couldn't know about: the swell-pedal gain
-    // (expression knob / CC 7 / CC 11) and the vibrato routing.
+    // (expression knob / CC 7 / CC 11), its smoothed chase value, and the
+    // vibrato routing.
     fresh->swellPedalGain = synth->swellPedalGain;
+    fresh->currentGain    = synth->currentGain;
     fresh->newRouting     = synth->newRouting;
 
     b_tonegen* old = synth;
@@ -536,6 +694,11 @@ void TuneBfreeAudioProcessor::allNotesOff()
     memset(soundingLower, 0xFF, sizeof(soundingLower));
     memset(keyRefCount, 0, sizeof(keyRefCount));
     activeNoteCount = 0;
+    // Also abort a KEYPRESS (learn) session so its silent notes can't linger armed.
+    memset(learnHeld, 0, sizeof(learnHeld));
+    learnHeldCount = 0;
+    learnSessionActive = false;
+    learnSplitActive.store(false, std::memory_order_release);
 }
 
 // Size the tonewheel pool to the gamut (Solution B): enough wheels to cover the gamut
@@ -773,15 +936,23 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
     // --- ROTARY: whirl physics (live; same setters the MIDI CC handlers use) ---
     else if (index >= P_WHIRL_BYPASS && index <= P_MIC_DIST && whirlModule != nullptr) {
         b_whirl* w = whirlModule;
+        // computeRotationSpeeds ends with setRevSelect(w, w->revSelect) — an internal
+        // index this plugin never drives (we use useRevOption), so it would re-apply
+        // a stale "stop". Re-assert the current horn/drum speed selection after it.
+        auto recomputeSpeeds = [this, w] {
+            computeRotationSpeeds(w);
+            useRevOption(w, (int) std::floor(cachedParams[P_DRUM])
+                            + 3 * (int) std::floor(cachedParams[P_HORN]), 2);
+        };
         switch (index) {
             case P_WHIRL_BYPASS: w->bypass = value > 0.5f ? 1 : 0;                    break;
-            case P_HORN_SLOW:    w->hornRPMslow = value; computeRotationSpeeds(w);    break;
-            case P_HORN_FAST:    w->hornRPMfast = value; computeRotationSpeeds(w);    break;
+            case P_HORN_SLOW:    w->hornRPMslow = value; recomputeSpeeds();           break;
+            case P_HORN_FAST:    w->hornRPMfast = value; recomputeSpeeds();           break;
             case P_HORN_ACCEL:   w->hornAcc = value;                                  break;
             case P_HORN_DECEL:   w->hornDec = value;                                  break;
             case P_HORN_BRAKE:   w->hnBrakePos = value;                               break;
-            case P_DRUM_SLOW:    w->drumRPMslow = value; computeRotationSpeeds(w);    break;
-            case P_DRUM_FAST:    w->drumRPMfast = value; computeRotationSpeeds(w);    break;
+            case P_DRUM_SLOW:    w->drumRPMslow = value; recomputeSpeeds();           break;
+            case P_DRUM_FAST:    w->drumRPMfast = value; recomputeSpeeds();           break;
             case P_DRUM_ACCEL:   w->drumAcc = value;                                  break;
             case P_DRUM_DECEL:   w->drumDec = value;                                  break;
             case P_DRUM_BRAKE:   w->drBrakePos = value;                               break;
@@ -799,8 +970,11 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
             case P_DF_GAIN:      fsetDrumFilterGain(w, value);                        break;
             case P_HORN_LEVEL:   w->hornLevel = value; w->leakage = w->leakLevel * w->hornLevel; break;
             case P_HORN_LEAK:    w->leakLevel = value; w->leakage = w->leakLevel * w->hornLevel; break;
-            case P_HORN_WIDTH:   fsetHornMicWidth(w, value);                          break;
-            case P_DRUM_WIDTH:   fsetDrumMicWidth(w, value);                          break;
+            // Param is 0 = mono .. 1 = stereo; the engine field is 0 = stereo and
+            // ±1 = collapsed to one mic, so invert (positive side only — the sign
+            // merely picks WHICH mic to collapse to, which isn't musically useful).
+            case P_HORN_WIDTH:   fsetHornMicWidth(w, 1.0f - value);                   break;
+            case P_DRUM_WIDTH:   fsetDrumMicWidth(w, 1.0f - value);                   break;
             case P_MIC_ANGLE:    w->micAngle = 1.0 - (double) value / 180.0;          break;
             case P_MIC_DIST:     w->micDistCm = value; computeOffsets(w);             break;
             default: break;
@@ -887,7 +1061,7 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         if (val != cachedParams[i]) {
             cachedParams[i] = val;
             applyParam(i, val);
-            if ((i >= P_RATIO_TOP_MIN && i <= P_RATIO_BOT_MAX) ||
+            if ((i >= P_HARM_CENTS_MIN && i <= P_HARM_AUTO_MAX) ||   // harmonics
                 i == P_SPLIT_ENABLE || i == P_SPLIT_POINT || i == P_SPLIT_WIDTH ||
                 (i >= P_SCANNER_HZ && i <= P_SCANNER_V3) ||          // scanner tables
                 (i >= P_CLICK_ATK_MODEL && i <= P_WAVE))             // click/xtalk/EQ/wave
@@ -954,6 +1128,10 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             // Forward raw sysex to MTS-ESP client. Handles all MTS tuning bulk-dump and
             // single-note retune formats, allowing tuning without an MTS-ESP master plug-in.
             MTS_ParseMIDIDataU(mtsClient, msg.getRawData(), msg.getRawDataSize());
+            // MIDI-tuning message kind, for the panel's NOTE ON/ALWAYS indicator:
+            // F0 7F .. 08 = realtime (retunes sounding notes); F0 7E .. 08 = bulk dump.
+            if (const auto* d = msg.getRawData(); msg.getRawDataSize() >= 5 && d[3] == 0x08)
+                lastSysexKind.store(d[1] == 0x7F ? 1 : 0);
             if (sourceUsesMTS) {
                 lastTuningChangeMs.store(juce::Time::currentTimeMillis());
                 requestRebuild();
@@ -999,35 +1177,28 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                        synth->splitWidthCents, &wl, &wu);
                         if (wu > 1.0e-4) keyUpper = slot;
                         if (wl > 1.0e-4) keyLower = synth->gamutSize + slot;
+                    } else if (cachedParams[P_ACTIVE_MANUAL] > 0.5f) {
+                        // Unitimbral, LOWER selected: the lower bank sounds.
+                        keyLower = synth->gamutSize + slot;
                     } else {
                         keyUpper = slot;
                     }
                 }
 
-                // Reference-count each engine key: coincident pitches (across channels,
-                // or a shared slot) collapse to one key, sounded by the first holder and
-                // released by the last — avoids the retrigger click and the stuck/cut bugs.
-                bool sounded = false;
-                for (int key : { keyUpper, keyLower }) {
-                    if (key < 0) continue;
-                    if (keyRefCount[key]++ == 0)
-                        oscKeyOn(synth, (short) key, (short) noteNumber);
-                    sounded = true;
-                }
-                soundingUpper[ch][noteNumber] = keyUpper;
-                soundingLower[ch][noteNumber] = keyLower;
-                if (sounded) {
-                    activeNoteCount++;
-                    samplesSinceLastNote = 0;
-                    const double pitch = synth->frequency[slot];
-                    // Tuning-panel read-out: note number + the actual sounding frequency.
-                    penultimateNoteOn.store(lastNoteOn.load());
-                    lastNoteOn.store(noteNumber);
-                    penultimateNoteFreq.store(lastNoteFreq.load());
-                    lastNoteFreq.store(pitch);
-
-                    // Split "learn": grow the session's pitch range and publish the split.
-                    if (learnSplitActive.load(std::memory_order_acquire)) {
+                // KEYPRESS (split learn): armed notes are SILENT — they only set the
+                // split range. Tracked in learnHeld so their releases balance and can't
+                // touch the sounding-note bookkeeping.
+                if (learnSplitActive.load(std::memory_order_acquire)) {
+                    if (slot >= 0 && ! learnHeld[ch][noteNumber]) {
+                        learnHeld[ch][noteNumber] = true;
+                        ++learnHeldCount;
+                        const double pitch = synth->frequency[slot];
+                        // Tuning-panel read-out still updates (useful while learning).
+                        penultimateNoteOn.store(lastNoteOn.load());
+                        lastNoteOn.store(noteNumber);
+                        penultimateNoteFreq.store(lastNoteFreq.load());
+                        lastNoteFreq.store(pitch);
+                        // Grow the session's pitch range and publish the split.
                         if (! learnSessionActive) { learnSessionActive = true; learnMinPitch = learnMaxPitch = pitch; }
                         else { learnMinPitch = std::min(learnMinPitch, pitch); learnMaxPitch = std::max(learnMaxPitch, pitch); }
                         if (learnMaxPitch > learnMinPitch) {
@@ -1039,27 +1210,57 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         }
                     }
                 }
+                else {
+                    // Reference-count each engine key: coincident pitches (across channels,
+                    // or a shared slot) collapse to one key, sounded by the first holder and
+                    // released by the last — avoids the retrigger click and the stuck/cut bugs.
+                    bool sounded = false;
+                    for (int key : { keyUpper, keyLower }) {
+                        if (key < 0) continue;
+                        if (keyRefCount[key]++ == 0)
+                            oscKeyOn(synth, (short) key, (short) noteNumber);
+                        sounded = true;
+                    }
+                    soundingUpper[ch][noteNumber] = keyUpper;
+                    soundingLower[ch][noteNumber] = keyLower;
+                    if (sounded) {
+                        activeNoteCount++;
+                        samplesSinceLastNote = 0;
+                        const double pitch = synth->frequency[slot];
+                        // Tuning-panel read-out: note number + the actual sounding frequency.
+                        penultimateNoteOn.store(lastNoteOn.load());
+                        lastNoteOn.store(noteNumber);
+                        penultimateNoteFreq.store(lastNoteFreq.load());
+                        lastNoteFreq.store(pitch);
+                    }
+                }
             } else if (msg.isNoteOff()) {
                 // JUCE normalises velocity-0 note-on to noteOff, so all releases arrive here.
-                // Release exactly the keys this (channel, note) started, on both manuals.
-                bool released = false;
-                for (int key : { soundingUpper[ch][noteNumber], soundingLower[ch][noteNumber] }) {
-                    if (key < 0) continue;
-                    if (--keyRefCount[key] <= 0) {
-                        keyRefCount[key] = 0;
-                        oscKeyOff(synth, (short) key, (short) noteNumber);
+                if (learnHeld[ch][noteNumber]) {
+                    // A silent KEYPRESS note: end the session (and disarm) when the
+                    // last learning note is released.
+                    learnHeld[ch][noteNumber] = false;
+                    if (--learnHeldCount <= 0) {
+                        learnHeldCount = 0;
+                        learnSessionActive = false;
+                        learnSplitActive.store(false, std::memory_order_release);
                     }
-                    released = true;
                 }
-                if (released)
-                    activeNoteCount = std::max(0, activeNoteCount - 1);
-                soundingUpper[ch][noteNumber] = -1;
-                soundingLower[ch][noteNumber] = -1;
-
-                // End a split-learn session (and disarm) once every note is released.
-                if (learnSessionActive && activeNoteCount == 0) {
-                    learnSessionActive = false;
-                    learnSplitActive.store(false, std::memory_order_release);
+                else {
+                    // Release exactly the keys this (channel, note) started, on both manuals.
+                    bool released = false;
+                    for (int key : { soundingUpper[ch][noteNumber], soundingLower[ch][noteNumber] }) {
+                        if (key < 0) continue;
+                        if (--keyRefCount[key] <= 0) {
+                            keyRefCount[key] = 0;
+                            oscKeyOff(synth, (short) key, (short) noteNumber);
+                        }
+                        released = true;
+                    }
+                    if (released)
+                        activeNoteCount = std::max(0, activeNoteCount - 1);
+                    soundingUpper[ch][noteNumber] = -1;
+                    soundingLower[ch][noteNumber] = -1;
                 }
             }
         }
@@ -1067,6 +1268,11 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     if (startSample < totalSamples)
         renderAudio(outL + startSample, outR + startSample, totalSamples - startSample);
+
+    // Master volume (header 🔊): ramp across the block to stay click-free.
+    const float masterTarget = cachedParams[P_MASTER_VOL];
+    buffer.applyGainRamp(0, totalSamples, masterGainCur, masterTarget);
+    masterGainCur = masterTarget;
 }
 
 // ============================================================================
@@ -1161,6 +1367,8 @@ void TuneBfreeAudioProcessor::loadKBMFiles(const juce::Array<juce::File>& files)
         hasLocalKBM  = true;
         localKbmName = (files.size() == 1) ? files[0].getFileName()
                                            : juce::String(files.size()) + " maps";
+        localKbmNames.clear();
+        for (const auto& f : files) localKbmNames.add(f.getFileName());
         localTuningError = {};
         rebuildLocalTuning();
     } catch (const Tunings::TuningError& e) {
@@ -1172,6 +1380,7 @@ void TuneBfreeAudioProcessor::clearLocalTuning()
 {
     localSclName  = {};
     localKbmName  = {};
+    localKbmNames.clear();
     localSclDescription = {};
     hasLocalKBM   = false;
     hasGenericKBM = false;
