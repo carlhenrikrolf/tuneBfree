@@ -82,6 +82,8 @@ struct b_preamp
 
 /** Computes the constants for transfer curve */
 void fctl_biased (void* d, float u);
+/** Sets the transfer-curve bias (operating point / asymmetry) directly. */
+void cfg_biased (void* pa, float new_bias);
 /** ovt_biased:Sets the positive feedback */
 void fctl_biased_fb (void* d, float u);
 /** ovt_biased: Sets sag impact */

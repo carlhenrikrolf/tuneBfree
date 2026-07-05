@@ -65,7 +65,8 @@ All exposed (TINKER · SCANNER): scanner.hz, modulation.v1/v2/v3.
 |---|---|
 | reverb.mix | exposed (PLAY · REVERB) |
 | reverb.wet / dry / inputgain / outputgain | **dead** — they belonged to setBfree's original reverb, which this fork REPLACED; the doc table in reverb.cpp (and the man page) is stale |
-| MatrixVerb Filter/Damping/Speed/Vibrato/RmSize/Flavor | hidden — real, live-settable, frozen at defaults (prime TINKER candidates) |
+| MatrixVerb Damping / RmSize / Flavor | exposed (TINKER · REVERB, 2026-07-05) — Flavor morphs plate-like ↔ spring-like |
+| MatrixVerb Filter / Speed / Vibrato | deliberately frozen (user decision 2026-07-05): Speed/Vibrato = 0 (chorus + Leslie already modulate around the reverb); Filter = pre/post-loop colouring only (the Householder feedback recirculates UNFILTERED — no in-loop HF decay exists in MatrixVerb), so it is redundant with the surrounding chain |
 
 ## Not DSP
 

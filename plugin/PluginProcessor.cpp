@@ -213,6 +213,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout TuneBfreeAudioProcessor::cre
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{ "active_manual", 1 }, "Active Manual (Lower)", false));
 
+    // MatrixVerb voicing (defaults = the values that were hardcoded until now).
+    addFloat("reverb_damping", "Reverb Damping",   0.0f, 1.0f, 0.2f);
+    addFloat("reverb_size",    "Reverb Room Size", 0.0f, 1.0f, 0.4f);
+    addFloat("reverb_flavor",  "Reverb Flavor",    0.0f, 1.0f, 0.8f);
+
+    // Cabinet geometry (live; computeOffsets refreshes the displacement tables).
+    addFloat("horn_radius", "Horn Radius (cm)",   5.0f, 40.0f, 17.0f);
+    addFloat("drum_radius", "Drum Radius (cm)",   5.0f, 40.0f, 22.0f);
+    addFloat("horn_xoff",   "Horn Offset X (cm)", -30.0f, 30.0f, 0.0f);
+    addFloat("horn_zoff",   "Horn Offset Z (cm)", -30.0f, 30.0f, 0.0f);
+
+    // Overdrive bias base (transfer-curve operating point) + global feedback.
+    addFloat("preamp_bias", "Preamp Bias", 0.01f, 0.7f, 0.5347f);
+    addFloat("preamp_gfb",  "Preamp Global Feedback", 0.0f, 1.0f, 0.6221f);
+
     return { params.begin(), params.end() };
 }
 
@@ -397,6 +412,9 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
         "drum_filter_type", "drum_filter_freq", "drum_filter_q", "drum_filter_gain",
         "horn_level", "horn_leak", "horn_width", "drum_width", "mic_angle", "mic_dist",
         "master_volume", "active_manual",
+        "reverb_damping", "reverb_size", "reverb_flavor",
+        "horn_radius", "drum_radius", "horn_xoff", "horn_zoff",
+        "preamp_bias", "preamp_gfb",
     };
     for (int i = P_SCANNER_HZ; i < P_COUNT; i++)
         paramPtrs[i] = apvts.getRawParameterValue(extraIds[i - P_SCANNER_HZ]);
@@ -890,6 +908,13 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
     else if (index == P_REVERB) {
         if (reverbModule) setReverbMix(reverbModule, (double) value);
     }
+    // MatrixVerb voicing: plain fields, re-read by the algorithm every block.
+    else if (index == P_REVERB_DAMP)   { if (reverbModule) reverbModule->B = value; }
+    else if (index == P_REVERB_SIZE)   { if (reverbModule) reverbModule->E = value; }
+    else if (index == P_REVERB_FLAVOR) { if (reverbModule) reverbModule->F = value; }
+    // Overdrive bias base + global feedback (the fctl_ wrappers printf; set direct).
+    else if (index == P_PRE_BIAS) { if (preampModule) cfg_biased(preampModule, value); }
+    else if (index == P_PRE_GFB)  { if (preampModule) preampModule->adwGfb = -0.999f * value; }
     else if (index == P_PERCUSSION) {
         setPercussionEnabled(synth, (int) std::lround(value));
     }
@@ -934,7 +959,8 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
     else if (index == P_PRE_BASS_POST) { if (preampModule) preampModule->adwFb2     = value; }
     else if (index == P_PRE_SAG)       { if (preampModule) preampModule->sagFb      = value; }
     // --- ROTARY: whirl physics (live; same setters the MIDI CC handlers use) ---
-    else if (index >= P_WHIRL_BYPASS && index <= P_MIC_DIST && whirlModule != nullptr) {
+    else if (((index >= P_WHIRL_BYPASS && index <= P_MIC_DIST)
+              || (index >= P_HORN_RADIUS && index <= P_HORN_ZOFF)) && whirlModule != nullptr) {
         b_whirl* w = whirlModule;
         // computeRotationSpeeds ends with setRevSelect(w, w->revSelect) — an internal
         // index this plugin never drives (we use useRevOption), so it would re-apply
@@ -977,6 +1003,10 @@ void TuneBfreeAudioProcessor::applyParam(int index, float value)
             case P_DRUM_WIDTH:   fsetDrumMicWidth(w, 1.0f - value);                   break;
             case P_MIC_ANGLE:    w->micAngle = 1.0 - (double) value / 180.0;          break;
             case P_MIC_DIST:     w->micDistCm = value; computeOffsets(w);             break;
+            case P_HORN_RADIUS:  w->hornRadiusCm  = value; computeOffsets(w);         break;
+            case P_DRUM_RADIUS:  w->drumRadiusCm  = value; computeOffsets(w);         break;
+            case P_HORN_XOFF:    w->hornXOffsetCm = value; computeOffsets(w);         break;
+            case P_HORN_ZOFF:    w->hornZOffsetCm = value; computeOffsets(w);         break;
             default: break;
         }
     }

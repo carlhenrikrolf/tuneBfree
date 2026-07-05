@@ -121,6 +121,9 @@ private:
     // the last received message (realtime = ALWAYS, bulk dump = NOTE ON).
     bool retuneAlwaysPref = false;
 
+    // Right-click info popups (these widgets are not plugin parameters).
+    juce::OwnedArray<juce::MouseListener> paramMenus;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TuningSidePanelContent)
 };
 
@@ -278,6 +281,10 @@ private:
     LabelledKnob clickAtkLevel, clickMin, clickMax, clickRelLevel;
     LabelledKnob xtComp, xtXfmr, xtTerm, xtWiring;
 
+    // BIAS (overdrive transfer-curve operating point + global feedback; live).
+    juce::Label  biasTitle;
+    LabelledKnob preBias, preGfb;
+
     // HARMONICS (row 3, left) — one Scala-style entry per drawbar ("3/2" = ratio,
     // "702.23 c" = cents; bare integer = n/1), rotated 90° to read along the
     // drawbar columns. A|C toggle below: A = AUTO (JI harmonic quantized to the
@@ -296,6 +303,8 @@ private:
     juce::Label      waveCap;
     juce::TextButton sineBtn { "SINE" }, squareBtn { "SQUARE" }, triangleBtn { "TRIANGLE" };
     juce::TextButton resetBtn { "ALL AUTO" };   // flip every drawbar to AUTO (entries kept)
+    // Bottom-right block: what fundamental the harmonics error labels refer to.
+    juce::Label refTitle, refValue;
 
     // Right-click parameter menus on the combos / buttons / entries.
     juce::OwnedArray<juce::MouseListener> paramMenus;
@@ -324,7 +333,15 @@ public:
 private:
     TuneBfreeAudioProcessor& proc;
 
-    juce::Label hornMotorTitle, drumMotorTitle, micTitle, fATitle, fBTitle, dFTitle;
+    juce::Label hornMotorTitle, drumMotorTitle, micTitle, fATitle, fBTitle, dFTitle,
+                revTitle, cabTitle, mixTitle;
+
+    // REVERB (MatrixVerb voicing) — far-left column: the reverb sits BEFORE the
+    // whirl in the signal chain, so signal flow reads left→right on this page.
+    // FLAVOR morphs the feedback matrix plate-like ↔ spring-like.
+    LabelledKnob revDamp, revSize, revFlavor;
+    // CABINET geometry
+    LabelledKnob hornRadius, drumRadius, hornXOff, hornZOff;
 
     LabelledKnob hornSlow, hornFast, hornAccel, hornDecel, hornBrake;
     LabelledKnob drumSlow, drumFast, drumAccel, drumDecel, drumBrake;

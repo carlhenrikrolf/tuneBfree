@@ -311,8 +311,7 @@ static juce::String paramInfoText (const juce::String& id)
     auto is   = [&id] (const char* v) { return id == v; };
     auto has  = [&id] (const char* v) { return id.startsWith (v); };
     const juce::String rebuild =
-        "\n\nChanging this rebuilds the tone generator and cuts sounding notes "
-        "(the red dot next to the group title).";
+        "\n\nChanging this rebuilds the tone generator and cuts sounding notes.";
 
     // --- PLAY ---
     if (has ("drawbar") || has ("lower_drawbar"))
@@ -332,9 +331,30 @@ static juce::String paramInfoText (const juce::String& id)
         return "DRIVE: overdrive amount/character macro. 0 = clean bypass; above 0 the "
                "preamp stage is engaged. Fine controls live on TINKER > PREAMP.";
     if (is ("reverb_mix"))
-        return "Dry/wet of the reverb (Airwindows MatrixVerb). Currently the only exposed "
-               "reverb control - the algorithm's other knobs are fixed at defaults "
-               "(see roadmap/PARAMETERS.md).";
+        return "Dry/wet of the reverb (Airwindows MatrixVerb). Voicing lives on "
+               "ROTOR > REVERB (damping, size, flavor).";
+    if (is ("preamp_bias"))
+        return "Transfer-curve operating point (asymmetry) of the overdrive - shifts "
+               "the balance of even harmonics. Applies live.";
+    if (is ("preamp_gfb"))
+        return "Global feedback around the overdrive stage - more gives a more "
+               "compressed, sustaining drive. Applies live.";
+    if (is ("horn_radius") || is ("drum_radius"))
+        return "Rotor radius in cm - larger = deeper Doppler swing for this rotor. "
+               "Applies live.";
+    if (is ("horn_xoff"))
+        return "Horn position along the mic axis (toward one mic, away from the "
+               "other) - left/right in the x42-whirl picture. Applies live.";
+    if (is ("horn_zoff"))
+        return "Horn position perpendicular to the mic axis - front/back depth. "
+               "Applies live.";
+    if (is ("reverb_damping"))
+        return "Tail regeneration: more damping = a shorter, tighter tail. Applies live.";
+    if (is ("reverb_size"))
+        return "Scales every delay line: small = tight and boxy, large = hall. Applies live.";
+    if (is ("reverb_flavor"))
+        return "Morphs the feedback-matrix character: plate-like at one end, "
+               "spring-like at the other. Applies live.";
     if (is ("percussion"))
         return "Percussion on/off (upper manual only, as on a B3). Single-trigger: it "
                "re-arms when upper keys are released; under a keyboard split, suppression "
@@ -576,6 +596,31 @@ private:
     juce::AudioProcessorValueTreeState& state;
     juce::Component& comp;
     std::function<juce::String()> getId;
+};
+
+// Right-click info for widgets that are NOT plugin parameters (the tuning
+// panel): opens the info box directly — there is no value to edit.
+class InfoMenuAttachment : public juce::MouseListener
+{
+public:
+    InfoMenuAttachment (juce::Component& c, juce::String t, juce::String b)
+        : comp (c), title (std::move (t)), body (std::move (b))
+    {
+        comp.addMouseListener (this, true);
+    }
+    ~InfoMenuAttachment() override { comp.removeMouseListener (this); }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu())
+            juce::CallOutBox::launchAsynchronously (
+                std::make_unique<ParamInfoContent> (title, body),
+                comp.getScreenBounds(), nullptr);
+    }
+
+private:
+    juce::Component& comp;
+    juce::String title, body;
 };
 
 // ============================================================================
@@ -828,6 +873,59 @@ TuningSidePanelContent::TuningSidePanelContent (TuneBfreeAudioProcessor& p) : pr
     noteOnBtn.setToggleState (true, juce::dontSendNotification);
     addAndMakeVisible (noteOnBtn);
     addAndMakeVisible (alwaysBtn);
+
+    // Right-click info on every panel widget (none of these are parameters).
+    {
+        auto info = [this] (juce::Component& c, juce::String t, juce::String b)
+        { paramMenus.add (new InfoMenuAttachment (c, std::move (t), std::move (b))); };
+
+        info (encodingBox, "TUNING SOURCE",
+              "Which encoding feeds the engine. MTS ESP: a live tuning master via the "
+              "shared library. SYSEX: MIDI Tuning Standard messages (all bulk-dump and "
+              "realtime formats are parsed). SCALA: .scl/.kbm files. STANDARD: plain "
+              "12edo - the microtuning panic button. MPE and MIDI 2.0: not implemented. "
+              "Each source keeps its own state, so you can toggle back and forth.");
+        info (channelsBtn, "CHANNELS",
+              "Selects which MIDI channels sound and contribute pitches to the merged "
+              "tuning gamut (multichannel = more notes of ONE scale). OMNI collapses "
+              "every selected channel onto the generic mapping.");
+        info (loadBtn, "LOAD SCL+KBM",
+              "Pick a scale (.scl) and any number of keyboard mappings (.kbm) in one "
+              "go. Files named *_i.kbm map MIDI channel i; an unsuffixed .kbm is the "
+              "generic mapping for unassigned channels. Active only under SCALA.");
+        info (filesBtn, "FILES",
+              "Lists the loaded tuning files (scale + mapping batch); CLEAR ALL "
+              "unloads them. Groundwork for tuning program change.");
+        info (noteOnBtn, "NOTE ON / ALWAYS",
+              "When retuning takes effect. NOTE ON: pitches update at the next key "
+              "press (suits the wavetable rebuild). ALWAYS: sounding notes may move. "
+              "Editable under MTS ESP; under SYSEX the greyed switch is an INDICATOR "
+              "following the last message (realtime = ALWAYS, bulk dump = NOTE ON).");
+        info (alwaysBtn, "NOTE ON / ALWAYS",
+              "When retuning takes effect. NOTE ON: pitches update at the next key "
+              "press (suits the wavetable rebuild). ALWAYS: sounding notes may move. "
+              "Editable under MTS ESP; under SYSEX the greyed switch is an INDICATOR "
+              "following the last message (realtime = ALWAYS, bulk dump = NOTE ON).");
+        info (penultimateHzLabel, "PENULTIMATE NOTE",
+              "The sounding frequency of the note played before the last one.");
+        info (lastHzLabel, "LAST NOTE",
+              "The sounding frequency of the last note played. Also the reference "
+              "for the drawbar error read-outs.");
+        info (centsLabel, "INTERVAL",
+              "The interval between the last two notes, octave-folded: a cents value "
+              "below an octave plus the octave count, e.g. -(702.23 + 2x1200) c.");
+        info (scaleNameLabel, "TUNING NAME",
+              "From the MTS ESP master, the sysex tuning-dump name, or the .scl "
+              "description line. GEAR60 (~12EDO) is the startup default.");
+        info (periodLabel, "SCALE PERIOD",
+              "The interval at which the tuning repeats. Used to extend the wheel "
+              "table upward and to quantize the drawbar harmonics. INFERRED = "
+              "detected from the table; SPECIFIED = declared by the .scl file; "
+              "NONE = aperiodic (the span in parentheses).");
+        info (timestampLabel, "LAST UPDATE",
+              "When the tuning last changed. Ticks like a clock while an MTS ESP "
+              "master is live - that is how you see the connection is alive.");
+    }
 
     refresh();
 }
@@ -1730,8 +1828,9 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
     auto& st = proc.apvts;
 
     for (auto* t : { &scannerTitle, &percTitle, &preampTitle, &clickTitle,
-                     &xtalkTitle, &harmTitle, &toneTitle })
+                     &xtalkTitle, &harmTitle, &toneTitle, &biasTitle })
         addAndMakeVisible (t);
+    styleGroupTitle (biasTitle, "BIAS");
     styleGroupTitle (scannerTitle, "SCANNER");
     styleGroupTitle (percTitle,    "PERCUSSION");
     styleGroupTitle (preampTitle,  "PREAMP");
@@ -1780,6 +1879,9 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
     clickMax.init      (st, "click_max_length",    "MAX", "", 2);
     clickRelLevel.init (st, "click_release_level", "LEVEL", "", 2);
 
+    preBias.init (st, "preamp_bias", "BIAS", "", 3);
+    preGfb.init  (st, "preamp_gfb",  "FEEDBACK", "", 2);
+
     xtComp.init  (st, "xtalk_compartment", "COMPART", "", 3);
     xtXfmr.init  (st, "xtalk_transformer", "XFORMER", "", 3);
     xtTerm.init  (st, "xtalk_terminal",    "TERMINAL", "", 3);
@@ -1790,6 +1892,7 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
                      &preIn, &preOut, &bassPre, &bassPost, &sag,
                      &clickAtkLevel, &clickMin, &clickMax, &clickRelLevel,
                      &xtComp, &xtXfmr, &xtTerm, &xtWiring,
+                     &preBias, &preGfb,
                      &eqBass, &eqBassSlope, &eqTreble, &eqTrebleSlope })
         addAndMakeVisible (k);
 
@@ -1853,6 +1956,14 @@ TinkerPage::TinkerPage (TuneBfreeAudioProcessor& p) : proc (p)
         addAndMakeVisible (b);
     syncFromParams();
 
+    // ERROR REFERENCE read-out: which fundamental the error labels measure at.
+    styleGroupTitle (refTitle, "ERROR REFERENCE");
+    addAndMakeVisible (refTitle);
+    refValue.setFont (uiFont (12.0f));
+    refValue.setJustificationType (juce::Justification::centredLeft);
+    refValue.setColour (juce::Label::textColourId, kWhite);
+    addAndMakeVisible (refValue);
+
     // ALL AUTO: flip every drawbar back to AUTO (the stock sound). The CUSTOM
     // entries are deliberately KEPT — each mode remembers its own state.
     resetBtn.onClick = [this]
@@ -1884,17 +1995,8 @@ void TinkerPage::paint (juce::Graphics& g)
 {
     g.fillAll (kBg);
 
-    // Red "LED" after the title of every group whose changes REBUILD the engine —
-    // i.e. cut the currently sounding notes. (PERCUSSION and PREAMP apply live.)
-    g.setColour (kRed);
-    for (auto* t : { &scannerTitle, &clickTitle, &xtalkTitle, &harmTitle, &toneTitle })
-    {
-        juce::GlyphArrangement ga;
-        ga.addLineOfText (t->getFont(), t->getText(), 0.0f, 0.0f);
-        const float tw = ga.getBoundingBox (0, -1, true).getWidth();
-        g.fillEllipse ((float) t->getX() + tw + 9.0f,
-                       (float) t->getY() + (float) t->getHeight() * 0.5f - 3.5f, 7.0f, 7.0f);
-    }
+    // (The red rebuild-LEDs are gone by user decision 2026-07-05: most TINKER
+    // groups rebuild anyway — the right-click INFO texts carry the warning.)
 }
 
 void TinkerPage::syncFromParams()
@@ -1932,8 +2034,11 @@ void TinkerPage::commitHarmonicEntry (int i)
 // sounding pitch vs the pure JI harmonic, at the last-played fundamental.
 void TinkerPage::refreshHarmonics()
 {
-    double ref = proc.getLastNoteFreq();
-    if (ref <= 0.0) ref = 261.63;   // middle C until something is played
+    const bool haveNote = proc.getLastNoteFreq() > 0.0;
+    double ref = haveNote ? proc.getLastNoteFreq() : 261.63;
+    refValue.setText (juce::String (ref, 2) + " Hz  ·  "
+                          + (haveNote ? "LAST NOTE" : "MIDDLE C"),
+                      juce::dontSendNotification);
 
     for (int i = 0; i < 9; ++i)
     {
@@ -1957,8 +2062,10 @@ void TinkerPage::resized()
 {
     auto area = getLocalBounds().reduced (kPageMargin);
     const int rightX = area.getRight() - kRightColW;      // = PLAY right region x
-    const int titleH = 12, capComboH = 12, comboH = 22, knobH = 68, knobW = 50;
-    const int rowGap = 8;
+    // Four compact rows (the REVERB group claimed a row): knobs are a touch
+    // smaller than before, uniform within the page.
+    const int titleH = 12, capComboH = 12, comboH = 22, knobH = 62, knobW = 50;
+    const int rowGap = 6;
 
     // Lay a row of LabelledKnobs starting at x with the given cell width.
     auto knobRow = [knobH] (std::initializer_list<LabelledKnob*> ks, int x, int y, int w)
@@ -1991,29 +2098,57 @@ void TinkerPage::resized()
         knobRow ({ &xtComp, &xtXfmr, &xtTerm, &xtWiring }, rightX, cy, 56);
     }
 
-    // ---- row 3: HARMONICS (left, drawbar-aligned) + TONE (right) ----
+    // ---- row 3: TONE (EQ + WAVE, left) | BIAS (right, under PREAMP) ----
+    y += titleH + 2 + knobH + rowGap;
+    toneTitle.setBounds (area.getX(), y, 150, titleH);
+    {
+        const int cy = y + titleH + 2;
+        // TONE: the four EQ-spline knobs in ONE row (level, slope, level, slope).
+        knobRow ({ &eqBass, &eqBassSlope, &eqTreble, &eqTrebleSlope }, area.getX(), cy, knobW);
+        // BIAS: right-aligned to the margin — its two knobs sit exactly under
+        // PREAMP's BASS POST / SAG columns above (grid).
+        const int biasX = area.getRight() - 2 * 56;
+        biasTitle.setBounds (biasX, y, 150, titleH);
+        knobRow ({ &preBias, &preGfb }, biasX, cy, 56);
+        // WAVE 3-way centred between TONE and BIAS (equal interior gaps).
+        const int ww = 86;
+        const int wx = (area.getX() + 4 * knobW + biasX - ww) / 2;
+        waveCap.setBounds (wx, cy, ww, capComboH);
+        int wy = cy + capComboH + 2;
+        for (auto* b : { &sineBtn, &squareBtn, &triangleBtn })
+        {
+            b->setBounds (wx, wy, ww, 15);
+            wy += 15 + 2;
+        }
+    }
+
+    // ---- row 4: HARMONICS (drawbar-aligned) | ERROR REFERENCE + ALL AUTO ----
     y += titleH + 2 + knobH + rowGap;
     harmTitle.setBounds (area.getX(), y, 150, titleH);
-    toneTitle.setBounds (rightX, y, 150, titleH);
-    // RESET sits on the HARMONICS title row, right-aligned to the harmonics block.
-    resetBtn.setBounds (area.getX() + (area.getWidth() - kRightColW - kPageMargin) - 64,
-                        y - 4, 64, 20);
+    {
+        // Right column block, centred vertically in the remaining band.
+        const int bh2 = 12 + 4 + 18 + 10 + 24;
+        int ry = y + juce::jmax (0, (area.getBottom() - y - bh2) / 2);
+        refTitle.setBounds (rightX, ry, kRightColW, 12);          ry += 12 + 4;
+        refValue.setBounds (rightX, ry, kRightColW, 18);          ry += 18 + 10;
+        resetBtn.setBounds (rightX, ry, 96, 24);
+    }
 
     // Same cell grid as the PLAY drawbars: left region = area minus right column
     // minus the inter-column margin, split into 9 equal cells.
     const int leftW = area.getWidth() - kRightColW - kPageMargin;
     const int cellW = leftW / 9;
-    const int footH = 12, entryLen = 64, entryH = 18, modeW = 17, modeH = 14, errH = 11;
+    const int footH = 12, entryLen = 50, entryH = 16, modeW = 17, modeH = 13, errH = 11;
     // Stack: footage / rotated entry / A|C toggle / error, centred in the space
     // below the title (the entry occupies entryLen VISUAL height once rotated).
-    const int stackH = footH + 4 + entryLen + 6 + modeH + 4 + errH;
-    const int stackY = y + titleH + (area.getBottom() - y - titleH - stackH) / 2;
+    const int stackH = footH + 2 + entryLen + 4 + modeH + 2 + errH;
+    const int stackY = y + titleH + juce::jmax (0, (area.getBottom() - y - titleH - stackH) / 2);
     for (int i = 0; i < 9; ++i)
     {
         const int cx = area.getX() + i * cellW + cellW / 2;   // column centre
         int cy = stackY;
         footage[i].setBounds (cx - cellW / 2, cy, cellW, footH);
-        cy += footH + 4;
+        cy += footH + 2;
         // Entry: laid out horizontally, then rotated -90° about its centre so it
         // reads bottom-to-top along the drawbar column.
         auto& e = harmEntry[i];
@@ -2022,26 +2157,13 @@ void TinkerPage::resized()
         e.setTransform (juce::AffineTransform::rotation (
             -juce::MathConstants<float>::halfPi,
             (float) e.getBounds().getCentreX(), (float) e.getBounds().getCentreY()));
-        cy += entryLen + 6;
+        cy += entryLen + 4;
         harmAutoBtn[i].setBounds   (cx - modeW - 1, cy, modeW, modeH);
         harmCustomBtn[i].setBounds (cx + 1,         cy, modeW, modeH);
-        cy += modeH + 4;
+        cy += modeH + 2;
         ratioErr[i].setBounds (cx - cellW / 2, cy, cellW, errH);
     }
 
-    // TONE: two knob columns (level over slope) + the WAVE 3-way column.
-    const int tY = y + titleH + 2;
-    knobRow ({ &eqBass,      &eqTreble },      rightX, tY, 56);
-    knobRow ({ &eqBassSlope, &eqTrebleSlope }, rightX, tY + knobH + 6, 56);
-    // WAVE buttons match the KEY CLICK combo width (86) for size consistency.
-    const int wx = rightX + 148, ww = 86;
-    waveCap.setBounds (wx, tY, ww, capComboH);
-    int wy = tY + capComboH + 8;
-    for (auto* b : { &sineBtn, &squareBtn, &triangleBtn })
-    {
-        b->setBounds (wx, wy, ww, comboH);
-        wy += comboH + 4;
-    }
 }
 
 // ============================================================================
@@ -2052,15 +2174,28 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
 {
     auto& st = proc.apvts;
 
-    for (auto* t : { &hornMotorTitle, &drumMotorTitle, &micTitle,
-                     &fATitle, &fBTitle, &dFTitle })
+    for (auto* t : { &hornMotorTitle, &drumMotorTitle, &micTitle, &revTitle,
+                     &cabTitle, &mixTitle, &fATitle, &fBTitle, &dFTitle })
         addAndMakeVisible (t);
+    styleGroupTitle (revTitle,       "REVERB");
     styleGroupTitle (hornMotorTitle, "HORN MOTOR");
     styleGroupTitle (drumMotorTitle, "DRUM MOTOR");
-    styleGroupTitle (micTitle,       "MIC & CABINET");
+    styleGroupTitle (cabTitle,       "CABINET");
+    styleGroupTitle (micTitle,       "MIC");
+    styleGroupTitle (mixTitle,       "MIX");
     styleGroupTitle (fATitle,        "HORN FILTER A");
     styleGroupTitle (fBTitle,        "HORN FILTER B");
     styleGroupTitle (dFTitle,        "DRUM FILTER");
+
+    // REVERB voicing (before the whirl in the chain, hence the far-left strip).
+    revDamp.init   (st, "reverb_damping", "DAMP", "", 2);
+    revSize.init   (st, "reverb_size",    "SIZE", "", 2);
+    revFlavor.init (st, "reverb_flavor",  "FLAVOR", "", 2);
+    // Cabinet geometry
+    hornRadius.init (st, "horn_radius", "H RADIUS", " cm", 1);
+    drumRadius.init (st, "drum_radius", "D RADIUS", " cm", 1);
+    hornXOff.init   (st, "horn_xoff",   "X OFFSET", " cm", 1);
+    hornZOff.init   (st, "horn_zoff",   "Z OFFSET", " cm", 1);
 
     hornSlow.init  (st, "horn_slow_rpm", "SLOW", " RPM", 1);
     hornFast.init  (st, "horn_fast_rpm", "FAST", " RPM", 0);
@@ -2104,6 +2239,8 @@ RotaryPage::RotaryPage (TuneBfreeAudioProcessor& p) : proc (p)
                      &drumSlow, &drumFast, &drumAccel, &drumDecel, &drumBrake,
                      &micAngle, &micDist, &hornWidth, &drumWidth,
                      &hornLevel, &hornLeak,
+                     &revDamp, &revSize, &revFlavor,
+                     &hornRadius, &drumRadius, &hornXOff, &hornZOff,
                      &fAFreq, &fAQ, &fAGain, &fBFreq, &fBQ, &fBGain,
                      &dFFreq, &dFQ, &dFGain })
         addAndMakeVisible (k);
@@ -2168,14 +2305,16 @@ void RotaryPage::syncFromParams()
 
 void RotaryPage::resized()
 {
-    // Three equal rows (denser than the old four): each rotor's motor knobs,
-    // its speed 3-way, and its filter share ONE row; row 3 = mics + drum filter.
-    // Bigger knobs than before — close to the PLAY page's size.
+    // Four rows. Signal flow reads LEFT→RIGHT: the REVERB voicing strip sits at
+    // the far left (the reverb precedes the whirl in the chain — Crumar-pedal
+    // style), then per-rotor motor/speed/filter rows, then cabinet geometry and
+    // mic rows.
     auto area = getLocalBounds().reduced (kPageMargin);
-    const int titleH = 12, comboH = 22, rowGap = 8;
-    const int rowH   = (area.getHeight() - 2 * rowGap) / 3;
+    const int titleH = 12, comboH = 22, rowGap = 6;
+    const int rowH   = (area.getHeight() - 3 * rowGap) / 4;
     const int knobH  = rowH - titleH - 2;                  // caption + knob + value
-    const int cellW  = 61, comboW = 96;
+    const int cellW  = 56, comboW = 96, revW = 56;
+    const int grpX   = area.getX() + revW + 16;            // groups start after the strip
     const int ftrW   = comboW + 8 + 3 * cellW;             // filter block width
     const int rightX = area.getRight() - ftrW;
 
@@ -2183,7 +2322,6 @@ void RotaryPage::resized()
     {
         for (auto* k : ks) { k->setBounds (x, y, w, knobH); x += w; }
     };
-    // Filter block: TYPE caption + combo, FREQ/Q/GAIN right-aligned to the margin.
     auto filterBlock = [&] (juce::Label& cap, juce::ComboBox& box,
                             LabelledKnob& fr, LabelledKnob& q, LabelledKnob& gn, int y)
     {
@@ -2191,41 +2329,55 @@ void RotaryPage::resized()
         box.setBounds (rightX, y + 12 + (knobH - 12 - comboH - 13) / 2, comboW, comboH);
         knobRow ({ &fr, &q, &gn }, rightX + comboW + 8, y, cellW);
     };
-    // A rotor's speed 3-way, centred in the gap between motor knobs and filter.
     auto speedStack = [&] (juce::TextButton& a, juce::TextButton& b, juce::TextButton& c, int y)
     {
-        const int bw = 84, bh = 26, bgap = 4;
-        const int sx = area.getX() + 5 * cellW + (rightX - area.getX() - 5 * cellW - bw) / 2;
+        const int bw = 84, bh = 20, bgap = 3;
+        const int sx = grpX + 5 * cellW + (rightX - grpX - 5 * cellW - bw) / 2;
         const int sy = y + (knobH - (3 * bh + 2 * bgap)) / 2;
         a.setBounds (sx, sy, bw, bh);
         b.setBounds (sx, sy + bh + bgap, bw, bh);
         c.setBounds (sx, sy + 2 * (bh + bgap), bw, bh);
     };
 
-    // ---- row 1: HORN — motor + speed + filter A ----
+    // ---- rows 1-3 carry the REVERB strip (DAMP / SIZE / FLAVOR) ----
     int y = area.getY();
-    hornMotorTitle.setBounds (area.getX(), y, 150, titleH);
+    revTitle.setBounds (area.getX(), y, revW + 10, titleH);
+    revDamp.setBounds   (area.getX(), y + titleH + 2, revW, knobH);
+    revSize.setBounds   (area.getX(), y + rowH + rowGap + titleH + 2, revW, knobH);
+    revFlavor.setBounds (area.getX(), y + 2 * (rowH + rowGap) + titleH + 2, revW, knobH);
+
+    // ---- row 1: HORN — motor + speed + filter A ----
+    hornMotorTitle.setBounds (grpX, y, 150, titleH);
     fATitle.setBounds        (rightX, y, 150, titleH);
     knobRow ({ &hornSlow, &hornFast, &hornAccel, &hornDecel, &hornBrake },
-             area.getX(), y + titleH + 2, cellW);
+             grpX, y + titleH + 2, cellW);
     speedStack (hornChorale, hornStop, hornTremolo, y + titleH + 2);
     filterBlock (fACap, fAType, fAFreq, fAQ, fAGain, y + titleH + 2);
 
     // ---- row 2: DRUM — motor + speed + filter B ----
     y += rowH + rowGap;
-    drumMotorTitle.setBounds (area.getX(), y, 150, titleH);
+    drumMotorTitle.setBounds (grpX, y, 150, titleH);
     fBTitle.setBounds        (rightX, y, 150, titleH);
     knobRow ({ &drumSlow, &drumFast, &drumAccel, &drumDecel, &drumBrake },
-             area.getX(), y + titleH + 2, cellW);
+             grpX, y + titleH + 2, cellW);
     speedStack (drumChorale, drumStop, drumTremolo, y + titleH + 2);
     filterBlock (fBCap, fBType, fBFreq, fBQ, fBGain, y + titleH + 2);
 
-    // ---- row 3: MIC & CABINET (incl. horn level/leak) | DRUM FILTER ----
+    // ---- row 3: CABINET geometry | MIX (right-aligned, under the Q/GAIN cols) ----
     y += rowH + rowGap;
-    micTitle.setBounds (area.getX(), y, 150, titleH);
+    cabTitle.setBounds (grpX, y, 150, titleH);
+    knobRow ({ &hornRadius, &drumRadius, &hornXOff, &hornZOff },
+             grpX, y + titleH + 2, cellW);
+    const int mixX = area.getRight() - 2 * cellW;
+    mixTitle.setBounds (mixX, y, 150, titleH);
+    knobRow ({ &hornLevel, &hornLeak }, mixX, y + titleH + 2, cellW);
+
+    // ---- row 4: MIC | DRUM FILTER (anchors the bottom-right corner) ----
+    y += rowH + rowGap;
+    micTitle.setBounds (grpX, y, 150, titleH);
     dFTitle.setBounds  (rightX, y, 150, titleH);
-    knobRow ({ &micAngle, &micDist, &hornWidth, &drumWidth, &hornLevel, &hornLeak },
-             area.getX(), y + titleH + 2, cellW);
+    knobRow ({ &micAngle, &micDist, &hornWidth, &drumWidth },
+             grpX, y + titleH + 2, cellW);
     filterBlock (dFCap, dFType, dFFreq, dFQ, dFGain, y + titleH + 2);
 }
 

@@ -108,7 +108,20 @@
 #define P_MIC_DIST        109
 #define P_MASTER_VOL      110   // header 🔊 popup — plain output gain after the chain
 #define P_ACTIVE_MANUAL   111   // unitimbral routing: 0 = upper bank sounds, 1 = lower
-#define P_COUNT           112
+// MatrixVerb voicing (live fields on b_reverb; Speed/Vibrato/Filter stay frozen —
+// Filter is pre/post-loop colouring only, redundant with the surrounding chain).
+#define P_REVERB_DAMP     112
+#define P_REVERB_SIZE     113
+#define P_REVERB_FLAVOR   114
+// ROTOR cabinet geometry (live: field + computeOffsets)
+#define P_HORN_RADIUS     115
+#define P_DRUM_RADIUS     116
+#define P_HORN_XOFF       117
+#define P_HORN_ZOFF       118
+// Overdrive bias base + global feedback (TINKER · BIAS)
+#define P_PRE_BIAS        119
+#define P_PRE_GFB         120
+#define P_COUNT           121
 
 // Tuning source ids — match the encoding ComboBox item ids in PluginEditor.
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
