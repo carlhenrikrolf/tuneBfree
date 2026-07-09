@@ -1461,9 +1461,12 @@ static void writeSamples(float *buf, size_t sampleLength, double ap[], size_t ap
         }
     }
 
-    /* Normalise amplitudes */
-
-    U = attenuation / aplSum;
+    /* Normalise amplitudes. Guard the division: aplSum is 0 only if every partial
+     * amplitude is 0 (a wheel with no harmonics defined), in which case U/0 would
+     * be Inf and the Inf*0 below would NaN the wavetable. Defensive — the stock
+     * wheels always have a fundamental. (NB: the Nyquist mute above happens AFTER
+     * aplSum is accumulated, so muted partials do NOT make aplSum 0.) */
+    U = (aplSum > 0.0) ? (attenuation / aplSum) : 0.0;
 
     for (i = 0; i < sampleLength; i++)
     {

@@ -128,6 +128,75 @@ private:
 };
 
 // ============================================================================
+//  ControlSidePanelContent
+//  ---------------------------------------------------------------------------
+//  The CONTROL panel (see roadmap/CONTROL_PANEL.md + CONTROL_PANEL_SURVEY.md):
+//  same right-column overlay slot as TUNING (mutually exclusive with it).
+//    PROGRAM CHANGE          : bank list | preset list, then LOAD + SAVE
+//    CONTINUOUS CONTROLLERS  : the current MIDI mappings (read-only) + REMOVE
+//  Clicking a preset applies it. LOAD offers preset file(s) / bank directory /
+//  .pgm bank; SAVE opens a name/author/include-tuning dialog then a file save.
+//  The mappings list arrives with the MIDI-mapping step; until then it shows
+//  a placeholder and REMOVE stays disabled.
+// ============================================================================
+
+class ControlSidePanelContent : public juce::Component
+{
+public:
+    explicit ControlSidePanelContent (TuneBfreeAudioProcessor& p);
+    void paint   (juce::Graphics&) override;
+    void resized () override;
+    void refresh ();                       // follow the model (lists + selection)
+
+private:
+    // One paint-only list model, parameterised by callbacks (no row components).
+    struct ListModel : public juce::ListBoxModel
+    {
+        std::function<int()>              rowCount;
+        std::function<juce::String (int)> rowText;
+        std::function<void (int)>         rowClicked;
+
+        int  getNumRows() override { return rowCount ? rowCount() : 0; }
+        void paintListBoxItem (int row, juce::Graphics& g, int w, int h,
+                               bool rowIsSelected) override;
+        void listBoxItemClicked (int row, const juce::MouseEvent& e) override
+        {
+            if (rowClicked && ! e.mods.isPopupMenu())   // right-click = info only
+                rowClicked (row);
+        }
+    };
+
+    void showLoadMenu();
+    void doLoad (int which);               // 1 = file(s), 2 = directory, 3 = .pgm
+    void showSaveDialog();
+    void doSave (const juce::String& name, const juce::String& author, bool includeTuning);
+    int  ensureCurrentBank();              // create a USER bank if none exists
+
+    TuneBfreeAudioProcessor& proc;
+
+    juce::Label   pcTitle, ccTitle;
+    ListModel     bankModel, presetModel, ccModel;
+    juce::ListBox bankList, presetList, ccList;
+    juce::Label   ccEmptyLabel;            // shown while there are no mappings
+    juce::TextButton loadBtn { "LOAD" }, saveBtn { "SAVE" }, removeBtn { "REMOVE" };
+
+    // Cached MIDI-mapping rows (refreshed from the processor on the timer).
+    juce::StringArray ccRows;
+
+    std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::File lastPresetDir { juce::File::getSpecialLocation (juce::File::userDocumentsDirectory) };
+
+    // refresh() change detection (avoid rebuilding the lists every timer tick)
+    int lastBankCount = -1, lastCurrentBank = -1,
+        lastPresetCount = -1, lastCurrentPreset = -1;
+
+    // Right-click info popups (these widgets are not plugin parameters).
+    juce::OwnedArray<juce::MouseListener> paramMenus;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ControlSidePanelContent)
+};
+
+// ============================================================================
 //  DefaultPage — the main play screen.
 //  ---------------------------------------------------------------------------
 //  Layout (left to right):
@@ -395,8 +464,8 @@ private:
 
     juce::Label      titleLabel;
     juce::TextButton tuningBtn { "TUNING" };
-    // CONTROL: MIDI CC + program-change management (the "preset" concept: a
-    // program = default values for the CC controllers). Placeholder for now.
+    // CONTROL: presets (program change) + MIDI CC mappings. Opens the CONTROL
+    // side panel — same overlay slot as TUNING, mutually exclusive with it.
     juce::TextButton controlBtn { "CONTROL" };
     juce::TextButton panicBtn  { "!" };       // release all notes
     juce::TextButton volumeBtn;               // 🔊 — popup master volume slider
@@ -405,14 +474,17 @@ private:
     juce::TextButton playBtn { "PLAY" }, tinkerBtn { "TINKER" }, rotaryBtn { "ROTOR" };
     int currentPage = 0;                      // 0 = PLAY, 1 = TINKER, 2 = ROTOR
     void setPage (int page);
+    void syncSidePanelButtons();              // TUNING/CONTROL toggle-state ↔ panel visibility
 
     DefaultPage defaultPage;
     TinkerPage  tinkerPage;
     RotaryPage  rotaryPage;
 
-    // Tuning side panel: an editor-level overlay (independent of the page radio,
-    // so it survives page switches). Covers the window's right column.
-    TuningSidePanelContent tuningContent;
+    // Side panels: editor-level overlays (independent of the page radio, so
+    // they survive page switches). Both cover the window's right column; at
+    // most one is visible at a time.
+    TuningSidePanelContent  tuningContent;
+    ControlSidePanelContent controlContent;
 
     // Right-click parameter menu on the header volume button.
     juce::OwnedArray<juce::MouseListener> paramMenus;

@@ -11,12 +11,29 @@
 
 #include "midi.h"
 #include "cfgParser.h"
+#include "state.h"
 
 // --- MIDI CC notification stubs ---
 
 void notifyControlChangeById(void*, int, unsigned char) {}
 void notifyControlChangeByName(void*, const char*, unsigned char) {}
 void useMIDIControlFunction(void*, const char*, void (*)(void*, unsigned char), void*) {}
+
+// --- Runtime-state stub ---
+// program.cpp is linked for its .pgm PARSER (PresetManager's import); its
+// saveProgramm() references rc_loop_state but is never called here.
+void rc_loop_state(void*, void (*)(int, const char*, const char*, unsigned char, void*), void*) {}
+
+// --- Program-install stubs ---
+// PresetManager reads the parsed Programme table directly, so installProgram()
+// and the keyboard-split/transpose engine calls it makes are never invoked;
+// they only need to link. (Split/transpose come from tuneBfree's own params.)
+void callMIDIControlFunction(void*, const char*, unsigned char) {}
+void setKeyboardSplitMulti(void*, int, int, int, int, int, int) {}
+void setKeyboardTransposeA(void*, int) {}
+void setKeyboardTransposeB(void*, int) {}
+void setKeyboardTransposeC(void*, int) {}
+void setKeyboardTranspose(void*, int)  {}
 
 // --- Config parser stubs ---
 // getConfigParameter_* return 0 (not found) so DSP defaults are kept as-is.

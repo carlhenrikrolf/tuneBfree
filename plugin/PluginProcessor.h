@@ -9,6 +9,8 @@
 #include "libMTSClient.h"
 #include "tuning.h"
 #include "Tunings.h"
+#include "PresetManager.h"
+#include "readerwriterqueue.h"
 #include <filesystem>
 
 // Parameter indices — match the CLAP implementation in src/clap.cpp
@@ -127,7 +129,8 @@
 // (MPE = 4 and MIDI 2.0 = 5 are shown disabled and not handled here.)
 enum TuningSourceId { TS_MTS = 1, TS_SYSEX = 2, TS_FILE = 3, TS_STANDARD = 6 };
 
-class TuneBfreeAudioProcessor : public juce::AudioProcessor
+class TuneBfreeAudioProcessor : public juce::AudioProcessor,
+                                private juce::AsyncUpdater
 {
 public:
     TuneBfreeAudioProcessor();
@@ -150,10 +153,12 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 2.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return "Default"; }
+    // Program API — exposes the CURRENT bank's presets so a DAW can browse and
+    // step through them. Backed by the PresetManager; message thread only.
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram(int) override;
+    const juce::String getProgramName(int) override;
     void changeProgramName(int, const juce::String&) override {}
 
     void getStateInformation(juce::MemoryBlock& destData) override;
@@ -198,6 +203,11 @@ public:
     bool getChannelActive(int ch) const noexcept { return ch >= 0 && ch < 16 && channelActive[ch]; }
     void setOmni(bool on);
     bool getOmni()  const noexcept { return omniMode.load(); }
+    // Whether MIDI channel ch (0..15) has a tuning mapping, so notes on it sound.
+    // Under FILE with per-channel _i.kbm files and no generic (no-suffix) kbm,
+    // channels without their own kbm are unmapped/silent — the CHANNELS popup
+    // greys them out. Every channel is mapped for STANDARD / MTS / SYSEX.
+    bool isChannelMapped(int ch) const;
     void setPoly(bool on) noexcept { polyMode = on; }
     bool getPoly()  const noexcept { return polyMode; }
 
@@ -253,8 +263,77 @@ public:
     void         setHarmonicEntryText(int i, const juce::String& s);
     juce::String getHarmonicEntryText(int i) const;
 
-    juce::AudioProcessorValueTreeState apvts;
+    // DEBUG (render tool): list the engine wheels within `cents` of `hz`.
+    juce::String debugWheelsNear(double hz, double cents) const;
 
+    // --- Presets (CONTROL panel) — message thread only ---
+    // Key-tuning state as a preset <TUNING> block: encoding source, channel
+    // selection, and the loaded .scl/.kbm files embedded as raw text (so a
+    // preset is self-contained — no file paths to go stale).
+    juce::ValueTree captureTuningTree() const;
+    void applyTuningTree(const juce::ValueTree& t);
+
+    // --- MIDI mapping (CONTROL panel) — edits on the message thread; the audio
+    // thread reads an immutable snapshot and DEFERS parameter writes to the
+    // message thread (so GUI, host automation, and DSP stay consistent). A
+    // parameter has at most one source; one CC may drive several parameters.
+    // Parameters whose change forces a tonegen rebuild cannot be mapped. ---
+    struct MidiSource
+    {
+        enum Type { CC = 0, Aftertouch = 1 };
+        int type    = CC;
+        int cc      = 0;    // 0..127 (CC number); ignored when type == Aftertouch
+        int channel = 0;    // 0 = omni, 1..16 = a specific channel
+    };
+    bool         isParamMappable (const juce::String& paramID) const;
+    void         assignMidiMapping (const juce::String& paramID, MidiSource src);
+    void         clearMidiMapping (const juce::String& paramID);
+    bool         getMidiMappingFor (const juce::String& paramID, MidiSource& out) const;
+    // Learn can arm several parameters at once (the PLAY Leslie arms drum + horn),
+    // so one incoming controller maps them all together.
+    void         startMidiLearn (const juce::StringArray& paramIDs);
+    void         startMidiLearn (const juce::String& paramID) { startMidiLearn (juce::StringArray (paramID)); }
+    void         cancelMidiLearn();
+    bool         isMidiLearning (const juce::String& paramID) const { return midiLearnParamIDs.contains (paramID); }
+    bool         isMidiLearningAny() const { return ! midiLearnParamIDs.isEmpty(); }
+    // CCs unsuitable for parameter mapping (reserved by the MIDI spec).
+    static bool  isAssignableCC (int cc);
+    // CONTROL-panel list: parallel arrays (description + the paramID to remove).
+    juce::StringArray getMidiMappingList() const;
+    juce::StringArray getMidiMappingParamIDs() const;
+    void              removeMidiMappingAt (int index);
+    static juce::String midiSourceLabel (const MidiSource&);   // "OMNI CC 11"
+
+    juce::AudioProcessorValueTreeState apvts;
+    PresetManager presets { *this };
+
+private:
+    // MIDI-map storage lives in apvts.state / "MIDI_MAP"; the audio thread reads
+    // midiMapSnapshot under a try-lock (a rare miss just drops one control tick).
+    juce::ValueTree midiMapTree();          // create-on-demand (mutates apvts.state)
+    void            rebuildMidiMapSnapshot();
+    struct MapEntry { int type, cc, channel; juce::RangedAudioParameter* param; };
+    juce::SpinLock         midiMapLock;
+    std::vector<MapEntry>  midiMapSnapshot;
+
+    juce::StringArray  midiLearnParamIDs;          // message thread; empty = not learning
+    std::atomic<bool>  midiLearnArmed{ false };
+    std::atomic<int>   learnCapType{ -1 }, learnCapCC{ 0 }, learnCapChannel{ 0 };
+
+    struct ParamChange { juce::RangedAudioParameter* param; float norm; };
+    moodycamel::ReaderWriterQueue<ParamChange> paramChangeFIFO { 512 };
+
+    void handleMappableMidi (const juce::MidiMessage&);   // audio thread
+    void seedDefaultMappings();                           // factory CC defaults (ctor)
+
+    // Diagnostic for the elusive "engine died / didn't recover" bug: the first
+    // DSP stage that produced a non-finite sample (0 none, 1 tonegen/preamp/input,
+    // 2 reverb, 3 Leslie). Set on the audio thread, logged once to stderr.
+    std::atomic<int>  nanStage{ 0 };
+    std::atomic<bool> nanReported{ false };
+    void reportNaNStage (int stage);
+public:
+    int getNaNStage() const noexcept { return nanStage.load(); }   // for the GUI / tests
 private:
     // --- DSP modules ---
     b_tonegen* synth       = nullptr;
@@ -345,6 +424,16 @@ private:
     // Panic: set by triggerPanic()/CC 120/123, consumed on the audio thread to release all.
     std::atomic<bool> panicRequested{ false };
 
+    // --- MIDI program change / bank select ---
+    // Bank Select (CC 0 MSB / CC 32 LSB) latches a pending bank on the audio
+    // thread; a Program Change then hands (bank, program) to the message thread
+    // via handleAsyncUpdate (applying a preset is not audio-thread safe).
+    int midiBankMSB = 0, midiBankLSB = 0;      // audio thread only
+    bool sawBankSelect = false;                // audio thread only
+    std::atomic<int> requestedProgramBank{ -1 };   // -1 = use the current bank
+    std::atomic<int> requestedProgramPreset{ -1 }; // -1 = nothing pending
+    void handleAsyncUpdate() override;             // message thread: apply the program change
+
     // Split "learn": armed by the GUI, driven by the audio thread. While a note session
     // is active (>=1 held) it tracks the lowest/highest sounding pitch and publishes the
     // split point (geometric centre) + width (interval, cents). Disarms on all-released.
@@ -404,6 +493,21 @@ private:
     double                   standardFrequencies[NOF_FREQS] = {};
 
     void rebuildLocalTuning();
+
+    // --- External audio input (optional bus) ---
+    // Summed to mono and injected AFTER the preamp, BEFORE reverb + Leslie, so
+    // external audio (a guitar, a second tuneBfree) shares the rotary/reverb
+    // without passing the organ's overdrive. A ring FIFO decouples the host's
+    // block-aligned input from the engine's 128-sample chunk processing. The
+    // bus is disabled by default (JUCE convention) to avoid feedback.
+    static constexpr int kInputFifoSize = 4096;
+    float inputFifo[kInputFifoSize] = {};
+    int   inputFifoRead = 0, inputFifoWrite = 0;
+    bool  hasAudioInput = false;               // input bus enabled (set per block)
+    float bufIn[BUFFER_SIZE_SAMPLES] = {};     // one chunk of external audio
+    void  pushInputSample(float s);
+    void  pullInputChunk(float* dst, int n);
+    void  resetInputFifo() { inputFifoRead = inputFifoWrite = 0; }
 
     // --- Private methods ---
     void initDSP(double sampleRate);

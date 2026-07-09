@@ -47,7 +47,9 @@ juce_add_plugin(tuneBfree
     PLUGIN_MANUFACTURER_CODE    "Tunb"
     PLUGIN_CODE                 "Tfre"
 
-    FORMATS                     Standalone AU VST3 CLAP
+    # NB: JUCE has no native CLAP (unknown tokens here are silently ignored);
+    # CLAP is added via clap-juce-extensions below.
+    FORMATS                     Standalone AU VST3
 
     PRODUCT_NAME                "tuneBfree"
     AU_MAIN_TYPE                kAudioUnitType_MusicDevice
@@ -74,11 +76,20 @@ set(DSP_SOURCES
     libs/MTS-ESP/Client/libMTSClient.cpp
 )
 
+# Preset backend (CONTROL panel): the manager plus setBfree's .pgm parser
+# (parse-only — installProgram's engine callbacks are never invoked).
+set(PRESET_SOURCES
+    plugin/PresetManager.cpp
+    src/pgmParser.cpp
+    src/program.cpp
+)
+
 target_sources(tuneBfree PRIVATE
     plugin/PluginProcessor.cpp
     plugin/PluginEditor.cpp
     plugin/midi_stubs.cpp
     ${DSP_SOURCES}
+    ${PRESET_SOURCES}
 )
 
 # ---------------------------------------------------------------------------
@@ -126,6 +137,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/melatonin_inspector/CMakeLists.txt")
     target_link_libraries(tuneBfree PRIVATE melatonin_inspector)
     target_compile_definitions(tuneBfree PRIVATE TUNEBFREE_MELATONIN=1)
     message(STATUS "Melatonin Inspector enabled (cmd+I in the editor)")
+endif()
+
+# ---------------------------------------------------------------------------
+# CLAP via clap-juce-extensions (JUCE itself has no CLAP support).
+# Auto-enabled when the submodule is present. To install it (needs network,
+# so run this yourself — note the --recursive, it has its own submodules):
+#   git submodule add https://github.com/free-audio/clap-juce-extensions.git libs/clap-juce-extensions
+#   git submodule update --init --recursive libs/clap-juce-extensions
+# Then reconfigure cmake. Build target: tuneBfree_CLAP; artifact lands in
+# build/tuneBfree_artefacts/<config>/CLAP/tuneBfree.clap.
+# ---------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/clap-juce-extensions/CMakeLists.txt")
+    add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
+    clap_juce_extensions_plugin(TARGET tuneBfree
+        CLAP_ID "com.tunebfree.plugin"
+        CLAP_FEATURES instrument organ)
+    message(STATUS "CLAP enabled via clap-juce-extensions (target: tuneBfree_CLAP)")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -179,6 +207,7 @@ if(TUNEBFREE_BUILD_SNAPSHOT_TOOL)
         plugin/PluginEditor.cpp
         plugin/midi_stubs.cpp
         ${DSP_SOURCES}
+        ${PRESET_SOURCES}
     )
     target_include_directories(tuneBfree_snapshot PRIVATE
         src
@@ -194,6 +223,47 @@ if(TUNEBFREE_BUILD_SNAPSHOT_TOOL)
         JUCE_STANDALONE_APPLICATION=0
     )
     target_link_libraries(tuneBfree_snapshot PRIVATE
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Headless offline audio render tool (dev). Drives the DSP with no audio/MIDI
+# device and writes a WAV — the audio counterpart of the snapshot tool, and the
+# sandbox-safe way to check a render for NaN/Inf, silence, level, and tuning.
+#
+#   cmake --build build --target tuneBfree_render
+#   build/tuneBfree_render_artefacts/Release/tuneBfree_render out.wav --note 84 \
+#       --drawbars 0,0,0,0,0,0,0,0,8 --scl tunings/9ed3halves/9ed3halves.scl
+# ---------------------------------------------------------------------------
+option(TUNEBFREE_BUILD_RENDER_TOOL "Build the headless audio render tool" ON)
+if(TUNEBFREE_BUILD_RENDER_TOOL)
+    juce_add_console_app(tuneBfree_render PRODUCT_NAME "tuneBfree_render")
+    juce_generate_juce_header(tuneBfree_render)
+    target_sources(tuneBfree_render PRIVATE
+        scripts/AudioRenderTool.cpp
+        plugin/PluginProcessor.cpp
+        plugin/PluginEditor.cpp
+        plugin/midi_stubs.cpp
+        ${DSP_SOURCES}
+        ${PRESET_SOURCES}
+    )
+    target_include_directories(tuneBfree_render PRIVATE
+        src
+        plugin
+        libs/MTS-ESP/Client
+        libs/readerwriterqueue
+        libs/tuning-library/include
+    )
+    target_compile_definitions(tuneBfree_render PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_STANDALONE_APPLICATION=0
+    )
+    target_link_libraries(tuneBfree_render PRIVATE
         juce::juce_audio_processors
         juce::juce_audio_utils
         juce::juce_recommended_config_flags

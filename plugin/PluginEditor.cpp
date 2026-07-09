@@ -544,32 +544,155 @@ private:
     juce::AttributedString text;
 };
 
-// The menu itself. Safe against the editor closing mid-menu (SafePointer).
-static void showParamMenu (juce::AudioProcessorValueTreeState& state,
-                           const juce::String& paramID, juce::Component* target)
+// General MIDI names for the well-known controllers; "" = no standard name.
+static juce::String generalMidiCCName (int cc)
 {
-    auto* p = state.getParameter (paramID);
+    switch (cc)
+    {
+        case 1:  return "Mod Wheel";
+        case 2:  return "Breath";
+        case 4:  return "Foot";
+        case 5:  return "Portamento Time";
+        case 7:  return "Volume";
+        case 8:  return "Balance";
+        case 10: return "Pan";
+        case 11: return "Expression";
+        case 64: return "Sustain";
+        case 65: return "Portamento";
+        case 66: return "Sostenuto";
+        case 67: return "Soft";
+        case 68: return "Legato";
+        case 69: return "Hold 2";
+        case 71: return "Resonance";
+        case 74: return "Cutoff";
+        case 84: return "Portamento Control";
+        case 91: return "Reverb Depth";
+        case 93: return "Chorus Depth";
+        default: return {};
+    }
+}
+
+// Menu item id scheme (see showParamMenu):
+enum { kMenuEdit = 1, kMenuInfo = 2, kMenuLearn = 10, kMenuClear = 11,
+       kMenuChannelBase = 200,      // +0 = omni, +1..16 = channel
+       kMenuCCBase = 1000 };        // +cc
+
+// The menu itself. Safe against the editor closing mid-menu (SafePointer).
+// paramIDs[0] is the PRIMARY — used for the value/edit/info and the mapping
+// display. Mapping actions (learn/assign/channel/clear) apply to EVERY id, so
+// one control can drive several parameters together (the PLAY Leslie → drum +
+// horn). For an ordinary control, paramIDs holds a single entry.
+static void showParamMenu (juce::AudioProcessorValueTreeState& state,
+                           const juce::StringArray& paramIDs, juce::Component* target)
+{
+    if (paramIDs.isEmpty()) return;
+    const juce::String primary = paramIDs[0];
+    auto* p = state.getParameter (primary);
     if (p == nullptr) return;
+
+    auto& proc = static_cast<TuneBfreeAudioProcessor&> (state.processor);
+    const bool mappable = proc.isParamMappable (primary);
+    TuneBfreeAudioProcessor::MidiSource current;
+    const bool mapped   = proc.getMidiMappingFor (primary, current);
+    const bool learning = proc.isMidiLearning (primary);
 
     juce::PopupMenu m;
     m.setLookAndFeel (&target->getLookAndFeel());
     m.addSectionHeader (p->getName (64).toUpperCase());
-    m.addItem (1, "EDIT VALUE: " + p->getCurrentValueAsText());
-    m.addItem (2, "INFO");
+    m.addItem (kMenuEdit, "EDIT VALUE: " + p->getCurrentValueAsText());
+    m.addItem (kMenuInfo, "INFO");
+
+    // --- MIDI mapping ---
+    m.addSeparator();
+    if (! mappable)
+    {
+        m.addItem (-1, "MIDI MAPPING N/A (RESTARTS ENGINE)", false, false);
+    }
+    else
+    {
+        m.addSectionHeader (mapped ? "MAPPED: " + TuneBfreeAudioProcessor::midiSourceLabel (current)
+                                   : "NOT MAPPED");
+        m.addItem (kMenuLearn, learning ? "ABORT MIDI LEARN" : "MIDI LEARN", true, learning);
+
+        // ASSIGN CC → bins of 20, each CC shown with its GM name; reserved disabled.
+        juce::PopupMenu assign;
+        for (int bin = 0; bin < 128; bin += 20)
+        {
+            juce::PopupMenu binMenu;
+            const int hi = juce::jmin (bin + 19, 127);
+            for (int cc = bin; cc <= hi; ++cc)
+            {
+                const auto gm = generalMidiCCName (cc);
+                juce::String label = "CC " + juce::String (cc) + (gm.isEmpty() ? "" : "  " + gm);
+                const bool tick = mapped && current.type == TuneBfreeAudioProcessor::MidiSource::CC
+                                  && current.cc == cc;
+                binMenu.addItem (kMenuCCBase + cc, label,
+                                 TuneBfreeAudioProcessor::isAssignableCC (cc), tick);
+            }
+            assign.addSubMenu (juce::String (bin) + "-" + juce::String (hi), binMenu);
+        }
+        m.addSubMenu ("ASSIGN CC", assign);
+
+        // CHANNEL: which channel the mapping listens on (omni or 1..16).
+        juce::PopupMenu chan;
+        chan.addItem (kMenuChannelBase + 0, "OMNI", mapped,
+                      mapped && current.channel == 0);
+        for (int ch = 1; ch <= 16; ++ch)
+            chan.addItem (kMenuChannelBase + ch, "Channel " + juce::String (ch), mapped,
+                          mapped && current.channel == ch);
+        m.addSubMenu ("CHANNEL", chan, mapped);
+
+        m.addItem (kMenuClear, "CLEAR MAPPING", mapped);
+    }
 
     juce::Component::SafePointer<juce::Component> safe (target);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
-        [p, safe, paramID] (int r)
+        [&proc, p, safe, paramIDs, primary] (int r)
         {
-            if (safe == nullptr || r == 0) return;
-            if (r == 1)
+            if (safe == nullptr || r <= 0) return;
+            using MidiSource = TuneBfreeAudioProcessor::MidiSource;
+            auto assignAll = [&] (MidiSource s) {
+                for (const auto& id : paramIDs) proc.assignMidiMapping (id, s);
+            };
+            if (r == kMenuEdit)
                 juce::CallOutBox::launchAsynchronously (
                     std::make_unique<ParamEditContent> (*p), safe->getScreenBounds(), nullptr);
-            else if (r == 2)
+            else if (r == kMenuInfo)
                 juce::CallOutBox::launchAsynchronously (
-                    std::make_unique<ParamInfoContent> (p->getName (64), paramInfoText (paramID)),
+                    std::make_unique<ParamInfoContent> (p->getName (64), paramInfoText (primary)),
                     safe->getScreenBounds(), nullptr);
+            else if (r == kMenuLearn)
+            {
+                if (proc.isMidiLearning (primary)) proc.cancelMidiLearn();
+                else                               proc.startMidiLearn (paramIDs);
+            }
+            else if (r == kMenuClear)
+                for (const auto& id : paramIDs) proc.clearMidiMapping (id);
+            else if (r >= kMenuChannelBase && r < kMenuChannelBase + 17)
+            {
+                MidiSource s;
+                if (proc.getMidiMappingFor (primary, s))   // keep type/cc, change channel
+                {
+                    s.channel = r - kMenuChannelBase;
+                    assignAll (s);
+                }
+            }
+            else if (r >= kMenuCCBase && r < kMenuCCBase + 128)
+            {
+                MidiSource s;                      // keep the existing channel if mapped
+                proc.getMidiMappingFor (primary, s);
+                s.type = MidiSource::CC;
+                s.cc   = r - kMenuCCBase;
+                assignAll (s);
+            }
         });
+}
+
+// Convenience: single-parameter menu (the common case).
+static void showParamMenu (juce::AudioProcessorValueTreeState& state,
+                           const juce::String& paramID, juce::Component* target)
+{
+    showParamMenu (state, juce::StringArray (paramID), target);
 }
 
 // Attach to any control: right-click (ctrl-click / two-finger click) opens the
@@ -578,9 +701,19 @@ static void showParamMenu (juce::AudioProcessorValueTreeState& state,
 class ParamMenuAttachment : public juce::MouseListener
 {
 public:
+    // Single dynamic parameter id (the common case).
     ParamMenuAttachment (juce::AudioProcessorValueTreeState& s, juce::Component& c,
                          std::function<juce::String()> idFn)
-        : state (s), comp (c), getId (std::move (idFn))
+        : state (s), comp (c),
+          getIds ([fn = std::move (idFn)] { return juce::StringArray (fn()); })
+    {
+        comp.addMouseListener (this, true);
+    }
+    // Several parameters driven together (the PLAY Leslie → drum + horn); the
+    // first is the primary shown in the menu.
+    ParamMenuAttachment (juce::AudioProcessorValueTreeState& s, juce::Component& c,
+                         juce::StringArray ids)
+        : state (s), comp (c), getIds ([ids = std::move (ids)] { return ids; })
     {
         comp.addMouseListener (this, true);
     }
@@ -589,13 +722,13 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (e.mods.isPopupMenu())
-            showParamMenu (state, getId(), &comp);
+            showParamMenu (state, getIds(), &comp);
     }
 
 private:
     juce::AudioProcessorValueTreeState& state;
     juce::Component& comp;
-    std::function<juce::String()> getId;
+    std::function<juce::StringArray()> getIds;
 };
 
 // Right-click info for widgets that are NOT plugin parameters (the tuning
@@ -644,7 +777,7 @@ public:
         omniOnBtn.onClick  = [this] { proc.setOmni (true);  syncOmni(); };
         omniOffBtn.onClick = [this] { proc.setOmni (false); syncOmni(); };
 
-        selectAllBtn.onClick   = [this] { for (int c = 0; c < 16; ++c) proc.setChannelActive (c, true);  syncChannels(); };
+        selectAllBtn.onClick   = [this] { for (int c = 0; c < 16; ++c) proc.setChannelActive (c, proc.isChannelMapped (c)); syncChannels(); };
         deselectAllBtn.onClick = [this] { for (int c = 0; c < 16; ++c) proc.setChannelActive (c, false); syncChannels(); };
         addAndMakeVisible (selectAllBtn);
         addAndMakeVisible (deselectAllBtn);
@@ -654,6 +787,9 @@ public:
             auto* b = chanBtns.add (new juce::TextButton (juce::String (c + 1)));
             b->setClickingTogglesState (true);
             b->onClick = [this, c] { proc.setChannelActive (c, chanBtns[c]->getToggleState()); };
+            // Unmapped channels (FILE tuning, no _i.kbm and no generic kbm) are
+            // silent — grey them out so they can't be selected.
+            b->setEnabled (proc.isChannelMapped (c));
             addAndMakeVisible (b);
         }
         syncOmni();
@@ -1124,6 +1260,404 @@ void TuningSidePanelContent::refresh()
 //  unless the SCALA source is selected — per TUNING_PANEL.md.)
 
 // ============================================================================
+//  CONTROL SIDE PANEL (presets / program change; MIDI mappings to follow)
+// ============================================================================
+
+// CallOutBox content for SAVE: name + author fields, an INCLUDE TUNING toggle,
+// and a SAVE button that then opens the file chooser. Metadata mirrors Surge/
+// Vital (name + author); the tuning toggle governs the preset's <TUNING> block.
+class PresetSaveContent : public juce::Component
+{
+public:
+    // onSave is invoked (if set) when the user clicks SAVE, just before the
+    // callout dismisses — read getName()/getAuthor()/includeTuning() there.
+    std::function<void()> onSave;
+
+    explicit PresetSaveContent (TuneBfreeAudioProcessor& p) : proc (p)
+    {
+        auto field = [this] (juce::Label& cap, const juce::String& text,
+                             juce::TextEditor& ed, const juce::String& initial)
+        {
+            styleCaption (cap, text);
+            cap.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (cap);
+            ed.setFont (uiFont (13.0f));
+            ed.setColour (juce::TextEditor::backgroundColourId,     kBtn);
+            ed.setColour (juce::TextEditor::textColourId,           kWhite);
+            ed.setColour (juce::TextEditor::outlineColourId,        kBorder);
+            ed.setColour (juce::TextEditor::focusedOutlineColourId, kAmber);
+            ed.setText (initial, juce::dontSendNotification);
+            addAndMakeVisible (ed);
+        };
+        field (nameCap,   "NAME",   nameEd,   "Untitled");
+        field (authorCap, "AUTHOR", authorEd, lastAuthor);
+        nameEd.setSelectAllWhenFocused (true);
+
+        tuningBtn.setClickingTogglesState (true);
+        tuningBtn.getProperties().set ("header", false);
+        addAndMakeVisible (tuningBtn);
+
+        saveBtn.onClick = [this]
+        {
+            if (nameEd.getText().trim().isEmpty())
+                nameEd.setText ("Untitled", juce::dontSendNotification);
+            lastAuthor = authorEd.getText();
+            if (onSave) onSave();
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->dismiss();
+        };
+        addAndMakeVisible (saveBtn);
+
+        setSize (240, 150);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (10);
+        const int rowH = 22, gap = 6;
+        nameCap.setBounds  (r.removeFromTop (16));
+        nameEd.setBounds   (r.removeFromTop (rowH));
+        r.removeFromTop (gap);
+        authorCap.setBounds (r.removeFromTop (16));
+        authorEd.setBounds  (r.removeFromTop (rowH));
+        r.removeFromTop (gap);
+        tuningBtn.setBounds (r.removeFromTop (rowH));
+        r.removeFromTop (gap);
+        saveBtn.setBounds   (r.removeFromTop (rowH));
+    }
+
+    juce::String getName()      const { return nameEd.getText().trim(); }
+    juce::String getAuthor()    const { return authorEd.getText().trim(); }
+    bool         includeTuning() const { return tuningBtn.getToggleState(); }
+
+private:
+    TuneBfreeAudioProcessor& proc;
+    juce::Label      nameCap, authorCap;
+    juce::TextEditor  nameEd, authorEd;
+    juce::TextButton tuningBtn { "INCLUDE TUNING" };
+    juce::TextButton saveBtn   { "SAVE\xe2\x80\xa6" };
+
+    // Author persists across saves within a session (a small convenience).
+    static juce::String lastAuthor;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PresetSaveContent)
+};
+
+juce::String PresetSaveContent::lastAuthor;
+
+void ControlSidePanelContent::ListModel::paintListBoxItem (int row, juce::Graphics& g,
+                                                           int w, int h, bool rowIsSelected)
+{
+    if (rowText == nullptr) return;
+    if (rowIsSelected)
+    {
+        g.setColour (kRed);
+        g.fillRect (0, 0, w, h);
+    }
+    g.setColour (rowIsSelected ? kWhite : kAmber);
+    g.setFont (uiFont (11.0f));
+    g.drawText (rowText (row), 6, 0, w - 8, h, juce::Justification::centredLeft, true);
+}
+
+ControlSidePanelContent::ControlSidePanelContent (TuneBfreeAudioProcessor& p) : proc (p)
+{
+    styleSectionTitle (pcTitle, "PROGRAM CHANGE");
+    styleSectionTitle (ccTitle, "CONTINUOUS CONTROLLERS");
+    addAndMakeVisible (pcTitle);
+    addAndMakeVisible (ccTitle);
+
+    // --- bank list ---
+    bankModel.rowCount   = [this] { return proc.presets.numBanks(); };
+    bankModel.rowText    = [this] (int r) { return proc.presets.getBankName (r); };
+    bankModel.rowClicked = [this] (int r)
+    {
+        proc.presets.setCurrentBank (r);
+        proc.presets.setCurrentPreset (-1);
+        refresh();
+    };
+    // --- preset list (of the current bank); clicking a row applies it ---
+    presetModel.rowCount   = [this] { return proc.presets.numPresets (proc.presets.getCurrentBank()); };
+    presetModel.rowText    = [this] (int r) { return proc.presets.getPresetName (proc.presets.getCurrentBank(), r); };
+    presetModel.rowClicked = [this] (int r)
+    {
+        const int bank = proc.presets.getCurrentBank();
+        proc.presets.setCurrentPreset (r);
+        proc.presets.apply (proc.presets.getPreset (bank, r));
+    };
+    // --- CC mappings list (cached in ccRows; see refresh) ---
+    ccModel.rowCount   = [this] { return ccRows.size(); };
+    ccModel.rowText    = [this] (int r) { return ccRows[r]; };
+    ccModel.rowClicked = [this] (int) { removeBtn.setEnabled (ccList.getSelectedRow() >= 0); };
+
+    bankList.setModel   (&bankModel);
+    presetList.setModel (&presetModel);
+    ccList.setModel     (&ccModel);
+    for (auto* lb : { &bankList, &presetList, &ccList })
+    {
+        lb->setRowHeight (18);
+        lb->setColour (juce::ListBox::backgroundColourId, kBtn);
+        lb->setColour (juce::ListBox::outlineColourId,    kBorder);
+        lb->setOutlineThickness (1);
+        addAndMakeVisible (*lb);
+    }
+
+    styleInfoBox (ccEmptyLabel, juce::Justification::centred);
+    ccEmptyLabel.setText ("NO MAPPINGS", juce::dontSendNotification);
+    ccEmptyLabel.setColour (juce::Label::textColourId, kGrey);
+    addAndMakeVisible (ccEmptyLabel);
+
+    loadBtn.onClick   = [this] { showLoadMenu(); };
+    saveBtn.onClick   = [this] { showSaveDialog(); };
+    removeBtn.onClick = [this]
+    {
+        const int row = ccList.getSelectedRow();
+        if (row >= 0) { proc.removeMidiMappingAt (row); refresh(); }
+    };
+    removeBtn.setEnabled (false);
+    for (auto* b : { &loadBtn, &saveBtn, &removeBtn })
+        addAndMakeVisible (*b);
+
+    // Right-click info on the panel widgets (none are plugin parameters).
+    auto info = [this] (juce::Component& c, juce::String t, juce::String b)
+    { paramMenus.add (new InfoMenuAttachment (c, std::move (t), std::move (b))); };
+    info (bankList, "BANKS",
+          "The loaded preset banks. A bank is an ordered list of presets; it lives in "
+          "the plugin state, so banks you load or save persist with the session. Pick a "
+          "bank to see its presets. MIDI Bank Select (MSB+LSB) chooses the bank live.");
+    info (presetList, "PRESETS",
+          "Presets in the selected bank. A preset stores every engine and effect "
+          "setting (including the drawbar HARMONICS fine-tuning) but NOT the key tuning "
+          "unless you saved it with INCLUDE TUNING, and NOT the MIDI mappings. Click to "
+          "load; MIDI Program Change selects within the current bank.");
+    info (loadBtn, "LOAD",
+          "Load preset .xml file(s) into the current bank, a directory of .xml presets "
+          "as a new bank, or a setBfree .pgm file as a new bank (backwards compat).");
+    info (saveBtn, "SAVE",
+          "Save the current sound as an .xml preset. You choose the name, author, and "
+          "whether to bake in the current key tuning, then where to write the file. The "
+          "saved preset is also added to the current bank.");
+    info (ccList, "CONTINUOUS CONTROLLERS",
+          "MIDI controllers currently mapped to parameters. Assign or clear mappings by "
+          "right-clicking a parameter (MIDI learn, or set channel + CC manually). "
+          "Mappings are saved with the plugin state, not inside presets.");
+    info (removeBtn, "REMOVE",
+          "Remove the selected MIDI mapping.");
+
+    refresh();
+}
+
+void ControlSidePanelContent::paint (juce::Graphics& g)
+{
+    g.fillAll (kPanel);   // matches the tuning panel
+}
+
+void ControlSidePanelContent::resized()
+{
+    const int pad = 12, gap = 8, titleH = 18, btnH = 30;
+    auto r = getLocalBounds().reduced (pad);
+
+    // --- PROGRAM CHANGE ---
+    pcTitle.setBounds (r.removeFromTop (titleH));
+    r.removeFromTop (gap);
+
+    // Two list columns: banks | presets. Presets get the larger share.
+    const int listH = 132;
+    auto listRow = r.removeFromTop (listH);
+    const int bankW = (listRow.getWidth() - gap) * 2 / 5;
+    bankList.setBounds   (listRow.removeFromLeft (bankW));
+    listRow.removeFromLeft (gap);
+    presetList.setBounds (listRow);
+    r.removeFromTop (gap);
+
+    // LOAD | SAVE
+    auto btnRow = r.removeFromTop (btnH);
+    loadBtn.setBounds (btnRow.removeFromLeft ((btnRow.getWidth() - gap) / 2));
+    btnRow.removeFromLeft (gap);
+    saveBtn.setBounds (btnRow);
+    r.removeFromTop (gap * 2);
+
+    // --- CONTINUOUS CONTROLLERS ---
+    ccTitle.setBounds (r.removeFromTop (titleH));
+    r.removeFromTop (gap);
+    auto removeRow = r.removeFromBottom (btnH);
+    removeBtn.setBounds (removeRow.removeFromRight ((removeRow.getWidth() - gap) / 2));
+    r.removeFromBottom (gap);
+    ccList.setBounds (r);
+    ccEmptyLabel.setBounds (r);
+}
+
+int ControlSidePanelContent::ensureCurrentBank()
+{
+    if (proc.presets.numBanks() == 0)
+    {
+        const int bank = proc.presets.addBank ("User");
+        proc.presets.setCurrentBank (bank);
+        return bank;
+    }
+    return proc.presets.getCurrentBank();
+}
+
+void ControlSidePanelContent::showLoadMenu()
+{
+    juce::PopupMenu m;
+    m.setLookAndFeel (&getLookAndFeel());
+    m.addItem (1, "Load preset file(s)\xe2\x80\xa6");
+    m.addItem (2, "Load bank directory\xe2\x80\xa6");
+    m.addItem (3, "Import .pgm bank\xe2\x80\xa6");
+
+    juce::Component::SafePointer<ControlSidePanelContent> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (loadBtn),
+        [safe] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            safe->doLoad (r);
+        });
+}
+
+void ControlSidePanelContent::doLoad (int which)
+{
+    const bool dir = (which == 2);
+    const juce::String title = which == 1 ? "Load preset file(s)"
+                             : which == 2 ? "Load bank directory"
+                                          : "Import .pgm bank";
+    const juce::String filter = which == 3 ? "*.pgm" : "*.xml";
+    auto flags = juce::FileBrowserComponent::openMode
+               | (dir ? juce::FileBrowserComponent::canSelectDirectories
+                      : juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::canSelectMultipleItems);
+
+    fileChooser = std::make_unique<juce::FileChooser> (title, lastPresetDir, filter);
+    juce::Component::SafePointer<ControlSidePanelContent> safe (this);
+    fileChooser->launchAsync (flags, [safe, which] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr) return;
+        auto results = fc.getResults();
+        if (results.isEmpty()) return;
+        safe->lastPresetDir = results[0].isDirectory() ? results[0] : results[0].getParentDirectory();
+
+        auto& pm = safe->proc.presets;
+        juce::String error;
+        int selectBank = -1;
+
+        if (which == 1)                       // preset file(s) → current bank
+        {
+            const int bank = safe->ensureCurrentBank();
+            pm.loadPresetFilesIntoBank (results, bank, error);
+            selectBank = bank;
+        }
+        else if (which == 2)                  // directory → new bank
+            selectBank = pm.loadBankDirectory (results[0], error);
+        else                                  // .pgm → new bank
+            selectBank = pm.importPgmFile (results[0], error);
+
+        if (selectBank >= 0)
+        {
+            pm.setCurrentBank (selectBank);
+            pm.setCurrentPreset (-1);
+        }
+        if (error.isNotEmpty())
+            juce::NativeMessageBox::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, "Load", error);
+        safe->refresh();
+    });
+}
+
+void ControlSidePanelContent::showSaveDialog()
+{
+    juce::Component::SafePointer<ControlSidePanelContent> safe (this);
+    auto content = std::make_unique<PresetSaveContent> (proc);
+    content->setLookAndFeel (&getLookAndFeel());
+
+    // The dialog's SAVE button dismisses the callout; capture the fields then.
+    juce::Component::SafePointer<PresetSaveContent> dlgSafe (content.get());
+    content->onSave = [safe, dlgSafe]
+    {
+        if (safe == nullptr || dlgSafe == nullptr) return;
+        safe->doSave (dlgSafe->getName(), dlgSafe->getAuthor(), dlgSafe->includeTuning());
+    };
+    juce::CallOutBox::launchAsynchronously (std::move (content),
+                                            saveBtn.getScreenBounds(), nullptr);
+}
+
+void ControlSidePanelContent::doSave (const juce::String& name, const juce::String& author,
+                                      bool includeTuning)
+{
+    auto preset = proc.presets.capture (name, author, includeTuning);
+
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Save preset", lastPresetDir.getChildFile (name + ".xml"), "*.xml");
+    juce::Component::SafePointer<ControlSidePanelContent> safe (this);
+    fileChooser->launchAsync (
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe, preset] (const juce::FileChooser& fc)
+        {
+            if (safe == nullptr) return;
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            if (! f.hasFileExtension ("xml")) f = f.withFileExtension ("xml");
+            safe->lastPresetDir = f.getParentDirectory();
+
+            juce::String error;
+            if (safe->proc.presets.savePresetFile (preset, f, error))
+            {
+                // Also add it to the current bank so it shows up immediately.
+                const int bank = safe->ensureCurrentBank();
+                safe->proc.presets.appendPreset (bank, preset);
+                safe->proc.presets.setCurrentBank (bank);
+                safe->refresh();
+            }
+            else
+                juce::NativeMessageBox::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "Save", error);
+        });
+}
+
+void ControlSidePanelContent::refresh()
+{
+    const int bankCount     = proc.presets.numBanks();
+    const int currentBank   = proc.presets.getCurrentBank();
+    const int presetCount   = proc.presets.numPresets (currentBank);
+    const int currentPreset = proc.presets.getCurrentPreset();
+
+    // Rebuild the lists only when something actually changed (this runs on the
+    // editor timer). updateContent re-reads the row counts from the models.
+    if (bankCount != lastBankCount || currentBank != lastCurrentBank)
+    {
+        bankList.updateContent();
+        if (currentBank >= 0 && currentBank < bankCount) bankList.selectRow (currentBank);
+        else                                             bankList.deselectAllRows();
+        presetList.updateContent();
+    }
+    if (presetCount != lastPresetCount || currentPreset != lastCurrentPreset
+        || currentBank != lastCurrentBank)
+    {
+        presetList.updateContent();
+        if (currentPreset >= 0 && currentPreset < presetCount) presetList.selectRow (currentPreset);
+        else                                                   presetList.deselectAllRows();
+    }
+
+    lastBankCount = bankCount; lastCurrentBank = currentBank;
+    lastPresetCount = presetCount; lastCurrentPreset = currentPreset;
+
+    // MIDI mappings: refresh the cached rows only when they change.
+    auto rows = proc.getMidiMappingList();
+    if (rows != ccRows)
+    {
+        ccRows = std::move (rows);
+        ccList.updateContent();
+        if (ccList.getSelectedRow() >= ccRows.size())
+        {
+            ccList.deselectAllRows();
+            removeBtn.setEnabled (false);
+        }
+    }
+    const bool hasMappings = ! ccRows.isEmpty();
+    ccList.setVisible (hasMappings);
+    ccEmptyLabel.setVisible (! hasMappings);
+}
+
+// ============================================================================
 //  DEFAULT PAGE
 // ============================================================================
 
@@ -1343,7 +1877,11 @@ DefaultPage::DefaultPage (TuneBfreeAudioProcessor& p) : proc (p)
         menu (driveKnob, "character");
         menu (reverbKnob, "reverb_mix");
         menu (expressionKnob, "expression");
-        menu (choraleBtn, "horn"); menu (stopBtn, "horn"); menu (tremoloBtn, "horn");
+        // The PLAY Leslie is a single control that drives BOTH rotors, so its
+        // right-click maps horn + drum together (ROTOR keeps them independent).
+        const juce::StringArray lesliePair { "horn", "drum" };
+        for (auto* b : { &choraleBtn, &stopBtn, &tremoloBtn })
+            paramMenus.add (new ParamMenuAttachment (st_, *b, lesliePair));
         menu (bypassBtn, "whirl_bypass");
     }
 
@@ -2408,7 +2946,8 @@ private:
 
 TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p),
-      defaultPage (p), tinkerPage (p), rotaryPage (p), tuningContent (p)
+      defaultPage (p), tinkerPage (p), rotaryPage (p),
+      tuningContent (p), controlContent (p)
 {
     setLookAndFeel (&laf);
 
@@ -2441,17 +2980,30 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     tuningBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
     tuningBtn.setColour (juce::TextButton::textColourOffId,  kAmber);
     tuningBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
+    // TUNING and CONTROL share the right-column overlay slot: opening one closes
+    // the other (both can be closed, but not both open).
     tuningBtn.onClick = [this]
     {
-        tuningContent.setVisible (! tuningContent.isVisible());
-        tuningBtn.setToggleState (tuningContent.isVisible(), juce::dontSendNotification);
+        const bool show = ! tuningContent.isVisible();
+        tuningContent.setVisible (show);
+        if (show) controlContent.setVisible (false);
+        syncSidePanelButtons();
     };
     addAndMakeVisible (tuningBtn);
 
-    // CONTROL: MIDI CC / program-change management — the side panel is still to come.
-    controlBtn.setColour (juce::TextButton::buttonColourId,  kBtn);
-    controlBtn.setColour (juce::TextButton::textColourOffId, kAmber);
-    controlBtn.setEnabled (false);   // placeholder until the CONTROL panel lands
+    // CONTROL: presets (program change) + MIDI mappings.
+    controlBtn.setClickingTogglesState (false);
+    controlBtn.setColour (juce::TextButton::buttonColourId,   kBtn);
+    controlBtn.setColour (juce::TextButton::buttonOnColourId, kRed);
+    controlBtn.setColour (juce::TextButton::textColourOffId,  kAmber);
+    controlBtn.setColour (juce::TextButton::textColourOnId,   kWhite);
+    controlBtn.onClick = [this]
+    {
+        const bool show = ! controlContent.isVisible();
+        controlContent.setVisible (show);
+        if (show) tuningContent.setVisible (false);
+        syncSidePanelButtons();
+    };
     addAndMakeVisible (controlBtn);
 
     // "!" (panic: release all notes) and 🔊 (master volume popup), mid-header.
@@ -2481,7 +3033,8 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     addAndMakeVisible (defaultPage);
     addChildComponent (tinkerPage);   // hidden until selected
     addChildComponent (rotaryPage);
-    addChildComponent (tuningContent);   // LAST: the overlay paints on top of the pages
+    addChildComponent (tuningContent);    // overlays paint on top of the pages
+    addChildComponent (controlContent);   // LAST: same slot as tuningContent
 
     setSize (740, 430);
 
@@ -2494,7 +3047,12 @@ TuneBfreeAudioProcessorEditor::TuneBfreeAudioProcessorEditor (TuneBfreeAudioProc
     if (std::getenv ("TUNEBFREE_TUNING") != nullptr)
     {
         tuningContent.setVisible (true);
-        tuningBtn.setToggleState (true, juce::dontSendNotification);
+        syncSidePanelButtons();
+    }
+    if (std::getenv ("TUNEBFREE_CONTROL") != nullptr)
+    {
+        controlContent.setVisible (true);
+        syncSidePanelButtons();
     }
     if (auto* snap = std::getenv ("TUNEBFREE_SNAPSHOT"))
     {
@@ -2524,6 +3082,12 @@ void TuneBfreeAudioProcessorEditor::setPage (int page)
     tinkerPage.setVisible  (page == 1);
     rotaryPage.setVisible  (page == 2);
     playBtn.repaint(); tinkerBtn.repaint(); rotaryBtn.repaint();
+}
+
+void TuneBfreeAudioProcessorEditor::syncSidePanelButtons()
+{
+    tuningBtn.setToggleState  (tuningContent.isVisible(),  juce::dontSendNotification);
+    controlBtn.setToggleState (controlContent.isVisible(), juce::dontSendNotification);
 }
 
 TuneBfreeAudioProcessorEditor::~TuneBfreeAudioProcessorEditor()
@@ -2566,9 +3130,12 @@ void TuneBfreeAudioProcessorEditor::resized()
     tinkerPage.setBounds  (r);
     rotaryPage.setBounds  (r);
 
-    // Tuning overlay: covers the right column of the window (same width the
-    // panel had inside the PLAY page: right region + half the centre gap).
-    tuningContent.setBounds (getLocalBounds().withTrimmedTop (44).removeFromRight (301));
+    // Side-panel overlays: both cover the right column of the window (same
+    // width the tuning panel had inside the PLAY page: right region + half the
+    // centre gap). Only one is visible at a time.
+    const auto panelBounds = getLocalBounds().withTrimmedTop (44).removeFromRight (301);
+    tuningContent.setBounds  (panelBounds);
+    controlContent.setBounds (panelBounds);
 }
 
 bool TuneBfreeAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
@@ -2592,6 +3159,8 @@ void TuneBfreeAudioProcessorEditor::timerCallback()
         defaultPage.syncFromParams();
     if (tuningContent.isVisible())
         tuningContent.refresh();
+    if (controlContent.isVisible())
+        controlContent.refresh();
     if (rotaryPage.isVisible())
         rotaryPage.syncFromParams();   // follow PLAY-page 3-way / host automation
     if (tinkerPage.isVisible())

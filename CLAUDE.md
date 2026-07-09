@@ -15,9 +15,11 @@ tuneBfree is a microtunable Hammond B3 tonewheel organ emulator, forked from set
 
 | Area | Status |
 |------|--------|
-| JUCE CMake build | Working -- builds Standalone, AU, VST3, CLAP on Mac |
-| PluginProcessor | Complete -- wraps all DSP, 112 APVTS parameters (see roadmap/PARAMETERS.md), MTS-ESP, silence detection, async rebuild, master volume, active-manual routing |
-| PluginEditor | Full 3-page GUI (2026-07): PLAY / TINKER / ROTOR + editor-level tuning overlay, right-click param menus (name/edit/info), header (panic, volume popup, CONTROL placeholder). See .claude/skills/gui.md |
+| JUCE CMake build | Working -- builds Standalone, AU, VST3 on Mac; CLAP only via the optional clap-juce-extensions submodule (JUCE has NO native CLAP -- unknown FORMATS tokens are silently ignored) |
+| PluginProcessor | Complete -- wraps all DSP, APVTS parameters (see roadmap/PARAMETERS.md), MTS-ESP, silence detection, async rebuild, master volume, active-manual routing |
+| PluginEditor | Full 3-page GUI (2026-07): PLAY / TINKER / ROTOR + editor-level tuning + CONTROL overlays (mutually exclusive), right-click param menus (name/edit/info + MIDI learn/assign/clear), header (panic, volume popup, CONTROL). See .claude/skills/gui.md |
+| CONTROL panel | Built 2026-07 — presets (all params except master_volume/active_manual + harmonics entry strings; optional tuning block), banks in apvts.state, .xml save + .pgm import; MIDI Program Change / Bank Select; MIDI CC + channel-aftertouch mapping engine (right-click learn/assign, defaults CC 11→expr, 7→master, 64→rotor). See plugin/PresetManager.*, roadmap/CONTROL_PANEL*.md |
+| Audio input | Optional stereo input bus (disabled by default), summed to mono and injected post-preamp / pre-reverb via a ring FIFO — external audio through the Leslie |
 | CLAP note-off bug | Fixed in src/clap.cpp -- added MIDI dialect + CLAP_EVENT_MIDI handler |
 | Skill files | Written: .claude/skills/setbfree.md, juce.md, microtuning.md, gui.md, scala.md, mts-esp.md (OSC quirks documented) |
 | GUI mockup | roadmap/gui.json (OSC 1.30.3) -- v1 tested, screenshots in roadmap/screenshots/ |
@@ -49,8 +51,11 @@ Standalone and AU both confirmed working:
 - MTS-ESP tuning: works dynamically mid-session (not just at startup)
 - State persistence via APVTS
 
-CLAP artifact: `build/tuneBfree_artefacts/Release/CLAP/tuneBfree.clap` -- COPY_PLUGIN_AFTER_BUILD
-does not auto-install CLAP on Mac (no standard system path). Install manually to `~/Library/Audio/Plug-Ins/CLAP/` if needed.
+CLAP: built only when `libs/clap-juce-extensions` exists (see Build commands). The artifact
+lands in `build/tuneBfree_artefacts/Release/CLAP/tuneBfree.clap` and COPY_PLUGIN_AFTER_BUILD
+auto-installs it to `~/Library/Audio/Plug-Ins/CLAP/`. NB: that copy step fails in Claude's
+sandbox (writes outside the repo) -- sandboxed builds should target tuneBfree_Standalone /
+tuneBfree_snapshot, not tuneBfree_CLAP or the default all-target.
 
 RPi: not yet tested.
 
@@ -64,8 +69,9 @@ git submodule update --init libs/JUCE libs/MTS-ESP libs/readerwriterqueue libs/d
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 
-# NOTE: the plain build above compiles EVERY format (Standalone, AU, VST3, CLAP)
-# plus the tests and the snapshot tool — slow. For iteration, build one target:
+# NOTE: the plain build above compiles EVERY format (Standalone, AU, VST3, and
+# CLAP if enabled) plus the tests and the snapshot tool — slow. For iteration,
+# build one target:
 cmake --build build --target tuneBfree_Standalone   # GUI/audio testing
 cmake --build build --target tuneBfree_AU           # GarageBand testing
 
@@ -74,9 +80,22 @@ cmake --build build --target tuneBfree_snapshot
 build/tuneBfree_snapshot_artefacts/Release/tuneBfree_snapshot 1 build/snapshots/tinker.png
 #   page: 0 = PLAY, 1 = TINKER, 2 = ROTOR — output is a 2x PNG at parameter defaults
 
+# Headless offline audio render (sandbox-safe; the audio counterpart — MIDI→WAV):
+cmake --build build --target tuneBfree_render
+build/tuneBfree_render_artefacts/Release/tuneBfree_render build/renders/note.wav --note 60
+#   options: --note --vel --channel --seconds --hold --sr --block --drawbars a,..,i
+#            --scl FILE --kbm FILE --source standard|scala|mts|sysex
+#   prints frames/peak/rms/nonFinite — the nonFinite (NaN/Inf) count must be 0
+
 # Melatonin Inspector (GUI layout debugging, cmd+I in the editor) — enabled
 # automatically once the submodule exists (network needed, run manually):
 #   git submodule add https://github.com/sudara/melatonin_inspector.git libs/melatonin_inspector
+
+# CLAP (optional) — JUCE has no native CLAP; enabled automatically once the
+# clap-juce-extensions submodule exists (network needed, run manually):
+#   git submodule add https://github.com/free-audio/clap-juce-extensions.git libs/clap-juce-extensions
+#   git submodule update --init --recursive libs/clap-juce-extensions
+# Then reconfigure; the target is tuneBfree_CLAP.
 ```
 
 ### Tests
@@ -89,7 +108,7 @@ cmake --build build --target tuneBfree_tests
 ctest --test-dir build --output-on-failure
 ```
 
-Outputs land in build/tuneBfree_artefacts/Release/: Standalone/, AU/, VST3/, CLAP/.
+Outputs land in build/tuneBfree_artefacts/Release/: Standalone/, AU/, VST3/ (+ CLAP/ when enabled).
 
 ### GarageBand workflow
 
@@ -123,7 +142,7 @@ tuneBfree/
 |   +-- clap.cpp            <- legacy CLAP wrapper (kept; note-off bug fixed)
 |   +-- CMakeLists.txt      <- legacy CLAP-only build (still works independently)
 +-- libs/
-|   +-- JUCE/               <- git submodule (6.0.8)
+|   +-- JUCE/               <- git submodule (8.0.14)
 |   +-- MTS-ESP/            <- microtuning client
 |   +-- readerwriterqueue/  <- lock-free queue (used by legacy CLAP)
 +-- .claude/skills/
@@ -143,7 +162,7 @@ tuneBfree/
 
 ---
 
-## PluginProcessor parameters (112 total)
+## PluginProcessor parameters
 
 Full audit (exposed / hidden / dead / stubbed): `roadmap/PARAMETERS.md`.
 Index map (P_* defines in plugin/PluginProcessor.h):
@@ -156,6 +175,11 @@ Index map (P_* defines in plugin/PluginProcessor.h):
 | 52-80 | TINKER: scanner, percussion physics, key click, crosstalk, EQ spline, wave, preamp |
 | 81-109 | ROTOR: bypass, motors, filters, mic & cabinet |
 | 110-111 | master_volume (header volume popup), active_manual (unitimbral routing) |
+| 112-114 | MatrixVerb voicing: reverb_damping, reverb_size, reverb_flavor |
+| 115-118 | cabinet geometry: horn/drum radius, horn x/z offset |
+| 119-120 | overdrive bias base (preamp_bias) + global feedback (preamp_gfb) |
+
+Total P_COUNT = 121.
 
 ---
 
@@ -170,10 +194,17 @@ Index map (P_* defines in plugin/PluginProcessor.h):
   for > 3 s. Addresses setBfree's known CPU waste when no notes play (riban comment on
   Zynthian forum / GitHub).
 - **Config stubs** -- plugin/midi_stubs.cpp provides no-op implementations of setBfree's
-  .cfg parser and MIDI-CC registration callbacks. Config file support is Phase 3.
+  .cfg parser and MIDI-CC registration callbacks (plus program-install/keyboard stubs so
+  src/program.cpp links for the .pgm PARSER used by PresetManager). .cfg import dropped.
+- **MIDI mapping** -- lives in apvts.state "MIDI_MAP"; audio thread reads a try-locked
+  snapshot and defers parameter writes to the message thread via a lock-free FIFO +
+  AsyncUpdater (keeps GUI/automation/DSP consistent). Rebuild-scope params are unmappable.
 - **Vibrato** -- Uniform across all notes for now. Long-term: optional MPE per-note expression.
 - **Zynthian** -- Design for possible compatibility; do not actively package.
-- **CLAP format** -- Natively supported in JUCE 8. CLAP artifact builds but is not auto-installed on Mac.
+- **CLAP format** -- JUCE 8 has NO native CLAP support (a `CLAP` token in FORMATS is
+  silently ignored). The JUCE-based CLAP comes from the optional clap-juce-extensions
+  submodule (conditional in CMakeLists.txt, like Melatonin). The legacy non-JUCE CLAP
+  (src/clap.cpp + libs/clap + libs/clap-wrapper) still builds separately via `cmake -S src -B src/build`.
 
 ---
 

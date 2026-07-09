@@ -38,3 +38,6 @@
 [submodule "libs/melatonin_inspector"]
 	path = libs/melatonin_inspector
 	url = git@github.com:sudara/melatonin_inspector.git
+[submodule "libs/clap-juce-extensions"]
+	path = libs/clap-juce-extensions
+	url = https://github.com/free-audio/clap-juce-extensions.git

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 #include <cmath>
 
 // ============================================================================
@@ -314,6 +315,19 @@ void TuneBfreeAudioProcessor::injectCustomWheels(double* freqTable, char* inject
     nofWheels = std::min(gamutSize + m, NOF_WHEELS);
 }
 
+juce::String TuneBfreeAudioProcessor::debugWheelsNear(double hz, double cents) const
+{
+    juce::SpinLock::ScopedLockType sl(uiWheelLock);
+    juce::String out;
+    for (size_t i = 0; i < uiWheelFreqs.size(); ++i) {
+        const double d = 1200.0 * std::log2(uiWheelFreqs[i] / hz);
+        if (std::fabs(d) < cents)
+            out << juce::String(uiWheelFreqs[i], 1) << "Hz(" << juce::String(d, 1) << "c"
+                << (i < uiWheelInjected.size() && uiWheelInjected[i] ? ",INJ" : "") << ") ";
+    }
+    return out.isEmpty() ? "(none)" : out;
+}
+
 void TuneBfreeAudioProcessor::publishUIWheelSnapshot(const b_tonegen* t, const double targetRatio[])
 {
     juce::SpinLock::ScopedLockType sl(uiWheelLock);
@@ -361,6 +375,8 @@ juce::String TuneBfreeAudioProcessor::getHarmonicEntryText(int i) const
 
 TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     : AudioProcessor(BusesProperties()
+          // Optional external-audio input, disabled by default (avoids feedback).
+          .withInput ("Input",  juce::AudioChannelSet::stereo(), false)
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "tuneBfree", createParameterLayout())
 {
@@ -422,6 +438,26 @@ TuneBfreeAudioProcessor::TuneBfreeAudioProcessor()
     // All channels active by default: every incoming note plays, single-table tuning
     // for a non-multichannel master — i.e. the pre-multichannel behaviour.
     for (int ch = 0; ch < 16; ch++) channelActive[ch] = true;
+
+    seedDefaultMappings();
+}
+
+// Minimal factory MIDI mappings (all omni, all removable by the user). Only
+// seeded on a fresh instance — setStateInformation later replaces the whole
+// tree, so a restored session keeps exactly the mappings it was saved with.
+void TuneBfreeAudioProcessor::seedDefaultMappings()
+{
+    if (apvts.state.getChildWithName("MIDI_MAP").isValid()) return;   // already set
+
+    auto omni = [this](const juce::String& id, int cc)
+    {
+        MidiSource s; s.type = MidiSource::CC; s.cc = cc; s.channel = 0;
+        assignMidiMapping(id, s);
+    };
+    omni("expression",    11);   // swell pedal
+    omni("master_volume",  7);   // channel volume
+    omni("drum",          64);   // Leslie speed switch (drum + horn together)
+    omni("horn",          64);
 }
 
 TuneBfreeAudioProcessor::~TuneBfreeAudioProcessor()
@@ -1031,13 +1067,68 @@ void TuneBfreeAudioProcessor::releaseResources()
 
 bool TuneBfreeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo()
-        && layouts.getMainInputChannelSet()  == juce::AudioChannelSet::disabled();
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+    // The input bus is optional: disabled, mono, or stereo (summed to mono).
+    const auto in = layouts.getMainInputChannelSet();
+    return in == juce::AudioChannelSet::disabled()
+        || in == juce::AudioChannelSet::mono()
+        || in == juce::AudioChannelSet::stereo();
 }
 
 // ============================================================================
 // Audio rendering
 // ============================================================================
+
+// External-audio ring FIFO: push one host-block input sample; pull one engine
+// chunk. Push/pull rates match on average (one input sample per output sample),
+// so occupancy stays bounded; a full FIFO drops the oldest sample.
+void TuneBfreeAudioProcessor::pushInputSample(float s)
+{
+    inputFifo[inputFifoWrite] = s;
+    inputFifoWrite = (inputFifoWrite + 1) % kInputFifoSize;
+    if (inputFifoWrite == inputFifoRead)                 // full → drop oldest
+        inputFifoRead = (inputFifoRead + 1) % kInputFifoSize;
+}
+
+void TuneBfreeAudioProcessor::pullInputChunk(float* dst, int n)
+{
+    for (int i = 0; i < n; ++i) {
+        if (inputFifoRead != inputFifoWrite) {
+            dst[i] = inputFifo[inputFifoRead];
+            inputFifoRead = (inputFifoRead + 1) % kInputFifoSize;
+        } else {
+            dst[i] = 0.0f;                                // underrun (startup) → silence
+        }
+    }
+}
+
+// Replace any non-finite (NaN/Inf) sample with 0; return how many were found.
+// Cheap guard placed at the INPUT of each feedback stage (reverb, Leslie): a
+// stray non-finite value from the tonegen / preamp / external input would
+// otherwise recirculate forever in the delay lines and permanently kill all
+// output ("didn't recover").
+static inline int sanitizeBuffer(float* buf, int n)
+{
+    int found = 0;
+    for (int i = 0; i < n; ++i)
+        if (! std::isfinite(buf[i])) { buf[i] = 0.0f; ++found; }
+    return found;
+}
+
+// Record + log (once) the first DSP stage that produced a non-finite sample.
+// A one-time stderr write from the audio thread is acceptable here: it fires
+// only on an already-catastrophic event, and pinpoints the culprit stage for
+// the next live reproduction (run the standalone from a terminal to see it).
+void TuneBfreeAudioProcessor::reportNaNStage(int stage)
+{
+    nanStage.store(stage, std::memory_order_relaxed);
+    if (! nanReported.exchange(true, std::memory_order_relaxed)) {
+        static const char* names[] = { "?", "tonegen/preamp/input", "reverb", "Leslie" };
+        std::fprintf(stderr, "[tuneBfree] non-finite (NaN/Inf) first seen at stage: %s\n",
+                     names[juce::jlimit(0, 3, stage)]);
+    }
+}
 
 void TuneBfreeAudioProcessor::renderAudio(float* outL, float* outR, int numSamples)
 {
@@ -1047,11 +1138,27 @@ void TuneBfreeAudioProcessor::renderAudio(float* outL, float* outR, int numSampl
             boffset = 0;
             oscGenerateFragment(synth, bufA, BUFFER_SIZE_SAMPLES);
             preamp(preampModule, bufA, bufB, BUFFER_SIZE_SAMPLES);
+            // External audio joins the chain here: after the preamp (so it skips
+            // the organ's overdrive), before reverb + Leslie.
+            if (hasAudioInput) {
+                pullInputChunk(bufIn, BUFFER_SIZE_SAMPLES);
+                for (int i = 0; i < BUFFER_SIZE_SAMPLES; ++i)
+                    bufB[i] += bufIn[i];
+            }
+            // Sanitize at each feedback-stage input and pinpoint which stage first
+            // introduces a non-finite sample (diagnostic for the elusive "didn't
+            // recover" bug): bufB dirty = tonegen/preamp/input; bufC dirty (after
+            // bufB cleaned) = reverb; bufL dirty (after bufC cleaned) = Leslie.
+            const int nB = sanitizeBuffer(bufB, BUFFER_SIZE_SAMPLES);
             reverbModule->reverb(bufB, bufC, BUFFER_SIZE_SAMPLES);
+            const int nC = sanitizeBuffer(bufC, BUFFER_SIZE_SAMPLES);
             whirlProc3(whirlModule, bufC,
                        bufL[0], bufL[1],
                        bufD[0], bufD[1],
                        BUFFER_SIZE_SAMPLES);
+            const int nL = sanitizeBuffer(bufL[0], BUFFER_SIZE_SAMPLES)
+                         + sanitizeBuffer(bufL[1], BUFFER_SIZE_SAMPLES);
+            if ((nB | nC | nL) != 0) reportNaNStage(nB ? 1 : nC ? 2 : 3);
         }
 
         int nread = std::min(numSamples - written, BUFFER_SIZE_SAMPLES - boffset);
@@ -1127,16 +1234,44 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if ((tuningChanged && sourceUsesMTS) || needParamRebuild || needReinit)
         requestRebuild();
 
+    // --- External audio input: is the bus enabled and carrying signal? ---
+    // (Read-only here — the actual samples are pushed to the FIFO below, only on
+    //  the paths that render, so silent idle blocks don't fill the FIFO.)
+    hasAudioInput = (getTotalNumInputChannels() > 0);
+    bool inputActive = false;
+    if (hasAudioInput) {
+        auto inBus = getBusBuffer(buffer, true, 0);
+        for (int c = 0; c < inBus.getNumChannels() && ! inputActive; ++c)
+            inputActive = inBus.getMagnitude(c, 0, inBus.getNumSamples()) > 1.0e-5f;
+    } else {
+        resetInputFifo();
+    }
+
     // --- Silence detection: skip DSP when no notes have sounded for > tail length ---
-    // This avoids setBfree's known issue of burning CPU even when silent.
-    // Tail covers reverb + Leslie decay (~3 s is conservative).
+    // This avoids setBfree's known issue of burning CPU even when silent. External
+    // audio input keeps the engine running (it must pass through reverb + Leslie).
     const int tailSamples = (int)(3.0 * currentSampleRate);
-    if (activeNoteCount == 0 && samplesSinceLastNote > tailSamples && midiMessages.isEmpty()) {
+    if (activeNoteCount == 0 && samplesSinceLastNote > tailSamples
+        && midiMessages.isEmpty() && ! inputActive) {
         buffer.clear();
         return;
     }
-    if (activeNoteCount == 0)
+    if (activeNoteCount == 0 && ! inputActive)
         samplesSinceLastNote += buffer.getNumSamples();
+    else if (inputActive)
+        samplesSinceLastNote = 0;   // keep rendering for the tail after input stops
+
+    // Push this block's external input (summed to mono) into the FIFO, aligned
+    // with the output we are about to render.
+    if (hasAudioInput) {
+        auto inBus = getBusBuffer(buffer, true, 0);
+        const int nch = inBus.getNumChannels();
+        for (int i = 0; i < inBus.getNumSamples(); ++i) {
+            float s = 0.0f;
+            for (int c = 0; c < nch; ++c) s += inBus.getSample(c, i);
+            pushInputSample(nch > 1 ? s / (float) nch : s);
+        }
+    }
 
     // --- Sample-accurate MIDI + audio processing ---
     auto* outL = buffer.getWritePointer(0);
@@ -1168,15 +1303,27 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
         }
         else if (msg.isController()) {
-            // Expression pedal: CC 7 (volume) and CC 11 (expression) BOTH drive the
-            // swell-pedal gain, as in setBfree. Sets the DSP directly; the GUI knob
-            // doesn't follow an incoming pedal (a later refinement).
             const int cc = msg.getControllerNumber();
-            if (cc == 7 || cc == 11)
-                synth->swellPedalGain = (float) (synth->outputLevelTrim
-                                                 * msg.getControllerValue() / 127.0);
+            if (cc == 0)  { midiBankMSB = msg.getControllerValue(); sawBankSelect = true; }
+            else if (cc == 32) { midiBankLSB = msg.getControllerValue(); sawBankSelect = true; }
             else if (cc == 120 || cc == 123)   // all sound off / all notes off
                 allNotesOff();
+            else
+                // All other CCs go through the user-assignable mapping engine. The
+                // expression pedal (CC 11 → expression) and the rest are seeded as
+                // removable defaults (see seedDefaultMappings).
+                handleMappableMidi(msg);
+        }
+        else if (msg.isChannelPressure()) {
+            handleMappableMidi(msg);   // channel aftertouch is a mappable source
+        }
+        else if (msg.isProgramChange()) {
+            // Bank Select (if any) + this program → the message thread. Bank number
+            // is MSB*128 + LSB (0 when nothing was sent), clamped later; -1 means
+            // "keep the current bank". Applying a preset is not audio-thread safe.
+            requestedProgramBank.store(sawBankSelect ? midiBankMSB * 128 + midiBankLSB : -1);
+            requestedProgramPreset.store(msg.getProgramChangeNumber());
+            triggerAsyncUpdate();
         }
         else {
             const int  noteNumber = msg.getNoteNumber();
@@ -1306,6 +1453,265 @@ void TuneBfreeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 }
 
 // ============================================================================
+// Program change (MIDI PC / bank select, and the host program API)
+// ============================================================================
+
+// Deferred from the audio thread: MIDI-learn capture, program change, and the
+// mapped-parameter write queue — all things that must run on the message thread.
+void TuneBfreeAudioProcessor::handleAsyncUpdate()
+{
+    // 1. MIDI learn: a source was captured for the armed parameter(s).
+    if (const int t = learnCapType.exchange(-1, std::memory_order_acquire); t >= 0
+        && ! midiLearnParamIDs.isEmpty()) {
+        MidiSource src;
+        src.type    = t;
+        src.cc      = learnCapCC.load(std::memory_order_relaxed);
+        src.channel = learnCapChannel.load(std::memory_order_relaxed);   // learn keeps the channel
+        for (const auto& id : midiLearnParamIDs)
+            assignMidiMapping(id, src);
+        midiLearnParamIDs.clearQuick();
+    }
+
+    // 2. Mapped-parameter writes (CC / aftertouch → parameter, GUI-consistent).
+    ParamChange pc;
+    while (paramChangeFIFO.try_dequeue(pc))
+        if (pc.param != nullptr)
+            pc.param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, pc.norm));
+
+    // 3. Program change (MIDI PC / bank select).
+    const int preset = requestedProgramPreset.exchange(-1);
+    if (preset < 0) return;
+    int bank = requestedProgramBank.exchange(-1);
+    if (bank < 0) bank = presets.getCurrentBank();
+
+    if (bank < 0 || bank >= presets.numBanks()) return;
+    if (preset >= presets.numPresets(bank))      return;   // no such program — ignore
+
+    presets.setCurrentBank(bank);
+    presets.setCurrentPreset(preset);
+    presets.apply(presets.getPreset(bank, preset));
+}
+
+int TuneBfreeAudioProcessor::getNumPrograms()
+{
+    // Hosts require >= 1. An empty (or no) bank still reports one slot.
+    return juce::jmax(1, presets.numPresets(presets.getCurrentBank()));
+}
+
+int TuneBfreeAudioProcessor::getCurrentProgram()
+{
+    return juce::jmax(0, presets.getCurrentPreset());
+}
+
+void TuneBfreeAudioProcessor::setCurrentProgram(int index)
+{
+    const int bank = presets.getCurrentBank();
+    if (index < 0 || index >= presets.numPresets(bank)) return;
+    presets.setCurrentPreset(index);
+    presets.apply(presets.getPreset(bank, index));
+}
+
+const juce::String TuneBfreeAudioProcessor::getProgramName(int index)
+{
+    const int bank = presets.getCurrentBank();
+    if (index >= 0 && index < presets.numPresets(bank))
+        return presets.getPresetName(bank, index);
+    return "Init";
+}
+
+// ============================================================================
+// MIDI mapping (CONTROL panel)
+// ============================================================================
+
+juce::ValueTree TuneBfreeAudioProcessor::midiMapTree()
+{
+    return apvts.state.getOrCreateChildWithName("MIDI_MAP", nullptr);
+}
+
+bool TuneBfreeAudioProcessor::isParamMappable(const juce::String& paramID) const
+{
+    auto* p = apvts.getParameter(paramID);
+    if (p == nullptr) return false;
+    const int i = p->getParameterIndex();   // matches the P_* index (layout order)
+    const bool rebuild =
+           (i >= P_HARM_CENTS_MIN && i <= P_HARM_AUTO_MAX)
+        ||  i == P_SPLIT_ENABLE || i == P_SPLIT_POINT || i == P_SPLIT_WIDTH
+        || (i >= P_SCANNER_HZ && i <= P_SCANNER_V3)
+        || (i >= P_CLICK_ATK_MODEL && i <= P_WAVE);
+    return ! rebuild;
+}
+
+void TuneBfreeAudioProcessor::assignMidiMapping(const juce::String& paramID, MidiSource src)
+{
+    if (! isParamMappable(paramID)) return;
+
+    auto tree = midiMapTree();
+    // One source per parameter: replace any existing entry for this param.
+    auto existing = tree.getChildWithProperty("param", paramID);
+    if (! existing.isValid()) {
+        existing = juce::ValueTree("MAP");
+        existing.setProperty("param", paramID, nullptr);
+        tree.appendChild(existing, nullptr);
+    }
+    existing.setProperty("type",    src.type,    nullptr);
+    existing.setProperty("cc",      src.cc,      nullptr);
+    existing.setProperty("channel", src.channel, nullptr);
+    rebuildMidiMapSnapshot();
+}
+
+void TuneBfreeAudioProcessor::clearMidiMapping(const juce::String& paramID)
+{
+    auto tree = midiMapTree();
+    if (auto c = tree.getChildWithProperty("param", paramID); c.isValid())
+        tree.removeChild(c, nullptr);
+    rebuildMidiMapSnapshot();
+}
+
+bool TuneBfreeAudioProcessor::getMidiMappingFor(const juce::String& paramID, MidiSource& out) const
+{
+    auto c = apvts.state.getChildWithName("MIDI_MAP").getChildWithProperty("param", paramID);
+    if (! c.isValid()) return false;
+    out.type    = (int) c.getProperty("type", MidiSource::CC);
+    out.cc      = (int) c.getProperty("cc", 0);
+    out.channel = (int) c.getProperty("channel", 0);
+    return true;
+}
+
+// CCs reserved by the MIDI spec — unsuitable as mapping targets: bank select,
+// data entry / increment / RPN / NRPN, high-res velocity prefix, channel-mode.
+bool TuneBfreeAudioProcessor::isAssignableCC(int cc)
+{
+    if (cc == 0 || cc == 32) return false;          // bank select MSB/LSB
+    if (cc == 6 || cc == 38) return false;          // data entry MSB/LSB
+    if (cc == 88)            return false;          // high-resolution velocity prefix
+    if (cc >= 96 && cc <= 101) return false;        // data inc/dec, NRPN/RPN LSB/MSB
+    if (cc >= 120)           return false;          // channel-mode messages
+    return true;
+}
+
+void TuneBfreeAudioProcessor::startMidiLearn(const juce::StringArray& paramIDs)
+{
+    midiLearnParamIDs.clearQuick();
+    for (const auto& id : paramIDs)
+        if (isParamMappable(id))
+            midiLearnParamIDs.add(id);
+    midiLearnArmed.store(! midiLearnParamIDs.isEmpty(), std::memory_order_release);
+}
+
+void TuneBfreeAudioProcessor::cancelMidiLearn()
+{
+    midiLearnParamIDs.clearQuick();
+    midiLearnArmed.store(false, std::memory_order_release);
+    learnCapType.store(-1, std::memory_order_release);
+}
+
+juce::String TuneBfreeAudioProcessor::midiSourceLabel(const MidiSource& s)
+{
+    const juce::String ch = (s.channel <= 0) ? "OMNI" : ("CH " + juce::String(s.channel));
+    const juce::String what = (s.type == MidiSource::Aftertouch)
+                                  ? "AFTERTOUCH" : ("CC " + juce::String(s.cc));
+    return ch + " " + what;
+}
+
+juce::StringArray TuneBfreeAudioProcessor::getMidiMappingList() const
+{
+    juce::StringArray out;
+    auto tree = apvts.state.getChildWithName("MIDI_MAP");
+    for (int i = 0; i < tree.getNumChildren(); ++i) {
+        auto c = tree.getChild(i);
+        MidiSource s;
+        s.type    = (int) c.getProperty("type", MidiSource::CC);
+        s.cc      = (int) c.getProperty("cc", 0);
+        s.channel = (int) c.getProperty("channel", 0);
+        const auto paramID = c.getProperty("param").toString();
+        juce::String name = paramID;
+        if (auto* p = apvts.getParameter(paramID)) name = p->getName(32);
+        out.add(midiSourceLabel(s) + "  \xe2\x86\x92  " + name);
+    }
+    return out;
+}
+
+juce::StringArray TuneBfreeAudioProcessor::getMidiMappingParamIDs() const
+{
+    juce::StringArray out;
+    auto tree = apvts.state.getChildWithName("MIDI_MAP");
+    for (int i = 0; i < tree.getNumChildren(); ++i)
+        out.add(tree.getChild(i).getProperty("param").toString());
+    return out;
+}
+
+void TuneBfreeAudioProcessor::removeMidiMappingAt(int index)
+{
+    auto tree = midiMapTree();
+    if (index >= 0 && index < tree.getNumChildren()) {
+        tree.removeChild(index, nullptr);
+        rebuildMidiMapSnapshot();
+    }
+}
+
+// Rebuild the audio-thread snapshot from the MIDI_MAP tree (message thread).
+void TuneBfreeAudioProcessor::rebuildMidiMapSnapshot()
+{
+    std::vector<MapEntry> next;
+    auto tree = apvts.state.getChildWithName("MIDI_MAP");
+    for (int i = 0; i < tree.getNumChildren(); ++i) {
+        auto c = tree.getChild(i);
+        auto* p = apvts.getParameter(c.getProperty("param").toString());
+        if (p == nullptr) continue;
+        next.push_back({ (int) c.getProperty("type", MidiSource::CC),
+                         (int) c.getProperty("cc", 0),
+                         (int) c.getProperty("channel", 0),
+                         dynamic_cast<juce::RangedAudioParameter*>(p) });
+    }
+    const juce::SpinLock::ScopedLockType lk(midiMapLock);
+    midiMapSnapshot.swap(next);
+}
+
+// Audio thread: apply mapped CC / channel-aftertouch, or capture a learn target.
+void TuneBfreeAudioProcessor::handleMappableMidi(const juce::MidiMessage& msg)
+{
+    const bool isCC = msg.isController();
+    const bool isAT = msg.isChannelPressure();
+    if (! isCC && ! isAT) return;
+
+    // Learn: capture the first suitable source and hand it to the message thread.
+    // Skip reserved CCs, and skip the high-resolution LSB range (32..63) so a
+    // controller sending an MSB+LSB pair maps only its MSB — the user just has to
+    // move the knob once (matches "you only have to map the MSB").
+    if (midiLearnArmed.load(std::memory_order_acquire)) {
+        if (isCC) {
+            const int cc = msg.getControllerNumber();
+            if (! isAssignableCC(cc) || (cc >= 32 && cc <= 63))
+                return;   // ignore this message, stay armed for the MSB
+        }
+        learnCapCC.store(isCC ? msg.getControllerNumber() : 0, std::memory_order_relaxed);
+        learnCapChannel.store(msg.getChannel(), std::memory_order_relaxed);
+        learnCapType.store(isCC ? MidiSource::CC : MidiSource::Aftertouch,
+                           std::memory_order_release);
+        midiLearnArmed.store(false, std::memory_order_release);
+        triggerAsyncUpdate();
+        return;   // don't also drive parameters with the learned message
+    }
+
+    const int type    = isCC ? MidiSource::CC : MidiSource::Aftertouch;
+    const int ccNum   = isCC ? msg.getControllerNumber() : 0;
+    const int value   = isCC ? msg.getControllerValue() : msg.getChannelPressureValue();
+    const int channel = msg.getChannel();               // 1..16
+    const float norm  = (float) value / 127.0f;
+
+    const juce::SpinLock::ScopedTryLockType lk(midiMapLock);
+    if (! lk.isLocked()) return;   // mid-edit: skip this tick (a CC stream self-corrects)
+
+    bool pushed = false;
+    for (const auto& e : midiMapSnapshot)
+        if (e.type == type && (type != MidiSource::CC || e.cc == ccNum)
+            && (e.channel == 0 || e.channel == channel) && e.param != nullptr)
+            pushed |= paramChangeFIFO.try_enqueue({ e.param, norm });
+
+    if (pushed) triggerAsyncUpdate();
+}
+
+// ============================================================================
 // State persistence
 // ============================================================================
 
@@ -1339,7 +1745,89 @@ void TuneBfreeAudioProcessor::setStateInformation(const void* data, int sizeInBy
                 channelActive[c] = (bool) ch.getProperty("ch" + juce::String(c), true);
             localTuningNeedsReinit.store(true, std::memory_order_release);   // rebuild with restored config
         }
+
+        // MIDI mappings live in apvts.state ("MIDI_MAP") — restored with the tree
+        // above; refresh the audio-thread snapshot to match.
+        rebuildMidiMapSnapshot();
     }
+}
+
+// ============================================================================
+// Preset <TUNING> block (see PresetManager.h). The .scl/.kbm content is
+// embedded as raw text so presets stay valid when the original files move.
+// ============================================================================
+
+juce::ValueTree TuneBfreeAudioProcessor::captureTuningTree() const
+{
+    juce::ValueTree t("TUNING");
+    t.setProperty("source", tuningSource.load(), nullptr);
+    t.setProperty("omni", (bool) omniMode.load(), nullptr);
+    t.setProperty("poly", polyMode, nullptr);
+    for (int c = 0; c < 16; ++c)
+        t.setProperty("ch" + juce::String(c), channelActive[c], nullptr);
+
+    if (localSclName.isNotEmpty()) {
+        t.setProperty("sclName", localSclName, nullptr);
+        t.setProperty("sclText", juce::String(localScale.rawText), nullptr);
+        if (hasGenericKBM)
+            t.setProperty("kbmGeneric", juce::String(genericKBM.rawText), nullptr);
+        for (int c = 0; c < 16; ++c)
+            if (hasExplicitKBM[c])
+                t.setProperty("kbm" + juce::String(c + 1),
+                              juce::String(explicitKBM[c].rawText), nullptr);
+        t.setProperty("kbmName",  localKbmName, nullptr);
+        t.setProperty("kbmNames", localKbmNames.joinIntoString("\n"), nullptr);
+    }
+    return t;
+}
+
+void TuneBfreeAudioProcessor::applyTuningTree(const juce::ValueTree& t)
+{
+    if (! t.hasType(juce::Identifier("TUNING"))) return;
+
+    // Channel selection: set the members directly (like setStateInformation)
+    // so the whole block costs ONE rebuild, flagged at the end.
+    omniMode.store((bool) t.getProperty("omni", false), std::memory_order_release);
+    polyMode = (bool) t.getProperty("poly", true);
+    for (int c = 0; c < 16; ++c)
+        channelActive[c] = (bool) t.getProperty("ch" + juce::String(c), true);
+
+    const juce::String sclText = t.getProperty("sclText", juce::String());
+    if (sclText.isNotEmpty()) {
+        try {
+            localScale          = Tunings::parseSCLData(sclText.toStdString());
+            localSclName        = t.getProperty("sclName", "preset.scl");
+            localSclDescription = juce::String(localScale.description).trim();
+
+            hasGenericKBM = false;
+            for (int c = 0; c < 16; ++c) hasExplicitKBM[c] = false;
+            if (t.hasProperty("kbmGeneric")) {
+                genericKBM    = Tunings::parseKBMData(t.getProperty("kbmGeneric").toString().toStdString());
+                hasGenericKBM = true;
+            }
+            for (int c = 0; c < 16; ++c)
+                if (t.hasProperty("kbm" + juce::String(c + 1))) {
+                    explicitKBM[c] = Tunings::parseKBMData(
+                        t.getProperty("kbm" + juce::String(c + 1)).toString().toStdString());
+                    hasExplicitKBM[c] = true;
+                }
+            hasLocalKBM  = hasGenericKBM;
+            for (int c = 0; c < 16; ++c) hasLocalKBM = hasLocalKBM || hasExplicitKBM[c];
+            localKbmName = t.getProperty("kbmName", juce::String());
+            localKbmNames.clear();
+            localKbmNames.addLines(t.getProperty("kbmNames", juce::String()).toString());
+            localKbmNames.removeEmptyStrings();
+
+            localTuningError = {};
+            rebuildLocalTuning();   // fills the grids + flags the reinit
+        } catch (const Tunings::TuningError& e) {
+            localTuningError = juce::String(e.what());
+        }
+    } else {
+        clearLocalTuning();         // the preset was saved without file tuning
+    }
+
+    setTuningSource((int) t.getProperty("source", (int) TS_MTS));
 }
 
 // ============================================================================
@@ -1433,7 +1921,21 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
             genericMappedGrid[n] = generic.isMidiNoteMapped(n);
         }
 
-        // Every channel gets a valid tuning: its explicit _i.kbm if assigned, else generic.
+        // When per-channel "_i.kbm" files are loaded, channels WITHOUT their own
+        // kbm (and with no generic no-suffix kbm) must NOT fall back to the bare
+        // scale: that fallback maps every note on all 16 channels, and those extra
+        // pitches pollute the merged gamut with wheels that aren't in the intended
+        // tuning — which then mistunes the drawbar harmonics (e.g. an octave in an
+        // octave-less scale snapping to a spurious near-2/1 wheel). Such channels
+        // are left UNMAPPED (excluded from the gamut). The plain cases are
+        // unchanged: .scl only (no kbm) → bare scale on every channel; a generic
+        // kbm → that mapping on every unassigned channel.
+        bool anyExplicit = false;
+        for (int c = 0; c < 16; ++c) anyExplicit = anyExplicit || hasExplicitKBM[c];
+        const bool fallbackMapsAll = hasGenericKBM || ! anyExplicit;
+
+        // Every channel gets a tuning: its explicit _i.kbm if assigned, the generic
+        // fallback if that maps all channels, otherwise unmapped (excluded).
         // (Which channels actually sound is the popup's channelActive mask, applied later.)
         for (int c = 0; c < 16; ++c) {
             if (hasExplicitKBM[c]) {
@@ -1445,7 +1947,7 @@ void TuneBfreeAudioProcessor::rebuildLocalTuning()
             } else {
                 for (int n = 0; n < 128; ++n) {
                     localFreqGrid[c][n]   = genericFreqGrid[n];
-                    localMappedGrid[c][n] = genericMappedGrid[n];
+                    localMappedGrid[c][n] = fallbackMapsAll && genericMappedGrid[n];
                 }
             }
         }
@@ -1511,6 +2013,17 @@ void TuneBfreeAudioProcessor::setOmni(bool on)
 {
     omniMode.store(on, std::memory_order_release);
     localTuningNeedsReinit.store(true, std::memory_order_release);
+}
+
+bool TuneBfreeAudioProcessor::isChannelMapped(int ch) const
+{
+    if (ch < 0 || ch >= 16) return false;
+    // Only the FILE source can leave channels unmapped; others map every channel.
+    if (tuningSource.load() != TS_FILE || ! hasLocalTuning.load()) return true;
+    if (hasExplicitKBM[ch]) return true;
+    bool anyExplicit = false;
+    for (int c = 0; c < 16; ++c) anyExplicit = anyExplicit || hasExplicitKBM[c];
+    return hasGenericKBM || ! anyExplicit;   // matches rebuildLocalTuning's fallbackMapsAll
 }
 
 // The period the .scl declares: its last tone (the repeat interval), in cents.
