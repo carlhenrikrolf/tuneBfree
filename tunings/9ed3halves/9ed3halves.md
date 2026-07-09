@@ -8,9 +8,6 @@ Fourths are poorly approximated (>30c off).
 ```mermaid
 ---
 title: 78.00c Steps
-theme: "base"
-themeVariables:
-    fontFamily: "monospace"
 ---
 block
     columns 1
@@ -63,8 +60,6 @@ It can also be interpreted as maqam bastanikar.
 ```mermaid
 ---
 title: D Maqam Saba
-themeVariables:
-    fontFamily: "monospace"
 ---
 block
     columns 1
